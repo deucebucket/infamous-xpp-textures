@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "infamous-xpp-textures"
+version = "1.0.0"
+description = "inFAMOUS 1 (PS3) XPP texture extractor. Writes PNG."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+authors = [{ name = "deucebucket" }]
+keywords = ["infamous", "ps3", "xpp", "texture", "dxt", "rsx"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: CC0 1.0 Universal (CC0 1.0) Public Domain Dedication",
+  "Topic :: Games/Entertainment",
+]
+
+[project.scripts]
+if1-tex = "infamous_xpp_textures.cli:main"
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
