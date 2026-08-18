@@ -93,18 +93,20 @@ def rebuild_xpp(data: bytes, new_descs: list[bytes], new_heap: bytes) -> bytes:
             blob = data[start : start + chunk.size]
         pieces.append((chunk, blob))
 
+    # Lay out by original payload offset so table order cannot overlap.
+    order = sorted(range(len(pieces)), key=lambda i: (pieces[i][0].offset, i))
+    new_off = [0] * len(pieces)
     new_payload = bytearray()
-    new_chunks: list[Chunk] = []
-    delta = 0
-    for chunk, blob in pieces:
-        new_off = chunk.offset + delta
-        if len(new_payload) < new_off:
-            new_payload.extend(b"\x00" * (new_off - len(new_payload)))
-        elif len(new_payload) > new_off:
-            raise PackError("chunk layout overlap while rebuilding")
+    cursor = 0
+    for i in order:
+        _chunk, blob = pieces[i]
+        new_off[i] = cursor
         new_payload.extend(blob)
-        delta += len(blob) - chunk.size
-        new_chunks.append(Chunk(chunk.type_tag, len(blob), new_off, 0))
+        cursor += len(blob)
+    new_chunks = [
+        Chunk(chunk.type_tag, len(blob), new_off[i], 0)
+        for i, (chunk, blob) in enumerate(pieces)
+    ]
 
     data_size = len(new_payload)
     data_offset = (
@@ -126,8 +128,8 @@ def rebuild_xpp(data: bytes, new_descs: list[bytes], new_heap: bytes) -> bytes:
         group = new_chunks[seg.first_chunk : seg.first_chunk + seg.chunk_count]
         if not group:
             raise PackError("empty segment while rebuilding")
-        start = group[0].offset
-        end = group[-1].offset + group[-1].size
+        start = min(c.offset for c in group)
+        end = max(c.offset + c.size for c in group)
         new_segments.append((seg.type_tag, end - start, start, 0, 0, seg.first_chunk, seg.chunk_count))
     cursor = 0
     for i, (_t, size, start, *_rest) in enumerate(new_segments):
