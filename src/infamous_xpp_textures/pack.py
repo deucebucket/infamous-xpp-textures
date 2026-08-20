@@ -25,6 +25,7 @@ from .heap import (
     TextureRecord,
     align_up,
     chain_size,
+    heap_bytes,
     heap_chunks,
     read_records,
     verify_layout,
@@ -50,6 +51,46 @@ def _mip_count(width: int, height: int) -> int:
     return max(width, height).bit_length()
 
 
+def _legal_2d(width: int, height: int) -> bool:
+    """Same cap descriptor_reason uses: pow2, 1..4096."""
+    if width <= 0 or height <= 0 or width > 4096 or height > 4096:
+        return False
+    return (width & (width - 1)) == 0 and (height & (height - 1)) == 0
+
+
+def _fit_replacement(
+    width: int, height: int, rgba: bytes
+) -> tuple[int, int, bytes] | None:
+    """Legal 2D desc size, or None to keep retail.
+
+    RSX 2D max is 4096. A 4x of a 2048-wide strip is 8192 — illegal.
+    Halve those until they fit (8192x64 → 4096x32). Non-pow2 / short
+    buffers cannot be fitted; caller keeps the retail slot.
+    """
+    if _legal_2d(width, height):
+        return width, height, rgba
+    if width <= 0 or height <= 0:
+        return None
+    if (width & (width - 1)) != 0 or (height & (height - 1)) != 0:
+        return None
+    if len(rgba) != width * height * 4:
+        return None
+    w, h, pix = width, height, rgba
+    while w > 4096 or h > 4096:
+        nw, nh = max(1, w // 2), max(1, h // 2)
+        out = bytearray(nw * nh * 4)
+        for y in range(nh):
+            row = (y * 2) * w
+            for x in range(nw):
+                si = (row + x * 2) * 4
+                di = (y * nw + x) * 4
+                out[di : di + 4] = pix[si : si + 4]
+        w, h, pix = nw, nh, bytes(out)
+    if not _legal_2d(w, h):
+        return None
+    return w, h, pix
+
+
 def _write_desc(raw: bytes, *, width: int, height: int, mips: int, data_addr: int) -> bytes:
     out = bytearray(raw)
     if len(out) < DESC_STRIDE:
@@ -60,13 +101,36 @@ def _write_desc(raw: bytes, *, width: int, height: int, mips: int, data_addr: in
     return bytes(out)
 
 
+def referenced_heap_indices(data: bytes, pkg, recs: list[TextureRecord]) -> list[int]:
+    """Which 0x0D800000 chunks overlap a descriptor's chain (concatenated heap space)."""
+    ranges: list[tuple[int, int]] = []
+    cursor = 0
+    for chunk in heap_chunks(pkg):
+        ranges.append((cursor, cursor + chunk.size))
+        cursor += chunk.size
+    used: set[int] = set()
+    for rec in recs:
+        start = rec.heap_offset
+        end = rec.heap_offset + max(rec.chain_bytes, 1)
+        for index, (lo, hi) in enumerate(ranges):
+            if start < hi and end > lo:
+                used.add(index)
+    return sorted(used)
+
+
 def rebuild_xpp(data: bytes, new_descs: list[bytes], new_heap: bytes) -> bytes:
     pkg = parse_xpp(data, len(data))
+    recs = read_records(data, pkg)
     texels = heap_chunks(pkg)
-    if len(texels) != 1:
+    if not texels:
+        raise PackError("packer needs a texel heap chunk, this package has 0")
+    used = referenced_heap_indices(data, pkg, recs)
+    if len(used) > 1:
         raise PackError(
-            f"packer needs exactly one texel heap chunk, this package has {len(texels)}"
+            f"textures reference {len(used)} texel-heap chunks (indices {used}); "
+            "packer will not merge or drop texels"
         )
+    primary = used[0] if used else 0
 
     desc_chunks = [c for c in pkg.chunks if c.type_tag == TEXDESC_CHUNK]
     desc_blob = b"".join(new_descs)
@@ -76,39 +140,63 @@ def rebuild_xpp(data: bytes, new_descs: list[bytes], new_heap: bytes) -> bytes:
             f"descriptor payload {len(desc_blob)} bytes, package table expects {expected}"
         )
 
-    pieces: list[tuple[Chunk, bytes]] = []
+    # Keep pre-heap payload offsets. Mesh records point into that range.
+    # Only the used texel heap may change size; later chunks shift by that delta.
+    primary_chunk = texels[primary]
+    old_heap_off = primary_chunk.offset
+    old_heap_size = primary_chunk.size
+    grown = bytes(new_heap)
+    if len(grown) < old_heap_size:
+        grown = grown + b"\x00" * (old_heap_size - len(grown))
+    delta = len(grown) - old_heap_size
+    heap_end = old_heap_off + old_heap_size
+
+    payload = bytearray(data[pkg.data_offset : pkg.data_offset + pkg.data_size])
+    if delta:
+        payload[heap_end:heap_end] = b"\x00" * delta
+    payload[old_heap_off : old_heap_off + len(grown)] = grown
+
     desc_cursor = 0
-    heap_written = False
     for chunk in pkg.chunks:
-        if chunk.type_tag == TEXDESC_CHUNK:
-            blob = desc_blob[desc_cursor : desc_cursor + chunk.size]
-            desc_cursor += chunk.size
-        elif chunk.type_tag == TEXEL_CHUNK:
-            if heap_written:
-                raise PackError("multiple texel heaps")
-            blob = new_heap
-            heap_written = True
+        if chunk.type_tag != TEXDESC_CHUNK:
+            continue
+        blob = desc_blob[desc_cursor : desc_cursor + chunk.size]
+        desc_cursor += chunk.size
+        dest = chunk.offset + (delta if chunk.offset >= heap_end else 0)
+        payload[dest : dest + len(blob)] = blob
+
+    new_chunks = []
+    for chunk in pkg.chunks:
+        off = chunk.offset + (delta if chunk.offset >= heap_end else 0)
+        size = len(grown) if chunk == primary_chunk else chunk.size
+        new_chunks.append(Chunk(chunk.type_tag, size, off, 0))
+
+    new_segments = []
+    for seg in pkg.segments:
+        if not seg.chunk_count:
+            raise PackError("empty segment while rebuilding")
+        seg_end = seg.offset + seg.size
+        if seg.offset >= heap_end:
+            new_segments.append(
+                (seg.type_tag, seg.size, seg.offset + delta, 0, 0, seg.first_chunk, seg.chunk_count)
+            )
+        elif seg_end <= old_heap_off:
+            new_segments.append(
+                (seg.type_tag, seg.size, seg.offset, 0, 0, seg.first_chunk, seg.chunk_count)
+            )
         else:
-            start = pkg.data_offset + chunk.offset
-            blob = data[start : start + chunk.size]
-        pieces.append((chunk, blob))
-
-    # Lay out by original payload offset so table order cannot overlap.
-    order = sorted(range(len(pieces)), key=lambda i: (pieces[i][0].offset, i))
-    new_off = [0] * len(pieces)
-    new_payload = bytearray()
+            new_segments.append(
+                (seg.type_tag, seg.size + delta, seg.offset, 0, 0, seg.first_chunk, seg.chunk_count)
+            )
     cursor = 0
-    for i in order:
-        _chunk, blob = pieces[i]
-        new_off[i] = cursor
-        new_payload.extend(blob)
-        cursor += len(blob)
-    new_chunks = [
-        Chunk(chunk.type_tag, len(blob), new_off[i], 0)
-        for i, (chunk, blob) in enumerate(pieces)
-    ]
+    for i, (_t, size, start, *_rest) in enumerate(new_segments):
+        if start != cursor:
+            raise PackError(f"segment {i} not contiguous after rebuild")
+        cursor += size
+    if cursor != len(payload):
+        raise PackError("segments do not cover rebuilt payload")
 
-    data_size = len(new_payload)
+    data_size = len(payload)
     data_offset = (
         TABLES_OFFSET
         + pkg.segment_count * SEGMENT_SIZE
@@ -123,22 +211,6 @@ def rebuild_xpp(data: bytes, new_descs: list[bytes], new_heap: bytes) -> bytes:
     struct.pack_into(">I", out, 0x2C, data_size)
     struct.pack_into(">QQQ", out, 0x70, pkg.segment_count, pkg.chunk_count, pkg.fixup_count)
 
-    new_segments = []
-    for seg in pkg.segments:
-        group = new_chunks[seg.first_chunk : seg.first_chunk + seg.chunk_count]
-        if not group:
-            raise PackError("empty segment while rebuilding")
-        start = min(c.offset for c in group)
-        end = max(c.offset + c.size for c in group)
-        new_segments.append((seg.type_tag, end - start, start, 0, 0, seg.first_chunk, seg.chunk_count))
-    cursor = 0
-    for i, (_t, size, start, *_rest) in enumerate(new_segments):
-        if start != cursor:
-            raise PackError(f"segment {i} not contiguous after rebuild")
-        cursor += size
-    if cursor != data_size:
-        raise PackError("segments do not cover rebuilt payload")
-
     for i, row in enumerate(new_segments):
         struct.pack_into(">7I", out, TABLES_OFFSET + i * SEGMENT_SIZE, *row)
     chunk_start = TABLES_OFFSET + pkg.segment_count * SEGMENT_SIZE
@@ -148,7 +220,7 @@ def rebuild_xpp(data: bytes, new_descs: list[bytes], new_heap: bytes) -> bytes:
         )
     fixup_start = chunk_start + pkg.chunk_count * CHUNK_SIZE
     out[fixup_start:data_offset] = data[fixup_start : pkg.data_offset]
-    out[data_offset:] = new_payload
+    out[data_offset:] = payload
     parse_xpp(bytes(out), len(out))
     return bytes(out)
 
@@ -167,43 +239,39 @@ def pack_replacements(
     by_index = {r.index: r for r in recs}
 
     planned: list[tuple[TextureRecord, int, int, int, bytes]] = []
+    texels = heap_bytes(data, pkg)
+    last_addr = max(item.data_addr for item in recs)
     for rec in recs:
-        if rec.index in replacements:
-            w, h, rgba = replacements[rec.index]
-            if rec.faces != 1:
-                raise PackError(
-                    f"texture {rec.index} is a cubemap; packer only replaces 2D textures"
-                )
+        repl = replacements.get(rec.index) if rec.faces == 1 else None
+        fitted = _fit_replacement(*repl) if repl is not None else None
+        if fitted is not None:
+            w, h, rgba = fitted
             if (w, h) == (rec.width, rec.height) and not allow_resize:
                 mips = rec.mips
             else:
                 mips = _mip_count(w, h)
-            fmt = rec.format
             if not allow_resize and (w, h, mips) != (rec.width, rec.height, rec.mips):
                 raise PackError(
                     f"texture {rec.index} size changed {rec.width}x{rec.height}m{rec.mips} "
                     f"-> {w}x{h}m{mips}; pass --allow-resize"
                 )
-            chain = encode_mip_chain(rgba, w, h, fmt, mips)
+            chain = encode_mip_chain(rgba, w, h, rec.format, mips)
             planned.append((rec, w, h, mips, padded_chain(chain, 1)))
-        else:
-            texels = bytes(
-                data[
-                    pkg.data_offset
-                    + heap_chunks(pkg)[0].offset : pkg.data_offset
-                    + heap_chunks(pkg)[0].offset
-                    + heap_chunks(pkg)[0].size
-                ]
-            )
-            take = rec.stride_bytes
-            remain = len(texels) - rec.heap_offset
-            if remain <= 0:
-                raise PackError(f"texture {rec.index} heap slice empty")
-            # Last chain in a retail heap may omit the final 128-byte pad.
-            blob = texels[rec.heap_offset : rec.heap_offset + min(take, remain)]
-            if len(blob) < rec.chain_bytes:
+            continue
+        # Cubemap, illegal 4x size (>4096 / non-pow2), or no replacement: keep retail.
+        take = rec.stride_bytes
+        remain = len(texels) - rec.heap_offset
+        if remain <= 0:
+            raise PackError(f"texture {rec.index} heap slice empty")
+        # Last chain in a retail heap may omit the final 128-byte pad.
+        blob = texels[rec.heap_offset : rec.heap_offset + min(take, remain)]
+        if len(blob) < rec.chain_bytes:
+            missing = rec.chain_bytes - len(blob)
+            if rec.data_addr == last_addr and 0 < missing <= HEAP_ALIGN:
+                blob = blob + b"\x00" * missing
+            else:
                 raise PackError(f"texture {rec.index} heap slice short")
-            planned.append((rec, rec.width, rec.height, rec.mips, blob))
+        planned.append((rec, rec.width, rec.height, rec.mips, blob))
 
     # Retail stores chains largest-first. Rebuild in that order, then map back
     # to descriptor-table order for the 0x70 records.
