@@ -379,6 +379,22 @@ not guess which page means position or skin weight. The next proof compares
 each bounded sibling to the known 26-vertex record and accepts a semantic only
 when its stride, numeric range, and decode/encode round trip all agree.
 
+For a complete indexed draw, version 2.0 also replays the relevant raw RSX
+register writes. It reports the primitive and index ranges, index type and
+location, and each enabled vertex attribute's number, component format,
+stride, frequency, location, and address. A vertex attribute is structurally
+bound only when one sibling memory block exactly matches the address and the
+capture extent calculated from the live index range. Attribute numbers remain
+semantic-free: even a `float32 x3` attribute is not labeled `POSITION` until a
+numeric comparison and round trip prove that meaning.
+
+RR — Really Readable rundown: the first report put all pages used by Zeke's
+draw on the table. The RSX descriptor pass now reads the tabs on those pages:
+"three floats every 12 bytes," "four normalized bytes every 10 bytes," and so
+on. That reduces a pile of 13 mystery blocks to the exact five vertex arrays
+used by the 26-vertex piece. It still does not call a tab "position" or
+"weights" merely because the label looks familiar.
+
 ## Typical HD texture pass
 
 1. `profile-extract` the protected retail install pair.

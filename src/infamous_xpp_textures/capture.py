@@ -20,6 +20,24 @@ RRC_MEMORY_BLOCK_BYTES = 16
 RRC_DISPLAY_STATE_BYTES = 132
 RRC_MAX_MAP_ENTRIES = 2_000_000
 RRC_MAX_PAYLOAD_BYTES = 2 * 1024 * 1024 * 1024
+RSX_VERTEX_OFFSET_BASE = 0x1680
+RSX_VERTEX_FORMAT_BASE = 0x1740
+RSX_VERTEX_ARRAY_COUNT = 16
+RSX_VERTEX_DATA_BASE_OFFSET = 0x1738
+RSX_VERTEX_DATA_BASE_INDEX = 0x173C
+RSX_SET_BEGIN_END = 0x1808
+RSX_SET_INDEX_ARRAY_ADDRESS = 0x181C
+RSX_SET_INDEX_ARRAY_DMA = 0x1820
+RSX_DRAW_INDEX_ARRAY = 0x1824
+RSX_VERTEX_TYPE_NAMES = {
+    1: "snorm16",
+    2: "float32",
+    3: "float16",
+    4: "unorm8",
+    5: "sint16",
+    6: "cmp32",
+    7: "uint8",
+}
 
 
 class RrcCaptureError(ValueError):
@@ -99,6 +117,171 @@ def _skip_map(reader: _RrcReader, label: str, value_bytes: int) -> tuple[int, se
         keys.add(key)
         reader.take(value_bytes, f"{label} value {index}")
     return count, keys
+
+
+def _rsx_vertex_element_size(type_raw: int, component_count: int) -> int | None:
+    if not 1 <= component_count <= 4:
+        return None
+    if type_raw in (1, 5):
+        return 2 * (4 if component_count == 3 else component_count)
+    if type_raw == 2:
+        return 4 * component_count
+    if type_raw == 3:
+        return 2 * (4 if component_count == 3 else component_count)
+    if type_raw == 4:
+        return 4 if component_count == 3 else component_count
+    if type_raw == 6:
+        return 4
+    if type_raw == 7 and component_count == 4:
+        return 4
+    return None
+
+
+def _register_value(registers: dict[int, dict], offset: int) -> int | None:
+    item = registers.get(offset)
+    return item["value"] if item is not None else None
+
+
+def _build_rsx_draw_state(
+    *,
+    registers: dict[int, dict],
+    primitive_value: int | None,
+    indexed_ranges: list[dict],
+    matched_records: list[dict],
+    memory_blocks: list[dict],
+) -> dict:
+    """Bind raw RSX vertex descriptors without assigning model semantics."""
+
+    base_offset = _register_value(registers, RSX_VERTEX_DATA_BASE_OFFSET)
+    base_index = _register_value(registers, RSX_VERTEX_DATA_BASE_INDEX)
+    index_address_word = _register_value(registers, RSX_SET_INDEX_ARRAY_ADDRESS)
+    index_dma_word = _register_value(registers, RSX_SET_INDEX_ARRAY_DMA)
+    exact_blocks = [block for block in memory_blocks if block["role"] == "exact-index"]
+    index_type_raw = (
+        (index_dma_word >> 4) & 0xFF if index_dma_word is not None else None
+    )
+    index_location = index_dma_word & 0xF if index_dma_word is not None else None
+    index_offset = (
+        index_address_word & 0x1FFFFFFF if index_address_word is not None else None
+    )
+    index_type_name = {0: "u32", 1: "u16"}.get(index_type_raw)
+    index_element_size = {0: 4, 1: 2}.get(index_type_raw)
+    total_index_count = sum(item["count"] for item in indexed_ranges)
+    index_array_proved = bool(exact_blocks) and all(
+        index_location == block["location"]
+        and index_offset == block["offset"]
+        and index_element_size is not None
+        and total_index_count * index_element_size == block["payload_size"]
+        for block in exact_blocks
+    )
+
+    target_record = matched_records[0] if len(matched_records) == 1 else None
+    index_min = target_record["index_min"] if target_record is not None else None
+    index_max = target_record["index_max"] if target_record is not None else None
+    index_span = (
+        index_max - index_min + 1
+        if index_min is not None and index_max is not None
+        else None
+    )
+    vertex_arrays: list[dict] = []
+    incomplete_attributes: list[int] = []
+    unbound_attributes: list[int] = []
+    for attribute in range(RSX_VERTEX_ARRAY_COUNT):
+        format_offset = RSX_VERTEX_FORMAT_BASE + attribute * 4
+        format_state = registers.get(format_offset)
+        if format_state is None:
+            continue
+        format_word = format_state["value"]
+        component_count = (format_word >> 4) & 0xF
+        if not component_count:
+            continue
+        type_raw = format_word & 0x7
+        stride = (format_word >> 8) & 0xFF
+        frequency = (format_word >> 16) & 0xFFFF
+        element_size = _rsx_vertex_element_size(type_raw, component_count)
+        offset_state = registers.get(RSX_VERTEX_OFFSET_BASE + attribute * 4)
+        if (
+            offset_state is None
+            or base_offset is None
+            or element_size is None
+            or index_span is None
+        ):
+            incomplete_attributes.append(attribute)
+            continue
+        offset_word = offset_state["value"]
+        location = offset_word >> 31
+        offset = (base_offset + (offset_word & 0x7FFFFFFF)) & 0xFFFFFFFF
+        live_offset = offset + index_min * stride
+        expected_capture_size = stride * index_span + element_size
+        matching_blocks = [
+            block
+            for block in memory_blocks
+            if block["role"] == "unclassified-draw-sibling"
+            and block["location"] == location
+            and block["offset"] == live_offset
+            and block["payload_size"] == expected_capture_size
+        ]
+        if len(matching_blocks) != 1:
+            unbound_attributes.append(attribute)
+        vertex_arrays.append(
+            {
+                "attribute": attribute,
+                "semantic": None,
+                "type_raw": type_raw,
+                "type_name": RSX_VERTEX_TYPE_NAMES.get(type_raw),
+                "component_count": component_count,
+                "stride": stride,
+                "frequency": frequency,
+                "element_byte_count": element_size,
+                "location": location,
+                "offset": offset,
+                "live_offset": live_offset,
+                "index_span": index_span,
+                "expected_capture_size": expected_capture_size,
+                "format_observed_at_command": format_state["command_index"],
+                "offset_observed_at_command": offset_state["command_index"],
+                "matching_memory_blocks": matching_blocks,
+                "binding_proved": len(matching_blocks) == 1,
+            }
+        )
+
+    vertex_binding_proved = (
+        index_array_proved
+        and bool(vertex_arrays)
+        and not incomplete_attributes
+        and not unbound_attributes
+    )
+    return {
+        "status": (
+            "complete-vertex-binding"
+            if vertex_binding_proved
+            else "incomplete-register-evidence"
+            if incomplete_attributes or not vertex_arrays
+            else "unbound-vertex-memory"
+        ),
+        "primitive_value": primitive_value,
+        "indexed_ranges": indexed_ranges,
+        "total_index_count": total_index_count,
+        "vertex_data_base_offset": base_offset,
+        "vertex_data_base_index": base_index,
+        "index_array": {
+            "offset": index_offset,
+            "location": index_location,
+            "type_raw": index_type_raw,
+            "type_name": index_type_name,
+            "element_byte_count": index_element_size,
+            "binding_proved": index_array_proved,
+        },
+        "index_min": index_min,
+        "index_max": index_max,
+        "index_span": index_span,
+        "vertex_arrays": vertex_arrays,
+        "active_vertex_attribute_count": len(vertex_arrays),
+        "incomplete_vertex_attributes": incomplete_attributes,
+        "unbound_vertex_attributes": unbound_attributes,
+        "rsx_vertex_binding_proved": vertex_binding_proved,
+        "decoded_vertex_semantics_proved": False,
+    }
 
 
 def build_rrc_character_match_report(
@@ -196,12 +379,16 @@ def build_rrc_character_match_report(
             }
             if digest in target_by_hash:
                 contract = target_by_hash[digest]
+                exact_indices = struct.unpack(f">{size // 2}H", payload)
                 exact_matches.append(
                     {
                         "record_offset": contract["record_offset"],
                         "triangle_count": contract["triangle_count"],
                         "vertex_count": contract["vertex_count"],
                         "index_byte_count": size,
+                        "index_count": len(exact_indices),
+                        "index_min": min(exact_indices),
+                        "index_max": max(exact_indices),
                         "index_sha256": digest,
                         "capture_data_state": key,
                         "memory_blocks": sorted(
@@ -312,6 +499,9 @@ def build_rrc_character_match_report(
             record = {
                 "record_offset": match["record_offset"],
                 "index_sha256": match["index_sha256"],
+                "index_count": match["index_count"],
+                "index_min": match["index_min"],
+                "index_max": match["index_max"],
             }
             for block in match["memory_blocks"]:
                 exact_records_by_block[block["block_key"]].append(record)
@@ -319,6 +509,9 @@ def build_rrc_character_match_report(
         replay_command_count = reader.vle("replay-command count")
         memory_reference_count = 0
         draw_bindings: list[dict] = []
+        registers: dict[int, dict] = {}
+        active_primitive: int | None = None
+        active_indexed_ranges: list[dict] = []
         for command in range(replay_command_count):
             method_word, value = struct.unpack(
                 "<II", reader.take(8, f"replay command {command} method/value")
@@ -343,10 +536,53 @@ def build_rrc_character_match_report(
                 raise RrcCaptureError(
                     "RRC replay command references an absent display state"
                 )
+            method_offset = method_word & 0xFFFF
+            if (
+                RSX_VERTEX_OFFSET_BASE
+                <= method_offset
+                < RSX_VERTEX_OFFSET_BASE + RSX_VERTEX_ARRAY_COUNT * 4
+                or RSX_VERTEX_FORMAT_BASE
+                <= method_offset
+                < RSX_VERTEX_FORMAT_BASE + RSX_VERTEX_ARRAY_COUNT * 4
+                or method_offset
+                in {
+                    RSX_VERTEX_DATA_BASE_OFFSET,
+                    RSX_VERTEX_DATA_BASE_INDEX,
+                    RSX_SET_INDEX_ARRAY_ADDRESS,
+                    RSX_SET_INDEX_ARRAY_DMA,
+                }
+            ):
+                registers[method_offset] = {
+                    "value": value,
+                    "command_index": command,
+                }
+
+            draw_primitive = active_primitive
+            draw_ranges = list(active_indexed_ranges)
+            if method_offset == RSX_SET_BEGIN_END:
+                if value:
+                    active_primitive = value
+                    active_indexed_ranges = []
+                    draw_primitive = active_primitive
+                    draw_ranges = []
+                else:
+                    draw_primitive = active_primitive
+                    draw_ranges = list(active_indexed_ranges)
+            elif method_offset == RSX_DRAW_INDEX_ARRAY and active_primitive is not None:
+                active_indexed_ranges.append(
+                    {
+                        "start": value & 0xFFFFFF,
+                        "count": ((value >> 24) & 0xFF) + 1,
+                        "observed_at_command": command,
+                    }
+                )
+                draw_primitive = active_primitive
+                draw_ranges = list(active_indexed_ranges)
+
             matching_keys = sorted(set(state_keys) & exact_records_by_block.keys())
             if matching_keys:
-                matched_records = {
-                    (record["record_offset"], record["index_sha256"])
+                matched_record_map = {
+                    (record["record_offset"], record["index_sha256"]): record
                     for key in matching_keys
                     for record in exact_records_by_block[key]
                 }
@@ -368,7 +604,17 @@ def build_rrc_character_match_report(
                             ),
                         }
                     )
-                method_offset = method_word & 0xFFFF
+                memory_blocks = sorted(
+                    memory_blocks,
+                    key=lambda item: (
+                        item["location"],
+                        item["offset"],
+                        item["block_key"],
+                    ),
+                )
+                matched_records = [
+                    matched_record_map[key] for key in sorted(matched_record_map)
+                ]
                 draw_bindings.append(
                     {
                         "command_index": command,
@@ -380,26 +626,23 @@ def build_rrc_character_match_report(
                         ),
                         "value": value,
                         "draw_end_boundary": method_offset == 0x1808 and value == 0,
-                        "matched_index_records": [
-                            {
-                                "record_offset": record_offset,
-                                "index_sha256": index_sha256,
-                            }
-                            for record_offset, index_sha256 in sorted(matched_records)
-                        ],
-                        "memory_blocks": sorted(
-                            memory_blocks,
-                            key=lambda item: (
-                                item["location"],
-                                item["offset"],
-                                item["block_key"],
-                            ),
+                        "matched_index_records": matched_records,
+                        "memory_blocks": memory_blocks,
+                        "rsx_draw_state": _build_rsx_draw_state(
+                            registers=registers,
+                            primitive_value=draw_primitive,
+                            indexed_ranges=draw_ranges,
+                            matched_records=matched_records,
+                            memory_blocks=memory_blocks,
                         ),
                         "unclassified_sibling_count": (
                             len(memory_blocks) - len(matching_keys)
                         ),
                     }
                 )
+            if method_offset == RSX_SET_BEGIN_END and value == 0:
+                active_primitive = None
+                active_indexed_ranges = []
 
         register_state_bytes = reader.drain("register state")
         if not register_state_bytes:
@@ -420,6 +663,9 @@ def build_rrc_character_match_report(
     )
     matched_hashes = {item["index_sha256"] for item in exact_matches}
     live_draw_binding_proved = any(item["draw_end_boundary"] for item in draw_bindings)
+    rsx_vertex_binding_proved = any(
+        item["rsx_draw_state"]["rsx_vertex_binding_proved"] for item in draw_bindings
+    )
     unmatched = [
         {
             "record_offset": item["record_offset"],
@@ -433,7 +679,7 @@ def build_rrc_character_match_report(
     ]
     return {
         "format": "infamous-rpcs3-character-capture-match",
-        "version": 2,
+        "version": 3,
         "target": {
             "source": target["source"],
             "source_sha256": target["source_sha256"],
@@ -469,6 +715,7 @@ def build_rrc_character_match_report(
         "draw_bindings": draw_bindings,
         "draw_binding_count": len(draw_bindings),
         "live_draw_binding_proved": live_draw_binding_proved,
+        "rsx_vertex_binding_proved": rsx_vertex_binding_proved,
         "bounded_transform_matches": transformed_matches,
         "bounded_transform_match_count": len(transformed_matches),
         "unmatched_target_records": unmatched,
@@ -491,7 +738,8 @@ def build_rrc_character_match_report(
         "limitations": (
             "an exact index hash binds captured guest memory to one XPP topology record; "
             "a draw-end binding proves that the block was attached to one captured draw but "
-            "does not assign semantics to its unclassified sibling blocks; "
+            "an RSX vertex binding assigns raw attribute formats and memory extents without "
+            "assigning position, normal, UV, joint, or weight semantics; "
             "byte-order/index-delta/winding candidates are reported separately and do not "
             "prove ownership; absence does not prove the character was not visible, and "
             "vertex attributes, draw ownership, skin weights, palettes, transforms, and "
