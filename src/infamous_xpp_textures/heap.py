@@ -1,12 +1,11 @@
 """Resolve texel-heap offsets from the iF1 0x70-byte texture descriptor.
 
-The descriptor lives in chunk type 0x03100000. Byte +0x40 is the absolute
-address of that texture's mip chain — not a package-relative offset, and not
-the start of the record.
+The descriptor lives in chunk type 0x03100000. Byte +0x40 is the
+payload-relative address of that texture's mip chain. The payload begins at
+header +0x28, while the texture heap is chunk type 0x0D800000:
 
-The heap (chunk 0x0D800000) begins at the smallest +0x40 in the package:
-
-    heap_offset = desc[+0x40] - min(desc[+0x40])
+    file_offset = header[+0x28] + desc[+0x40]
+    heap_offset = desc[+0x40] - texel_chunk.offset
 
 Chains are stored in descending size order, each padded to 128 bytes.
 Cubemaps store six padded chains back to back. Adjacent +0x40 deltas equal
@@ -26,6 +25,7 @@ DESC_WIDTH = 0x24
 DESC_HEIGHT = 0x28
 DESC_MIPS = 0x2C
 DESC_FORMAT_WORD = 0x44
+DESC_EMBEDDED_MIPS = DESC_FORMAT_WORD + 1
 DESC_FORMAT_BYTE = 0x46
 
 BLOCK_BYTES = {0x86: 8, 0x87: 16, 0x88: 16}
@@ -56,6 +56,7 @@ class TextureRecord:
         "width",
         "height",
         "mips",
+        "embedded_mips",
         "format",
         "format_word",
         "data_addr",
@@ -67,6 +68,7 @@ class TextureRecord:
         self.index = index
         self.raw = raw
         self.width, self.height, self.mips = struct.unpack_from(">III", raw, DESC_WIDTH)
+        self.embedded_mips = raw[DESC_EMBEDDED_MIPS]
         self.format_word = struct.unpack_from(">I", raw, DESC_FORMAT_WORD)[0]
         self.format = raw[DESC_FORMAT_BYTE] & 0x9F
         self.data_addr = struct.unpack_from(">I", raw, DESC_DATA_PTR)[0]
@@ -109,9 +111,9 @@ def descriptor_reason(raw: bytes) -> str:
     if fmt not in BLOCK_BYTES and fmt not in BPP:
         return f"unknown-format:0x{raw_fmt:02x}"
     w, h, mips = struct.unpack_from(">III", raw, DESC_WIDTH)
-    if not (_is_pow2(w) and _is_pow2(h)) or w > 4096 or h > 4096:
+    if not (_is_pow2(w) and _is_pow2(h)) or w > 8192 or h > 8192:
         return "bad-dimensions"
-    if not (1 <= mips <= 13) or mips > max(w, h).bit_length():
+    if not (1 <= mips <= 14) or mips > max(w, h).bit_length():
         return "bad-mipcount"
     return ""
 
@@ -146,12 +148,33 @@ def read_all_descriptors(
                     rec, reason = None, "descriptor-unpack"
             out.append((idx, raw, rec, reason))
             idx += 1
-    valid = [r for _, _, r, _ in out if r is not None]
-    if valid:
-        base_addr = min(r.data_addr for r in valid)
-        for r in valid:
-            r.heap_offset = r.data_addr - base_addr
-    return out
+    heaps = heap_chunks(pkg)
+    heap_prefix = []
+    cursor = 0
+    for chunk in heaps:
+        heap_prefix.append((chunk, cursor))
+        cursor += chunk.size
+
+    resolved: list[tuple[int, bytes, TextureRecord | None, str]] = []
+    for idx, raw, rec, reason in out:
+        if rec is not None:
+            containing = next(
+                (
+                    (chunk, prefix)
+                    for chunk, prefix in heap_prefix
+                    if chunk.offset <= rec.data_addr
+                    and rec.data_addr + rec.chain_bytes * rec.faces <= chunk.offset + chunk.size
+                ),
+                None,
+            )
+            if containing is None:
+                rec = None
+                reason = "data-pointer-outside-texel-heap"
+            else:
+                chunk, prefix = containing
+                rec.heap_offset = prefix + rec.data_addr - chunk.offset
+        resolved.append((idx, raw, rec, reason))
+    return resolved
 
 
 def heap_chunks(pkg: XppFile):

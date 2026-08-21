@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "infamous-xpp-textures"
-version = "1.1.1"
+version = "1.2.0"
 description = "inFAMOUS 1 XPP textures (extract/pack) and static meshes."
 readme = "README.md"
 license = { file = "LICENSE" }
