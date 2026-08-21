@@ -1,16 +1,20 @@
-# if1-tex
+# xpp-tool
 
-Work with inFAMOUS 1 (PS3, BCUS-98119) `.xpp` packages:
+End-to-end XPP/PSARC tools for inFAMOUS 1 (PS3, BCUS-98119):
 
 - extract textures to PNG
 - encode PNGs back into XPP (same format the game already reads)
 - derive lower-memory 1x/2x XPPs losslessly from existing 2x/4x packs
 - rebuild install PSARCs with selected XPP replacements
+- extract and rebuild a complete install1/install2 profile with a byte audit
 - export **static** mesh sections to GLB
 
 Python 3.10+, standard library only. This repo does not include game files.
 
 The game keeps reading XPP. PNG is the edit format. This tool does not make the executable load PNG.
+
+`xpp-tool` is the neutral command name. The original `if1-tex` entry point is
+kept as a fully compatible alias, including all existing commands and options.
 
 ## How packages are laid out
 
@@ -44,7 +48,8 @@ cd infamous-xpp-textures
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e .
-if1-tex --help
+xpp-tool --help
+if1-tex --help  # compatibility alias
 ```
 
 ```bash
@@ -137,6 +142,63 @@ included name is absent. Keep protected retail archives outside the game
 directory, never swap a live archive while RPCS3 is running, and use separate
 retail and HD launch profiles.
 
+## Full chain: retail PSARCs → editable XPPs → verified profile
+
+### 1. Extract the complete retail pair
+
+```bash
+xpp-tool profile-extract \
+  --install1 ./retail/install1/infamous1.psarc_s \
+  --install2 ./retail/install2/infamous2.psarc_s \
+  --outdir ./workspace
+```
+
+This writes every XPP/XPPS under `workspace/xpp/install1` or
+`workspace/xpp/install2`, preserving its manifest path. `workspace.json`
+records both source hashes plus the name, size, and hash of every PSARC entry.
+The output directory must not already exist; an interrupted extraction never
+publishes a partial workspace.
+
+### 2. Extract, edit, and repack selected XPPs
+
+Use the existing `extract`, `pack`, `derive`, and `verify` commands. Put only
+the finished replacement `.xpp`/`.xpps` files in one replacement directory.
+Nested folders are allowed; basenames must be unique.
+
+```bash
+xpp-tool extract --xpp ./workspace/xpp/install1/textures/A21.xpp --outdir ./png
+xpp-tool pack \
+  --xpp ./workspace/xpp/install1/textures/A21.xpp \
+  --from-dir ./png \
+  --out ./replacements/A21.xpp
+xpp-tool verify --xpp ./replacements/A21.xpp
+```
+
+### 3. Build and audit the installable pair
+
+```bash
+xpp-tool profile-build \
+  --install1 ./retail/install1/infamous1.psarc_s \
+  --install2 ./retail/install2/infamous2.psarc_s \
+  --xpp-dir ./replacements \
+  --outdir ./profile
+```
+
+`profile-build` finds which source archive owns each replacement, rejects
+unknown or duplicate basenames, parses every replacement as an XPP, and builds
+both outputs in a hidden staging directory. It then reopens both archives and
+checks:
+
+- PSARC version, compression, block size, flags, entry count, name digests, and exact manifest bytes/order;
+- every replacement payload against the supplied XPP bytes;
+- every unchanged payload against the retail source bytes;
+- source and output sizes and SHA-256 hashes.
+
+Only a completely verified pair is renamed to `profile/`. `profile.json`
+contains the audit counts and hashes. The resulting flat
+`infamous1.psarc_s`/`infamous2.psarc_s` directory can be selected directly in
+the universal inFAMOUS Mod Manager's `BCUS98119` packed-profile controls.
+
 ## Static meshes
 
 ```bash
@@ -163,12 +225,13 @@ Character packages print that there are no static sections and exit non-zero.
 
 ## Typical HD texture pass
 
-1. `extract` the package.
-2. Edit or upscale the PNGs (or use `--scale`).
-3. `pack` to a new `.xpp`.
-4. `verify` and `extract` the new file.
-5. Build replacement install PSARCs with `psarc-pack`.
-6. Test a selective profile in gameplay before increasing its 2x residency.
+1. `profile-extract` the protected retail install pair.
+2. `extract` the package.
+3. Edit or upscale the PNGs (or use `--scale`).
+4. `pack` to a new `.xpp`.
+5. `verify` and `extract` the new file.
+6. Build and byte-audit the complete install pair with `profile-build`.
+7. Test a selective profile in gameplay before increasing its 2x residency.
 
 Do not commit or distribute game files or transformed textures. The tool and
 presets can be distributed; each owner builds the mod from their own dump.

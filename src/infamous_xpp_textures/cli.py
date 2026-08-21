@@ -12,6 +12,7 @@ from .derive import derive_scaled
 from .heap import read_records, verify_layout
 from .mesh import MeshExportError, export_glb, find_mesh_sections
 from .pack import PackError, pack_replacements, replacements_from_dir, replacements_from_scale
+from .pipeline import build_profile, extract_profile
 from .pngio import read_png
 from .psarc import rebuild_archive
 from .xpp import parse_xpp
@@ -163,6 +164,50 @@ def cmd_psarc_pack(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_profile_extract(args: argparse.Namespace) -> int:
+    try:
+        manifest = extract_profile(
+            args.install1,
+            args.install2,
+            args.outdir,
+            progress=lambda message: print(message, flush=True),
+        )
+    except (OSError, ValueError) as exc:
+        print(f"profile-extract failed: {exc}", file=sys.stderr)
+        return 1
+    package_count = sum(
+        1
+        for archive in manifest["archives"]
+        for entry in archive["entries"]
+        if "extracted" in entry
+    )
+    print(
+        f"wrote {args.outdir} with {package_count} XPP/XPPS files and "
+        f"{sum(archive['entries_with_manifest'] for archive in manifest['archives'])} audited PSARC entries"
+    )
+    return 0
+
+
+def cmd_profile_build(args: argparse.Namespace) -> int:
+    try:
+        manifest = build_profile(
+            args.install1,
+            args.install2,
+            args.xpp_dir,
+            args.outdir,
+            compression_level=args.compression_level,
+            progress=lambda message: print(message, flush=True),
+        )
+    except (OSError, ValueError) as exc:
+        print(f"profile-build failed: {exc}", file=sys.stderr)
+        return 1
+    print(
+        f"wrote verified profile {args.outdir}: {manifest['replacement_count']} replacements, "
+        f"{sum(archive['entries_audited'] for archive in manifest['archives'])} audited PSARC entries"
+    )
+    return 0
+
+
 def cmd_mesh_list(args: argparse.Namespace) -> int:
     data, _ = _load(args)
     pkg = parse_xpp(data, len(data))
@@ -197,8 +242,8 @@ def cmd_mesh_export(args: argparse.Namespace) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
-        prog="if1-tex",
-        description="inFAMOUS 1 XPP textures (extract/pack) and static meshes.",
+        prog=Path(sys.argv[0]).name,
+        description="XPP extract/repack tools and audited inFAMOUS PSARC profile building.",
     )
     sub = ap.add_subparsers(dest="cmd", required=True)
 
@@ -283,6 +328,28 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_psarc.add_argument("--compression-level", type=int, choices=range(1, 10), default=9)
     p_psarc.set_defaults(func=cmd_psarc_pack)
+
+    p_profile_extract = sub.add_parser(
+        "profile-extract",
+        help="extract an install1/install2 pair into a hashed XPP workspace",
+    )
+    p_profile_extract.add_argument("--install1", type=Path, required=True)
+    p_profile_extract.add_argument("--install2", type=Path, required=True)
+    p_profile_extract.add_argument("--outdir", type=Path, required=True)
+    p_profile_extract.set_defaults(func=cmd_profile_extract)
+
+    p_profile_build = sub.add_parser(
+        "profile-build",
+        help="route XPP replacements, rebuild both install PSARCs, and audit every entry",
+    )
+    p_profile_build.add_argument("--install1", type=Path, required=True)
+    p_profile_build.add_argument("--install2", type=Path, required=True)
+    p_profile_build.add_argument("--xpp-dir", type=Path, required=True)
+    p_profile_build.add_argument("--outdir", type=Path, required=True)
+    p_profile_build.add_argument(
+        "--compression-level", type=int, choices=range(1, 10), default=9
+    )
+    p_profile_build.set_defaults(func=cmd_profile_build)
 
     p_ml = sub.add_parser("mesh-list", help="list static mesh sections")
     _add_source(p_ml)
