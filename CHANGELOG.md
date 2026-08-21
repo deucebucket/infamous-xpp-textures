@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.6.0 - 2026-08-21
+
+- Added atomic, explicit `runtime-bundle` output for hash-bound host GPU replacement canaries.
+
 ## 1.5.0 - 2026-08-21
 
 - Added `runtime-index` to hash strictly validated descriptor, face-chain, mip, and mip-prefix payloads.

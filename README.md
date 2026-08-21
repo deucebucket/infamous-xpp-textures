@@ -239,6 +239,25 @@ for them **or** the game rearranged/copied the bytes first; it does not prove
 which one by itself. Pair the hash result with upload dimensions and a scene
 where the texture is visibly present.
 
+Build one or more explicit host-GPU replacement records without enlarging the
+XPP the PS3 game sees:
+
+```bash
+xpp-tool runtime-bundle \
+  --retail ./retail/male_base_Zeke.xpp \
+  --candidate ./true2x/male_base_Zeke.xpp \
+  --index 1 \
+  --outdir ./trace/zeke-one-2x
+```
+
+`runtime-bundle` strictly compares the two XPPs, binds the retail upload hash
+and exact source shape to the candidate hash and larger shape, writes only the
+selected encoded mip prefix, and publishes the bundle atomically. The private
+RPCS3 fork refuses a row if any hash, shape, format, byte count, or file is
+wrong. RR: the game still budgets a retail texture; only RPCS3's host GPU image
+becomes larger. This is experimental and must be A/B tested in a scene proven
+to call the selected retail identity.
+
 ### 4. Build and audit the installable pair
 
 ```bash
