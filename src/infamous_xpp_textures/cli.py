@@ -12,6 +12,7 @@ from .character import (
     build_character_compatibility_report,
     render_report,
 )
+from .capture import RrcCaptureError, build_rrc_character_match_report
 from .decode import extract_package, load_xpp_bytes
 from .derive import derive_scaled
 from .mesh import MeshExportError, export_glb, find_mesh_sections
@@ -408,6 +409,21 @@ def cmd_character_report(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_character_capture_report(args: argparse.Namespace) -> int:
+    try:
+        data, stem = _load(args)
+        report = build_rrc_character_match_report(data, f"{stem}.xpp", args.rrc)
+    except (OSError, RrcCaptureError, ValueError) as exc:
+        print(f"character-capture-report: {exc}", file=sys.stderr)
+        return 1
+    rendered = render_report(report)
+    if args.json_out:
+        args.json_out.parent.mkdir(parents=True, exist_ok=True)
+        args.json_out.write_text(rendered, encoding="utf-8")
+    print(rendered, end="")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         prog=Path(sys.argv[0]).name,
@@ -606,6 +622,24 @@ def main(argv: list[str] | None = None) -> int:
         help="also write the deterministic report to this path",
     )
     p_character.set_defaults(func=cmd_character_report)
+
+    p_character_capture = sub.add_parser(
+        "character-capture-report",
+        help="match skinned XPP index streams against an RPCS3 RSX capture",
+    )
+    _add_source(p_character_capture)
+    p_character_capture.add_argument(
+        "--rrc",
+        type=Path,
+        required=True,
+        help="RPCS3 .rrc or .rrc.gz frame capture",
+    )
+    p_character_capture.add_argument(
+        "--json-out",
+        type=Path,
+        help="also write the deterministic payload-free report to this path",
+    )
+    p_character_capture.set_defaults(func=cmd_character_capture_report)
 
     args = ap.parse_args(argv)
     return args.func(args)

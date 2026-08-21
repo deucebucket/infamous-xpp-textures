@@ -347,6 +347,22 @@ critical field has an exact mapping. The next proof is one retail character
 vertex stream captured before and after the game's decoder; that tells us how
 to turn the packed XPP numbers back into real vertex values.
 
+An RPCS3 RSX capture can be rejected or correlated before deeper analysis:
+
+```bash
+xpp-tool character-capture-report \
+  --xpp /path/to/male_base_Zeke.xpp \
+  --rrc /path/to/BCUS98119_capture.rrc.gz \
+  --json-out ./zeke-capture-match.json
+```
+
+This validates the capture container and serialized maps, hashes
+each captured guest-memory payload, and looks for exact copies of the proven
+XPP triangle-index streams. It emits only identities, sizes, addresses, and
+hashes. An exact hit binds one package topology record to live RSX memory; a
+miss only says that this frame did not provide an exact index-buffer match.
+Neither result assigns vertex semantics or proves model compatibility.
+
 ## Typical HD texture pass
 
 1. `profile-extract` the protected retail install pair.
