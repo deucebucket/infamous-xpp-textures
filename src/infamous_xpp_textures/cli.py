@@ -7,6 +7,11 @@ import json
 import sys
 from pathlib import Path
 
+from .character import (
+    CharacterReportError,
+    build_character_compatibility_report,
+    render_report,
+)
 from .decode import extract_package, load_xpp_bytes
 from .derive import derive_scaled
 from .mesh import MeshExportError, export_glb, find_mesh_sections
@@ -382,6 +387,27 @@ def cmd_mesh_export(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_character_report(args: argparse.Namespace) -> int:
+    try:
+        data, stem = _load(args)
+        external_data = args.external.read_bytes() if args.external else None
+        report = build_character_compatibility_report(
+            data,
+            f"{stem}.xpp",
+            external_data,
+            args.external.name if args.external else None,
+        )
+    except (OSError, CharacterReportError, ValueError) as exc:
+        print(f"character-report: {exc}", file=sys.stderr)
+        return 1
+    rendered = render_report(report)
+    if args.json_out:
+        args.json_out.parent.mkdir(parents=True, exist_ok=True)
+        args.json_out.write_text(rendered, encoding="utf-8")
+    print(rendered, end="")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         prog=Path(sys.argv[0]).name,
@@ -563,6 +589,23 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_me.add_argument("--texture", type=Path, help="PNG to embed; default: decode from the package")
     p_me.set_defaults(func=cmd_mesh_export)
+
+    p_character = sub.add_parser(
+        "character-report",
+        help="report proven skinned-XPP contracts and external NIF compatibility",
+    )
+    _add_source(p_character)
+    p_character.add_argument(
+        "--external",
+        type=Path,
+        help="owned Fallout 4/76 .nif to validate and compare without converting",
+    )
+    p_character.add_argument(
+        "--json-out",
+        type=Path,
+        help="also write the deterministic report to this path",
+    )
+    p_character.set_defaults(func=cmd_character_report)
 
     args = ap.parse_args(argv)
     return args.func(args)

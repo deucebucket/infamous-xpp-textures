@@ -307,6 +307,46 @@ from the same package.
 
 Character packages print that there are no static sections and exit non-zero.
 
+## Rigged characters: report before conversion
+
+```bash
+xpp-tool character-report \
+  --xpp /path/to/male_base_Zeke.xpp \
+  --external /path/to/owned/Fallout76/character.nif \
+  --json-out ./character-compatibility.json
+```
+
+`character-report` is the first fail-closed stage of the rigged-model pipeline.
+On an inFAMOUS character XPP it proves paired geometry-heap envelopes, exact
+big-endian triangle lists, descriptor-local vertex counts, and the byte extents
+of three MSB-first packed streams. On a Fallout 4/76 NIF it validates the
+header, block and string tables, block extents, footer roots, skin instances,
+bone-data counts, and every referenced `NiNode` before reporting hashes and
+counts. Game data is read locally and is never added to the repository.
+
+The intended full chain is:
+
+1. validate the owned source NIF;
+2. normalize it as skinned glTF 2.0;
+3. map it onto a preserved retail inFAMOUS character template;
+4. rebuild XPP streams, pointers, chunks, fixups, and material references;
+5. prove an export/import semantic round trip; and
+6. validate animation and visibility in a controlled game scene.
+
+The current command intentionally reports `injection_authorized: false`.
+Triangle topology is proved, but target positions, normals, UVs, weights,
+mesh-local joint palettes, hierarchy bindings, inverse-bind direction,
+materials, wrapper/LOD ownership, and runtime visibility are not all decoded.
+It will not create a plausible-looking but structurally unsafe character pack.
+
+RR — Really Readable rundown: the Fallout model and Zeke model both have a
+skeleton-shaped structure, but they speak different binary languages. The
+report is the translator's checklist. It proves which pages we can read, names
+the pages we still cannot read, and blocks conversion until every animation-
+critical field has an exact mapping. The next proof is one retail character
+vertex stream captured before and after the game's decoder; that tells us how
+to turn the packed XPP numbers back into real vertex values.
+
 ## Typical HD texture pass
 
 1. `profile-extract` the protected retail install pair.
