@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "infamous-xpp-textures"
-version = "1.4.0"
+version = "1.5.0"
 description = "XPP extract/repack tools and audited inFAMOUS PSARC profile building."
 readme = "README.md"
 license = { file = "LICENSE" }
