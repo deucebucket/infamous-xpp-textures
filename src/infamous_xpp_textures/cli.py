@@ -14,7 +14,7 @@ from .pack import PackError, pack_replacements, replacements_from_dir, replaceme
 from .pipeline import build_profile, extract_profile, validate_profile
 from .pngio import read_png
 from .psarc import rebuild_archive
-from .runtime import build_runtime_index, write_allowlist
+from .runtime import build_replacement_bundle, build_runtime_index, write_allowlist
 from .validation import ValidationError, compare_xpp, validate_xpp
 from .xpp import parse_xpp
 
@@ -308,6 +308,26 @@ def cmd_runtime_index(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_runtime_bundle(args: argparse.Namespace) -> int:
+    try:
+        report = build_replacement_bundle(
+            args.retail.read_bytes(),
+            args.candidate.read_bytes(),
+            set(args.index),
+            args.outdir,
+            label=args.label or args.candidate.stem,
+        )
+    except (OSError, ValidationError, ValueError) as error:
+        print(f"runtime-bundle failed: {error}", file=sys.stderr)
+        return 1
+    print(
+        f"wrote {args.outdir}: {report['replacement_count']} hash-bound "
+        "host texture replacement(s)"
+    )
+    print("guest XPP allocation: retail; candidate texture allocation: host GPU only")
+    return 0
+
+
 def _add_budget_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--known-startup-pass-extra",
@@ -510,6 +530,23 @@ def main(argv: list[str] | None = None) -> int:
         help="write one SHA-256 per line for the private RPCS3 observer",
     )
     p_runtime_index.set_defaults(func=cmd_runtime_index)
+
+    p_runtime_bundle = sub.add_parser(
+        "runtime-bundle",
+        help="build explicit host-GPU replacements from retail and candidate XPPs",
+    )
+    p_runtime_bundle.add_argument("--retail", type=Path, required=True)
+    p_runtime_bundle.add_argument("--candidate", type=Path, required=True)
+    p_runtime_bundle.add_argument(
+        "--index",
+        type=lambda value: int(value, 0),
+        action="append",
+        required=True,
+        help="descriptor index to replace (repeatable)",
+    )
+    p_runtime_bundle.add_argument("--outdir", type=Path, required=True)
+    p_runtime_bundle.add_argument("--label")
+    p_runtime_bundle.set_defaults(func=cmd_runtime_bundle)
 
     p_ml = sub.add_parser("mesh-list", help="list static mesh sections")
     _add_source(p_ml)
