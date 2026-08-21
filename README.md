@@ -363,6 +363,22 @@ hashes. An exact hit binds one package topology record to live RSX memory; a
 miss only says that this frame did not provide an exact index-buffer match.
 Neither result assigns vertex semantics or proves model compatibility.
 
+When an exact index block is referenced by a captured
+`NV4097_SET_BEGIN_END(0)` command, the report also records that replay-command
+index and every memory block attached to the same draw. Sibling blocks remain
+explicitly `unclassified-draw-sibling` candidates: their guest address, size,
+and SHA-256 narrow the decoded vertex search without labeling any block as a
+position, normal, UV, joint, or weight stream prematurely. Captured bytes are
+never written to the JSON report.
+
+RR — Really Readable rundown: finding Zeke's exact triangle list in a capture
+is like finding his page number in a live book. Binding that page to a draw
+call tells us which small stack of other pages the GPU read at the same time.
+Those nearby pages are where the decoded vertices should be, but the tool does
+not guess which page means position or skin weight. The next proof compares
+each bounded sibling to the known 26-vertex record and accepts a semantic only
+when its stride, numeric range, and decode/encode round trip all agree.
+
 ## Typical HD texture pass
 
 1. `profile-extract` the protected retail install pair.

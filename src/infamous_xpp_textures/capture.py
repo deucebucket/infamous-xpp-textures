@@ -89,9 +89,7 @@ def _file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _skip_map(
-    reader: _RrcReader, label: str, value_bytes: int
-) -> tuple[int, set[int]]:
+def _skip_map(reader: _RrcReader, label: str, value_bytes: int) -> tuple[int, set[int]]:
     count = reader.vle(f"{label} count")
     keys: set[int] = set()
     for index in range(count):
@@ -111,9 +109,7 @@ def build_rrc_character_match_report(
     """Hash captured memory and match exact, already-proved XPP index streams."""
 
     target = build_xpp_character_report(xpp_data, xpp_source_name)
-    target_by_hash = {
-        item["index_sha256"]: item for item in target["contracts"]
-    }
+    target_by_hash = {item["index_sha256"]: item for item in target["contracts"]}
     parsed_xpp = parse_xpp(xpp_data, len(xpp_data))
     targets_by_size: dict[int, list[tuple[dict, tuple[int, ...]]]] = defaultdict(list)
     for item in target["contracts"]:
@@ -121,9 +117,7 @@ def build_rrc_character_match_report(
         raw = xpp_data[start : start + item["index_byte_count"]]
         values = struct.unpack(f">{len(raw) // 2}H", raw)
         targets_by_size[len(raw)].append((item, values))
-    target_sizes = Counter(
-        item["index_byte_count"] for item in target["contracts"]
-    )
+    target_sizes = Counter(item["index_byte_count"] for item in target["contracts"])
     file_size = capture_path.stat().st_size
     file_sha256 = _file_sha256(capture_path)
 
@@ -131,9 +125,7 @@ def build_rrc_character_match_report(
         with capture_path.open("rb") as probe:
             gzip_wrapped = probe.read(2) == b"\x1f\x8b"
         stream = (
-            gzip.open(capture_path, "rb")
-            if gzip_wrapped
-            else capture_path.open("rb")
+            gzip.open(capture_path, "rb") if gzip_wrapped else capture_path.open("rb")
         )
     except OSError as error:
         raise RrcCaptureError(f"cannot open RRC capture: {error}") from error
@@ -155,6 +147,7 @@ def build_rrc_character_match_report(
         memory_block_count = reader.vle("memory-block map count")
         memory_block_keys: set[int] = set()
         blocks_by_data_state: dict[int, list[dict]] = defaultdict(list)
+        blocks_by_key: dict[int, dict] = {}
         for index in range(memory_block_count):
             key = reader.u64(f"memory-block key {index}")
             if key in memory_block_keys:
@@ -162,9 +155,14 @@ def build_rrc_character_match_report(
             memory_block_keys.add(key)
             raw = reader.take(RRC_MEMORY_BLOCK_BYTES, f"memory block {index}")
             offset, location, data_state = struct.unpack("<IIQ", raw)
-            blocks_by_data_state[data_state].append(
-                {"block_key": key, "offset": offset, "location": location}
-            )
+            block = {
+                "block_key": key,
+                "offset": offset,
+                "location": location,
+                "data_state": data_state,
+            }
+            blocks_by_data_state[data_state].append(block)
+            blocks_by_key[key] = block
 
         memory_payload_count = reader.vle("memory-payload map count")
         memory_payload_keys: set[int] = set()
@@ -172,6 +170,7 @@ def build_rrc_character_match_report(
         transformed_matches: list[dict] = []
         same_size_candidates: Counter[int] = Counter()
         payload_size_histogram: Counter[int] = Counter()
+        payload_metadata: dict[int, dict] = {}
         memory_payload_bytes = 0
         for index in range(memory_payload_count):
             key = reader.u64(f"memory-payload key {index}")
@@ -184,11 +183,17 @@ def build_rrc_character_match_report(
             payload = reader.take(size, f"memory payload {index}")
             memory_payload_bytes += size
             if memory_payload_bytes > RRC_MAX_PAYLOAD_BYTES:
-                raise RrcCaptureError("RRC memory payload total exceeds the safety bound")
+                raise RrcCaptureError(
+                    "RRC memory payload total exceeds the safety bound"
+                )
             payload_size_histogram[size] += 1
             if size in target_sizes:
                 same_size_candidates[size] += 1
             digest = hashlib.sha256(payload).hexdigest()
+            payload_metadata[key] = {
+                "payload_size": size,
+                "payload_sha256": digest,
+            }
             if digest in target_by_hash:
                 contract = target_by_hash[digest]
                 exact_matches.append(
@@ -200,7 +205,14 @@ def build_rrc_character_match_report(
                         "index_sha256": digest,
                         "capture_data_state": key,
                         "memory_blocks": sorted(
-                            blocks_by_data_state.get(key, []),
+                            (
+                                {
+                                    "block_key": block["block_key"],
+                                    "offset": block["offset"],
+                                    "location": block["location"],
+                                }
+                                for block in blocks_by_data_state.get(key, [])
+                            ),
                             key=lambda item: (
                                 item["location"],
                                 item["offset"],
@@ -265,7 +277,16 @@ def build_rrc_character_match_report(
                                     "transform": transform,
                                     "index_delta": delta,
                                     "memory_blocks": sorted(
-                                        blocks_by_data_state.get(key, []),
+                                        (
+                                            {
+                                                "block_key": block["block_key"],
+                                                "offset": block["offset"],
+                                                "location": block["location"],
+                                            }
+                                            for block in blocks_by_data_state.get(
+                                                key, []
+                                            )
+                                        ),
                                         key=lambda item: (
                                             item["location"],
                                             item["offset"],
@@ -286,22 +307,99 @@ def build_rrc_character_match_report(
         display_state_count, display_state_keys = _skip_map(
             reader, "display-state map", RRC_DISPLAY_STATE_BYTES
         )
+        exact_records_by_block: dict[int, list[dict]] = defaultdict(list)
+        for match in exact_matches:
+            record = {
+                "record_offset": match["record_offset"],
+                "index_sha256": match["index_sha256"],
+            }
+            for block in match["memory_blocks"]:
+                exact_records_by_block[block["block_key"]].append(record)
+
         replay_command_count = reader.vle("replay-command count")
         memory_reference_count = 0
+        draw_bindings: list[dict] = []
         for command in range(replay_command_count):
-            reader.take(8, f"replay command {command} method/value")
+            method_word, value = struct.unpack(
+                "<II", reader.take(8, f"replay command {command} method/value")
+            )
             state_count = reader.vle(f"replay command {command} memory-state count")
             memory_reference_count += state_count
+            state_keys: list[int] = []
             for state in range(state_count):
                 key = reader.u64(f"replay command {command} memory state {state}")
                 if key not in memory_block_keys:
-                    raise RrcCaptureError("RRC replay command references an absent memory block")
+                    raise RrcCaptureError(
+                        "RRC replay command references an absent memory block"
+                    )
+                state_keys.append(key)
             tile_state = reader.u64(f"replay command {command} tile state")
             display_state = reader.u64(f"replay command {command} display state")
             if tile_state and tile_state not in tile_state_keys:
-                raise RrcCaptureError("RRC replay command references an absent tile state")
+                raise RrcCaptureError(
+                    "RRC replay command references an absent tile state"
+                )
             if display_state and display_state not in display_state_keys:
-                raise RrcCaptureError("RRC replay command references an absent display state")
+                raise RrcCaptureError(
+                    "RRC replay command references an absent display state"
+                )
+            matching_keys = sorted(set(state_keys) & exact_records_by_block.keys())
+            if matching_keys:
+                matched_records = {
+                    (record["record_offset"], record["index_sha256"])
+                    for key in matching_keys
+                    for record in exact_records_by_block[key]
+                }
+                memory_blocks = []
+                for key in state_keys:
+                    block = blocks_by_key[key]
+                    payload = payload_metadata[block["data_state"]]
+                    memory_blocks.append(
+                        {
+                            "block_key": key,
+                            "location": block["location"],
+                            "offset": block["offset"],
+                            "payload_size": payload["payload_size"],
+                            "payload_sha256": payload["payload_sha256"],
+                            "role": (
+                                "exact-index"
+                                if key in matching_keys
+                                else "unclassified-draw-sibling"
+                            ),
+                        }
+                    )
+                method_offset = method_word & 0xFFFF
+                draw_bindings.append(
+                    {
+                        "command_index": command,
+                        "method_word": method_word,
+                        "method_offset": method_offset,
+                        "method_count": (method_word >> 18) & 0x7FF,
+                        "method_name": (
+                            "NV4097_SET_BEGIN_END" if method_offset == 0x1808 else None
+                        ),
+                        "value": value,
+                        "draw_end_boundary": method_offset == 0x1808 and value == 0,
+                        "matched_index_records": [
+                            {
+                                "record_offset": record_offset,
+                                "index_sha256": index_sha256,
+                            }
+                            for record_offset, index_sha256 in sorted(matched_records)
+                        ],
+                        "memory_blocks": sorted(
+                            memory_blocks,
+                            key=lambda item: (
+                                item["location"],
+                                item["offset"],
+                                item["block_key"],
+                            ),
+                        ),
+                        "unclassified_sibling_count": (
+                            len(memory_blocks) - len(matching_keys)
+                        ),
+                    }
+                )
 
         register_state_bytes = reader.drain("register state")
         if not register_state_bytes:
@@ -321,6 +419,7 @@ def build_rrc_character_match_report(
         )
     )
     matched_hashes = {item["index_sha256"] for item in exact_matches}
+    live_draw_binding_proved = any(item["draw_end_boundary"] for item in draw_bindings)
     unmatched = [
         {
             "record_offset": item["record_offset"],
@@ -334,7 +433,7 @@ def build_rrc_character_match_report(
     ]
     return {
         "format": "infamous-rpcs3-character-capture-match",
-        "version": 1,
+        "version": 2,
         "target": {
             "source": target["source"],
             "source_sha256": target["source_sha256"],
@@ -367,6 +466,9 @@ def build_rrc_character_match_report(
         "exact_matches": exact_matches,
         "exact_match_count": len(exact_matches),
         "matched_target_record_count": len(matched_hashes),
+        "draw_bindings": draw_bindings,
+        "draw_binding_count": len(draw_bindings),
+        "live_draw_binding_proved": live_draw_binding_proved,
         "bounded_transform_matches": transformed_matches,
         "bounded_transform_match_count": len(transformed_matches),
         "unmatched_target_records": unmatched,
@@ -378,12 +480,18 @@ def build_rrc_character_match_report(
             )[:20]
         ],
         "match_status": (
-            "exact-index-match" if exact_matches else "no-exact-index-match"
+            "exact-index-draw-binding"
+            if live_draw_binding_proved
+            else "exact-index-match"
+            if exact_matches
+            else "no-exact-index-match"
         ),
         "payload_bytes_serialized": False,
         "decoded_vertex_semantics_proved": False,
         "limitations": (
             "an exact index hash binds captured guest memory to one XPP topology record; "
+            "a draw-end binding proves that the block was attached to one captured draw but "
+            "does not assign semantics to its unclassified sibling blocks; "
             "byte-order/index-delta/winding candidates are reported separately and do not "
             "prove ownership; absence does not prove the character was not visible, and "
             "vertex attributes, draw ownership, skin weights, palettes, transforms, and "

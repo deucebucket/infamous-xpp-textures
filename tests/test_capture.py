@@ -22,28 +22,43 @@ def _vle(value: int) -> bytes:
             return bytes(result)
 
 
-def _rrc(index_payload: bytes, *, missing_block_reference: bool = False) -> bytes:
+def _rrc(
+    index_payload: bytes,
+    *,
+    missing_block_reference: bool = False,
+    sibling_payload: bytes | None = None,
+) -> bytes:
     block_key = 0x1111222233334444
     data_state = 0xAAAABBBBCCCCDDDD
+    blocks = [(block_key, 0x123400, 0, data_state, index_payload)]
+    if sibling_payload is not None:
+        blocks.append(
+            (
+                block_key + 1,
+                0x123500,
+                1,
+                data_state + 1,
+                sibling_payload,
+            )
+        )
     result = bytearray(struct.pack("<III", RRC_MAGIC, RRC_VERSION, 1))
     result.extend(_vle(0))
-    result.extend(_vle(1))
-    result.extend(
-        struct.pack("<QIIQ", block_key, 0x123400, 0, data_state)
-    )
-    result.extend(_vle(1))
-    result.extend(struct.pack("<Q", data_state))
-    result.extend(_vle(len(index_payload)))
-    result.extend(index_payload)
+    result.extend(_vle(len(blocks)))
+    for key, offset, location, state, _payload in blocks:
+        result.extend(struct.pack("<QIIQ", key, offset, location, state))
+    result.extend(_vle(len(blocks)))
+    for _key, _offset, _location, state, payload in blocks:
+        result.extend(struct.pack("<Q", state))
+        result.extend(_vle(len(payload)))
+        result.extend(payload)
     result.extend(_vle(0))
     result.extend(_vle(1))
-    result.extend(struct.pack("<II", 0x00001810, 0x00000003))
-    result.extend(_vle(1))
-    result.extend(
-        struct.pack(
-            "<Q", block_key + 1 if missing_block_reference else block_key
-        )
-    )
+    result.extend(struct.pack("<II", 0x00041808, 0))
+    result.extend(_vle(len(blocks)))
+    for index, (key, _offset, _location, _state, _payload) in enumerate(blocks):
+        if index == 0 and missing_block_reference:
+            key += len(blocks) + 1
+        result.extend(struct.pack("<Q", key))
     result.extend(struct.pack("<QQ", 0, 0))
     result.extend(b"synthetic-register-state")
     return gzip.compress(bytes(result), mtime=0)
@@ -62,7 +77,12 @@ def test_capture_report_binds_exact_xpp_index_stream(tmp_path):
     assert report["matched_target_record_count"] == 1
     assert report["exact_matches"][0]["record_offset"] == 0x20
     assert report["exact_matches"][0]["memory_blocks"][0]["offset"] == 0x123400
-    assert report["match_status"] == "exact-index-match"
+    assert report["match_status"] == "exact-index-draw-binding"
+    assert report["live_draw_binding_proved"] is True
+    assert report["draw_binding_count"] == 1
+    assert report["draw_bindings"][0]["command_index"] == 0
+    assert report["draw_bindings"][0]["method_offset"] == 0x1808
+    assert report["draw_bindings"][0]["draw_end_boundary"] is True
     assert report["payload_bytes_serialized"] is False
     assert report["decoded_vertex_semantics_proved"] is False
 
@@ -98,6 +118,26 @@ def test_capture_report_separates_byte_swapped_candidate_from_exact_match(tmp_pa
         "little-endian-u16-exact"
     )
     assert report["decoded_vertex_semantics_proved"] is False
+
+
+def test_capture_report_bounds_unclassified_draw_siblings(tmp_path):
+    xpp = _wrapped_character_xpp()
+    index_payload = struct.pack(">6H", 0, 1, 2, 2, 3, 0)
+    sibling_payload = b"decoded-vertex-candidate"
+    capture = tmp_path / "draw.rrc.gz"
+    capture.write_bytes(_rrc(index_payload, sibling_payload=sibling_payload))
+    report = build_rrc_character_match_report(xpp, "target.xpp", capture)
+    binding = report["draw_bindings"][0]
+    assert binding["unclassified_sibling_count"] == 1
+    assert [item["role"] for item in binding["memory_blocks"]] == [
+        "exact-index",
+        "unclassified-draw-sibling",
+    ]
+    sibling = binding["memory_blocks"][1]
+    assert sibling["location"] == 1
+    assert sibling["offset"] == 0x123500
+    assert sibling["payload_size"] == len(sibling_payload)
+    assert "payload" not in sibling
 
 
 def test_capture_report_rejects_absent_replay_memory_block(tmp_path):
