@@ -108,7 +108,7 @@ if1-tex derive \
   --out ./mod-xpp/male_base_Zeke.xpp
 ```
 
-Use `--target-scale 1` for AI-enhanced texels at retail dimensions. Mixed 2x/4x
+Use `--target-scale 1` for enhanced texels at retail dimensions. Mixed 2x/4x
 sources are supported. `--include-index`, `--exclude-index`, and
 `--max-upscaled` build selective profiles for the game's fixed PS3-era texture
 budget.
