@@ -11,7 +11,7 @@ from pathlib import Path, PurePosixPath
 from typing import Callable
 
 from .psarc import iter_archive_entries, read_manifest, read_toc, rebuild_archive
-from .xpp import parse_xpp
+from .validation import ValidationError, validate_replacement_set
 
 
 SCHEMA_VERSION = 1
@@ -99,6 +99,9 @@ def build_profile(
     output_directory: str | Path,
     *,
     compression_level: int = 9,
+    known_pass_extra: int | None = None,
+    known_fail_extra: int | None = None,
+    fail_on_budget: bool = False,
     progress: Callable[[str], None] | None = None,
 ) -> dict:
     """Route replacement XPPs, build both PSARCs, and byte-audit every entry."""
@@ -106,31 +109,19 @@ def build_profile(
     replacement_directory = Path(replacement_directory)
     output_directory = Path(output_directory)
     _require_new_directory(output_directory)
-    _validate_complete_sources(sources)
-    _report(progress, "Reading both retail catalogs and routing replacement basenames...")
-    catalogs = _catalog_sources(sources)
-    owners = _require_unique_package_basenames(catalogs)
-    replacements = _read_replacements(replacement_directory)
-
-    routed: dict[str, dict[str, bytes]] = {"install1": {}, "install2": {}}
-    replacement_records = []
-    for folded_name, replacement in replacements.items():
-        if folded_name not in owners:
-            raise ValueError(f"replacement is absent from both retail PSARCs: {replacement.name}")
-        slot, retail_name = owners[folded_name]
-        data = replacement.read_bytes()
-        try:
-            parse_xpp(data, len(data))
-        except (ValueError, OSError) as error:
-            raise ValueError(f"replacement is not a valid XPP: {replacement}") from error
-        routed[slot][retail_name] = data
-        replacement_records.append(
-            {
-                "file_name": retail_name,
-                "slot": slot,
-                "bytes": len(data),
-                "sha256": hashlib.sha256(data).hexdigest(),
-            }
+    routed, replacement_records, preflight = _prepare_replacements(
+        sources,
+        replacement_directory,
+        known_pass_extra=known_pass_extra,
+        known_fail_extra=known_fail_extra,
+        progress=progress,
+    )
+    if (
+        fail_on_budget
+        and preflight["budget"]["status"] == "at-or-above-observed-startup-fail-range"
+    ):
+        raise ValueError(
+            "strict preflight refused a profile at or above the observed startup-fail bound"
         )
 
     temporary = Path(tempfile.mkdtemp(prefix=f".{output_directory.name}.", dir=output_directory.parent))
@@ -172,6 +163,7 @@ def build_profile(
             "archives": archive_records,
             "replacements": sorted(replacement_records, key=lambda record: (record["slot"], record["file_name"].lower())),
             "replacement_count": len(replacement_records),
+            "preflight": preflight,
         }
         _write_json(temporary / "profile.json", manifest)
         _report(progress, "Publishing the verified two-archive profile atomically...")
@@ -180,6 +172,76 @@ def build_profile(
     except BaseException:
         shutil.rmtree(temporary, ignore_errors=True)
         raise
+
+
+def validate_profile(
+    install1: str | Path,
+    install2: str | Path,
+    replacement_directory: str | Path,
+    *,
+    known_pass_extra: int | None = None,
+    known_fail_extra: int | None = None,
+    progress: Callable[[str], None] | None = None,
+) -> dict:
+    """Route and strictly validate a replacement set without building PSARCs."""
+    sources = {"install1": Path(install1), "install2": Path(install2)}
+    _routed, replacement_records, preflight = _prepare_replacements(
+        sources,
+        Path(replacement_directory),
+        known_pass_extra=known_pass_extra,
+        known_fail_extra=known_fail_extra,
+        progress=progress,
+    )
+    return {
+        "kind": "xpp-profile-preflight",
+        "replacement_count": len(replacement_records),
+        **preflight,
+    }
+
+
+def _prepare_replacements(
+    sources: dict[str, Path],
+    replacement_directory: Path,
+    *,
+    known_pass_extra: int | None,
+    known_fail_extra: int | None,
+    progress: Callable[[str], None] | None,
+) -> tuple[dict[str, dict[str, bytes]], list[dict], dict]:
+    _validate_complete_sources(sources)
+    _report(progress, "Reading both retail catalogs and routing replacement basenames...")
+    catalogs = _catalog_sources(sources)
+    owners = _require_unique_package_basenames(catalogs)
+    replacements = _read_replacements(replacement_directory)
+
+    routed: dict[str, dict[str, bytes]] = {"install1": {}, "install2": {}}
+    replacement_records = []
+    for folded_name, replacement in replacements.items():
+        if folded_name not in owners:
+            raise ValueError(f"replacement is absent from both retail PSARCs: {replacement.name}")
+        slot, retail_name = owners[folded_name]
+        data = replacement.read_bytes()
+        routed[slot][retail_name] = data
+        replacement_records.append(
+            {
+                "file_name": retail_name,
+                "slot": slot,
+                "bytes": len(data),
+                "sha256": hashlib.sha256(data).hexdigest(),
+            }
+        )
+
+    try:
+        preflight = validate_replacement_set(
+            sources,
+            routed,
+            known_pass_extra=known_pass_extra,
+            known_fail_extra=known_fail_extra,
+            progress=progress,
+        )
+    except ValidationError as error:
+        # Keep the original public error phrase while adding the strict reason.
+        raise ValueError(f"replacement is not a valid XPP/profile match: {error}") from error
+    return routed, replacement_records, preflight
 
 
 def audit_archive(

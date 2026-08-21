@@ -7,7 +7,14 @@ from pathlib import Path
 
 import pytest
 
-from infamous_xpp_textures.pipeline import audit_archive, build_profile, extract_profile
+from infamous_xpp_textures.pipeline import (
+    audit_archive,
+    build_profile,
+    extract_profile,
+    validate_profile,
+)
+from infamous_xpp_textures.heap import chain_size
+from infamous_xpp_textures.pack import pack_chains
 from infamous_xpp_textures.psarc import build_archive, extract_entry
 
 from test_synthetic import _minimal_xpp
@@ -59,10 +66,51 @@ def test_profile_build_routes_replacements_and_audits_complete_pair(tmp_path: Pa
     assert extract_entry(profile / "infamous2.psarc_s", "/characters/A2.xpp") == retail2_xpp
     assert (profile / "infamous2.psarc_s").read_bytes() == install2.read_bytes()
     assert manifest["replacement_count"] == 1
+    assert manifest["preflight"]["structural_status"] == "pass"
+    assert manifest["preflight"]["chain_delta_bytes"] == 0
     assert [archive["entries_audited"] for archive in manifest["archives"]] == [3, 2]
     assert [archive["replaced_entries"] for archive in manifest["archives"]] == [1, 0]
     stored = json.loads((profile / "profile.json").read_text())
     assert stored["archives"][0]["output_sha256"] == manifest["archives"][0]["output_sha256"]
+
+
+def test_profile_validate_checks_replacements_without_building(tmp_path: Path):
+    install1, install2, _retail1_xpp, _retail2_xpp = _write_pair(tmp_path)
+    replacements = tmp_path / "replacements"
+    replacements.mkdir()
+    (replacements / "A1.xpp").write_bytes(_minimal_xpp(extra=bytes([7]) * 8))
+
+    report = validate_profile(install1, install2, replacements)
+
+    assert report["kind"] == "xpp-profile-preflight"
+    assert report["replacement_count"] == 1
+    assert report["structural_status"] == "pass"
+    assert report["budget"]["scene_coverage_required"] is True
+
+
+def test_profile_build_can_refuse_observed_startup_fail_bound(tmp_path: Path):
+    install1, install2, retail1_xpp, _retail2_xpp = _write_pair(tmp_path)
+    replacements = tmp_path / "replacements"
+    replacements.mkdir()
+    promoted = pack_chains(
+        retail1_xpp,
+        {0: (8, 8, 2, bytes(chain_size(0x86, 8, 8, 2)))},
+    )
+    (replacements / "A1.xpp").write_bytes(promoted)
+    profile = tmp_path / "profile"
+
+    with pytest.raises(ValueError, match="observed startup-fail bound"):
+        build_profile(
+            install1,
+            install2,
+            replacements,
+            profile,
+            known_pass_extra=16,
+            known_fail_extra=32,
+            fail_on_budget=True,
+        )
+
+    assert not profile.exists()
 
 
 def test_profile_build_rejects_unknown_replacement_without_partial_output(tmp_path: Path):
