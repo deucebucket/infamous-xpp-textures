@@ -8,6 +8,7 @@ End-to-end XPP/PSARC tools for inFAMOUS 1 (PS3, BCUS-98119):
 - strictly validate every descriptor and compare candidate texture residency with retail
 - rebuild install PSARCs with selected XPP replacements
 - extract and rebuild a complete install1/install2 profile with a byte audit
+- generate exact texture hash indexes for scene-coverage tracing
 - export **static** mesh sections to GLB
 
 Python 3.10+, standard library only. This repo does not include game files.
@@ -210,6 +211,33 @@ A pack can pass the opening simply because its promoted textures were not used;
 scene coverage is always required before calling a texture gameplay-safe.
 `--fail-on-budget` exits 2 (or refuses `profile-build`) at or above the supplied
 observed startup-fail bound.
+
+### Prove whether a scene reaches exact pack bytes
+
+Generate a full JSON identity map and a compact hash allowlist from any strictly
+valid XPP:
+
+```bash
+xpp-tool runtime-index \
+  --xpp ./replacements/A21.xpp \
+  --label A21-candidate \
+  --json-out ./trace/A21.json \
+  --allowlist-out ./trace/A21.sha256
+```
+
+The index covers each complete descriptor upload, face chain, individual mip,
+and leading mip prefix. Prefixes matter because the RSX path can omit BCn tail
+mips smaller than 4x4 while retaining the encoded bytes that precede them. The
+allowlist is consumed by the opt-in texture observer in the private
+RPCS3 research fork, so unrelated render targets and animated buffers never
+fill the log.
+
+RR — Really Readable rundown: the tool makes fingerprints of the encoded
+texture bytes. A matching runtime fingerprint proves those exact bytes reached
+the observed GPU-upload boundary. No match means either the scene never asked
+for them **or** the game rearranged/copied the bytes first; it does not prove
+which one by itself. Pair the hash result with upload dimensions and a scene
+where the texture is visibly present.
 
 ### 4. Build and audit the installable pair
 

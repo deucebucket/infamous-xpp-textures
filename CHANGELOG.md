@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.5.0 - 2026-08-21
+
+- Added `runtime-index` to hash strictly validated descriptor, face-chain, mip, and mip-prefix payloads.
+- Covered the RSX BCn boundary that omits sub-4x4 tail mips during upload.
+- Added deterministic JSON indexes and plain SHA-256 allowlists for opt-in emulator tracing.
+- Kept runtime conclusions honest: an exact miss means unused or transformed-before-upload, not automatically unused.
+
 ## 1.4.0 - 2026-08-21
 
 - Added strict descriptor, mip-count, heap-bound, overlap, and complete-layout validation.

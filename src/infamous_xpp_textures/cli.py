@@ -14,6 +14,7 @@ from .pack import PackError, pack_replacements, replacements_from_dir, replaceme
 from .pipeline import build_profile, extract_profile, validate_profile
 from .pngio import read_png
 from .psarc import rebuild_archive
+from .runtime import build_runtime_index, write_allowlist
 from .validation import ValidationError, compare_xpp, validate_xpp
 from .xpp import parse_xpp
 
@@ -276,6 +277,37 @@ def cmd_profile_validate(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_runtime_index(args: argparse.Namespace) -> int:
+    try:
+        data, stem = _load(args)
+        report = build_runtime_index(data, args.label or stem)
+        if args.json_out:
+            args.json_out.parent.mkdir(parents=True, exist_ok=True)
+            args.json_out.write_text(
+                json.dumps(report, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+        if args.allowlist_out:
+            write_allowlist(args.allowlist_out, report)
+    except (OSError, ValidationError, ValueError) as error:
+        print(f"runtime-index failed: {error}", file=sys.stderr)
+        return 1
+
+    if not args.json_out and not args.allowlist_out:
+        print(json.dumps(report, indent=2, sort_keys=True))
+    else:
+        print(
+            f"runtime index: {report['descriptor_count']} descriptors, "
+            f"{report['unique_hash_count']} unique exact hashes"
+        )
+        if args.json_out:
+            print(f"wrote {args.json_out}")
+        if args.allowlist_out:
+            print(f"wrote {args.allowlist_out}")
+    print("scene coverage: exact misses may also mean the game transformed texels before upload")
+    return 0
+
+
 def _add_budget_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--known-startup-pass-extra",
@@ -464,6 +496,20 @@ def main(argv: list[str] | None = None) -> int:
     )
     _add_budget_options(p_profile_validate)
     p_profile_validate.set_defaults(func=cmd_profile_validate)
+
+    p_runtime_index = sub.add_parser(
+        "runtime-index",
+        help="generate exact texture hashes for emulator scene-coverage tracing",
+    )
+    _add_source(p_runtime_index)
+    p_runtime_index.add_argument("--label", help="package/profile label stored in the report")
+    p_runtime_index.add_argument("--json-out", type=Path, help="write the full JSON index")
+    p_runtime_index.add_argument(
+        "--allowlist-out",
+        type=Path,
+        help="write one SHA-256 per line for the private RPCS3 observer",
+    )
+    p_runtime_index.set_defaults(func=cmd_runtime_index)
 
     p_ml = sub.add_parser("mesh-list", help="list static mesh sections")
     _add_source(p_ml)
