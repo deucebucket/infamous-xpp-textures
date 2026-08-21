@@ -58,6 +58,14 @@ def extract_entry(psarc_path: str | Path, wanted: str) -> bytes:
     raise FileNotFoundError(f"PSARC entry not found: {wanted}")
 
 
+def iter_archive_entries(psarc_path: str | Path):
+    """Yield ``(manifest_name, payload)`` pairs in archive order."""
+    info, entries, names, blocks = read_toc(psarc_path)
+    with Path(psarc_path).open("rb") as handle:
+        for name, entry in zip(names, entries[1:]):
+            yield name, _read_entry(handle, entry, blocks, info["block_size"])
+
+
 def _bsize_width(block_size: int) -> int:
     if block_size <= 0x100:
         return 1

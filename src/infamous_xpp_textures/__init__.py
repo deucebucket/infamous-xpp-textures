@@ -1,4 +1,4 @@
-"""inFAMOUS 1 XPP texture extraction."""
+"""XPP extraction, rebuilding, and audited PSARC profile tools."""
 
 from .heap import TextureRecord, read_records, verify_layout
 from .xpp import XppError, parse_xpp
@@ -10,4 +10,4 @@ __all__ = [
     "read_records",
     "verify_layout",
 ]
-__version__ = "1.2.0"
+__version__ = "1.3.0"
