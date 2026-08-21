@@ -1,6 +1,15 @@
 # Changelog
 
-## 1.3.0 — 2026-08-21
+## 1.4.0 - 2026-08-21
+
+- Added strict descriptor, mip-count, heap-bound, overlap, and complete-layout validation.
+- Added retail-to-candidate XPP reports with exact promoted records and texture-chain growth.
+- Added `profile-validate` for full replacement-set preflight without building PSARCs.
+- Integrated strict retail comparison into `profile-build` before either output is built.
+- Added optional startup-path pass/fail bounds, JSON reports, and fail-on-budget behavior.
+- Kept runtime evidence path-specific: every promoted texture still requires scene coverage.
+
+## 1.3.0 - 2026-08-21
 
 - Added the neutral `xpp-tool` command while preserving `if1-tex` as a compatible alias.
 - Added `profile-extract` for atomic extraction of a complete install1/install2 PSARC pair with `workspace.json` hashes and entry metadata.

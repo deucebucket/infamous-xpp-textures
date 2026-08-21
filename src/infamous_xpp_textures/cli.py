@@ -9,12 +9,12 @@ from pathlib import Path
 
 from .decode import extract_package, load_xpp_bytes
 from .derive import derive_scaled
-from .heap import read_records, verify_layout
 from .mesh import MeshExportError, export_glb, find_mesh_sections
 from .pack import PackError, pack_replacements, replacements_from_dir, replacements_from_scale
-from .pipeline import build_profile, extract_profile
+from .pipeline import build_profile, extract_profile, validate_profile
 from .pngio import read_png
 from .psarc import rebuild_archive
+from .validation import ValidationError, compare_xpp, validate_xpp
 from .xpp import parse_xpp
 
 
@@ -71,14 +71,49 @@ def cmd_extract_all(args: argparse.Namespace) -> int:
 
 def cmd_verify(args: argparse.Namespace) -> int:
     data, _ = _load(args)
-    pkg = parse_xpp(data, len(data))
-    recs = read_records(data, pkg)
-    ok, tot = verify_layout(recs)
-    print(f"descriptors: {len(recs)}")
-    print(f"layout pairs: {ok}/{tot}  (delta == align128(chain) * faces)")
-    if tot and ok != tot:
+    try:
+        summary, records = validate_xpp(data)
+    except ValidationError as error:
+        print(f"verify failed: {error}", file=sys.stderr)
         return 1
-    return 0 if recs else 1
+    print(f"descriptors: {summary['descriptors']}")
+    print(
+        f"layout pairs: {summary['layout_pairs']}/{summary['layout_pairs']}  "
+        "(complete, nonoverlapping, 128-byte padded)"
+    )
+    print("mip counts: explicit/embedded match")
+    return 0 if records else 1
+
+
+def cmd_validate(args: argparse.Namespace) -> int:
+    try:
+        report = compare_xpp(
+            args.retail.read_bytes(),
+            args.candidate.read_bytes(),
+            known_pass_extra=args.known_pass_extra,
+            known_fail_extra=args.known_fail_extra,
+        )
+    except (OSError, ValidationError) as error:
+        print(f"validate failed: {error}", file=sys.stderr)
+        return 1
+    if args.json:
+        print(json.dumps(report, indent=2, sort_keys=True))
+    else:
+        print("structural preflight: PASS")
+        print(
+            f"descriptors: {report['candidate']['descriptors']}  "
+            f"promoted: {report['promoted_records']}"
+        )
+        print(
+            f"extra texture-chain bytes: {report['chain_delta_bytes']:+,}  "
+            f"padded: {report['padded_chain_delta_bytes']:+,}  "
+            f"package: {report['package_delta_bytes']:+,}"
+        )
+        print(f"startup-path budget: {report['budget']['status']}")
+        print("scene coverage: REQUIRED; structural success does not prove a texture is safe when used")
+    if args.fail_on_budget and report["budget"]["status"] == "at-or-above-observed-startup-fail-range":
+        return 2
+    return 0
 
 
 def cmd_pack(args: argparse.Namespace) -> int:
@@ -196,6 +231,9 @@ def cmd_profile_build(args: argparse.Namespace) -> int:
             args.xpp_dir,
             args.outdir,
             compression_level=args.compression_level,
+            known_pass_extra=args.known_pass_extra,
+            known_fail_extra=args.known_fail_extra,
+            fail_on_budget=args.fail_on_budget,
             progress=lambda message: print(message, flush=True),
         )
     except (OSError, ValueError) as exc:
@@ -206,6 +244,58 @@ def cmd_profile_build(args: argparse.Namespace) -> int:
         f"{sum(archive['entries_audited'] for archive in manifest['archives'])} audited PSARC entries"
     )
     return 0
+
+
+def cmd_profile_validate(args: argparse.Namespace) -> int:
+    try:
+        report = validate_profile(
+            args.install1,
+            args.install2,
+            args.xpp_dir,
+            known_pass_extra=args.known_pass_extra,
+            known_fail_extra=args.known_fail_extra,
+            progress=(None if args.json else lambda message: print(message, flush=True)),
+        )
+    except (OSError, ValueError) as error:
+        print(f"profile-validate failed: {error}", file=sys.stderr)
+        return 1
+    if args.json:
+        print(json.dumps(report, indent=2, sort_keys=True))
+    else:
+        print(
+            f"strict preflight PASS: {report['replacement_count']} replacements, "
+            f"{report['promoted_records']} promoted records"
+        )
+        print(
+            f"extra texture-chain bytes: {report['chain_delta_bytes']:+,}; "
+            f"startup-path budget: {report['budget']['status']}"
+        )
+        print("scene coverage: REQUIRED")
+    if args.fail_on_budget and report["budget"]["status"] == "at-or-above-observed-startup-fail-range":
+        return 2
+    return 0
+
+
+def _add_budget_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--known-startup-pass-extra",
+        "--known-pass-extra",
+        dest="known_pass_extra",
+        type=int,
+        help="observed startup-path passing extra chain bytes",
+    )
+    parser.add_argument(
+        "--known-startup-fail-extra",
+        "--known-fail-extra",
+        dest="known_fail_extra",
+        type=int,
+        help="observed startup-path failing extra chain bytes",
+    )
+    parser.add_argument(
+        "--fail-on-budget",
+        action="store_true",
+        help="exit 2/refuse build at or above the observed startup-fail bound",
+    )
 
 
 def cmd_mesh_list(args: argparse.Namespace) -> int:
@@ -269,6 +359,16 @@ def main(argv: list[str] | None = None) -> int:
     p_ver = sub.add_parser("verify", help="check 128-byte heap-pad layout")
     _add_source(p_ver)
     p_ver.set_defaults(func=cmd_verify)
+
+    p_validate = sub.add_parser(
+        "validate",
+        help="strictly compare one candidate XPP with its retail package",
+    )
+    p_validate.add_argument("--retail", type=Path, required=True)
+    p_validate.add_argument("--candidate", type=Path, required=True)
+    p_validate.add_argument("--json", action="store_true", help="print a machine-readable report")
+    _add_budget_options(p_validate)
+    p_validate.set_defaults(func=cmd_validate)
 
     p_pack = sub.add_parser("pack", help="encode PNGs back into an XPP")
     _add_source(p_pack)
@@ -349,7 +449,21 @@ def main(argv: list[str] | None = None) -> int:
     p_profile_build.add_argument(
         "--compression-level", type=int, choices=range(1, 10), default=9
     )
+    _add_budget_options(p_profile_build)
     p_profile_build.set_defaults(func=cmd_profile_build)
+
+    p_profile_validate = sub.add_parser(
+        "profile-validate",
+        help="strictly validate a replacement set without building PSARCs",
+    )
+    p_profile_validate.add_argument("--install1", type=Path, required=True)
+    p_profile_validate.add_argument("--install2", type=Path, required=True)
+    p_profile_validate.add_argument("--xpp-dir", type=Path, required=True)
+    p_profile_validate.add_argument(
+        "--json", action="store_true", help="print a machine-readable report"
+    )
+    _add_budget_options(p_profile_validate)
+    p_profile_validate.set_defaults(func=cmd_profile_validate)
 
     p_ml = sub.add_parser("mesh-list", help="list static mesh sections")
     _add_source(p_ml)

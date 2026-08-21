@@ -5,6 +5,7 @@ End-to-end XPP/PSARC tools for inFAMOUS 1 (PS3, BCUS-98119):
 - extract textures to PNG
 - encode PNGs back into XPP (same format the game already reads)
 - derive lower-memory 1x/2x XPPs losslessly from existing 2x/4x packs
+- strictly validate every descriptor and compare candidate texture residency with retail
 - rebuild install PSARCs with selected XPP replacements
 - extract and rebuild a complete install1/install2 profile with a byte audit
 - export **static** mesh sections to GLB
@@ -66,6 +67,11 @@ if1-tex extract --psarc /path/to/USRDIR/data.psarc --entry /some.xpp --outdir ./
 if1-tex extract-all --xpp-dir /path/to/xpp-folder --outdir ./out
 if1-tex verify --xpp /path/to/package.xpp
 ```
+
+`verify` now fails on every malformed or unresolved descriptor, explicit versus
+embedded mip-count disagreement, incomplete 128-byte heap layout, overlap, or
+out-of-bounds texel chain. It never silently drops a bad descriptor from the
+reported total.
 
 `--level`, `--index`, `--max`, `--outdir` work on `extract` as before.
 
@@ -174,7 +180,38 @@ xpp-tool pack \
 xpp-tool verify --xpp ./replacements/A21.xpp
 ```
 
-### 3. Build and audit the installable pair
+### 3. Strictly preflight the replacements
+
+Compare one candidate with the exact retail XPP it replaces:
+
+```bash
+xpp-tool validate \
+  --retail ./workspace/xpp/install1/textures/A21.xpp \
+  --candidate ./replacements/A21.xpp \
+  --known-startup-pass-extra 608288 \
+  --known-startup-fail-extra 2705440
+```
+
+Or route and validate the whole replacement set without spending time building
+either PSARC:
+
+```bash
+xpp-tool profile-validate \
+  --install1 ./retail/install1/infamous1.psarc_s \
+  --install2 ./retail/install2/infamous2.psarc_s \
+  --xpp-dir ./replacements \
+  --json
+```
+
+The report includes every descriptor, promoted-record count, exact raw and
+128-byte-padded texture-chain growth, package growth, and per-record changes.
+Optional observed pass/fail bounds are explicitly labeled **startup-path only**.
+A pack can pass the opening simply because its promoted textures were not used;
+scene coverage is always required before calling a texture gameplay-safe.
+`--fail-on-budget` exits 2 (or refuses `profile-build`) at or above the supplied
+observed startup-fail bound.
+
+### 4. Build and audit the installable pair
 
 ```bash
 xpp-tool profile-build \
@@ -185,9 +222,9 @@ xpp-tool profile-build \
 ```
 
 `profile-build` finds which source archive owns each replacement, rejects
-unknown or duplicate basenames, parses every replacement as an XPP, and builds
-both outputs in a hidden staging directory. It then reopens both archives and
-checks:
+unknown or duplicate basenames, performs the same strict retail comparison on
+every XPP, and only then builds both outputs in a hidden staging directory. It
+then reopens both archives and checks:
 
 - PSARC version, compression, block size, flags, entry count, name digests, and exact manifest bytes/order;
 - every replacement payload against the supplied XPP bytes;
@@ -231,7 +268,9 @@ Character packages print that there are no static sections and exit non-zero.
 4. `pack` to a new `.xpp`.
 5. `verify` and `extract` the new file.
 6. Build and byte-audit the complete install pair with `profile-build`.
-7. Test a selective profile in gameplay before increasing its 2x residency.
+7. Run `profile-validate` before the expensive PSARC build.
+8. Test startup and a scene that actually uses every promoted texture before
+   increasing 2x residency.
 
 Do not commit or distribute game files or transformed textures. The tool and
 presets can be distributed; each owner builds the mod from their own dump.
