@@ -8,10 +8,12 @@ import sys
 from pathlib import Path
 
 from .decode import extract_package, load_xpp_bytes
+from .derive import derive_scaled
 from .heap import read_records, verify_layout
 from .mesh import MeshExportError, export_glb, find_mesh_sections
 from .pack import PackError, pack_replacements, replacements_from_dir, replacements_from_scale
 from .pngio import read_png
+from .psarc import rebuild_archive
 from .xpp import parse_xpp
 
 
@@ -94,13 +96,70 @@ def cmd_pack(args: argparse.Namespace) -> int:
     if not replacements:
         raise SystemExit("nothing to pack: pass --replace, --from-dir, or --scale")
     try:
-        out = pack_replacements(data, replacements, allow_resize=args.allow_resize or bool(args.scale))
+        out = pack_replacements(
+            data,
+            replacements,
+            allow_resize=args.allow_resize or bool(args.scale),
+        )
     except (PackError, ValueError) as exc:
         print(f"pack failed: {exc}", file=sys.stderr)
         return 1
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_bytes(out)
     print(f"wrote {args.out}  ({len(out):,} bytes)  replaced {sorted(replacements)}")
+    return 0
+
+
+def cmd_derive(args: argparse.Namespace) -> int:
+    try:
+        result, changed, total = derive_scaled(
+            args.retail.read_bytes(),
+            args.source.read_bytes(),
+            target_scale=args.target_scale,
+            include_indices=set(args.include_index),
+            exclude_indices=set(args.exclude_index),
+            max_upscaled=args.max_upscaled,
+        )
+    except (PackError, ValueError) as exc:
+        print(f"derive failed: {exc}", file=sys.stderr)
+        return 1
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    args.out.write_bytes(result)
+    print(
+        f"wrote {args.out}  ({len(result):,} bytes)  "
+        f"derived {changed}/{total} texture records at {args.target_scale}x"
+    )
+    return 0
+
+
+def cmd_psarc_pack(args: argparse.Namespace) -> int:
+    paths = sorted(args.xpp_dir.glob("*.xpp"))
+    if args.include:
+        wanted = set(args.include)
+        paths = [path for path in paths if path.name in wanted]
+        missing = wanted - {path.name for path in paths}
+        if missing:
+            print(f"missing replacement XPPs: {sorted(missing)}", file=sys.stderr)
+            return 1
+    if not paths:
+        print(f"no replacement XPPs in {args.xpp_dir}", file=sys.stderr)
+        return 1
+    try:
+        result = rebuild_archive(
+            args.psarc,
+            args.out,
+            {path.name: path.read_bytes() for path in paths},
+            compression_level=args.compression_level,
+            require_all=bool(args.include),
+        )
+    except (OSError, ValueError) as exc:
+        print(f"psarc-pack failed: {exc}", file=sys.stderr)
+        return 1
+    print(
+        f"wrote {args.out}  ({result['bytes']:,} bytes)  "
+        f"replaced {result['replaced']}/{result['entries']} entries  "
+        f"ignored {result['ignored']} replacements for other archives"
+    )
     return 0
 
 
@@ -179,6 +238,51 @@ def main(argv: list[str] | None = None) -> int:
         help="allow width/height/mip count to change (implied by --scale)",
     )
     p_pack.set_defaults(func=cmd_pack)
+
+    p_derive = sub.add_parser(
+        "derive",
+        help="losslessly derive a 1x/2x pack from an existing mixed 2x/4x XPP",
+    )
+    p_derive.add_argument("--retail", type=Path, required=True, help="original retail XPP")
+    p_derive.add_argument("--source", type=Path, required=True, help="existing 2x/4x XPP")
+    p_derive.add_argument("--out", type=Path, required=True, help="output XPP")
+    p_derive.add_argument("--target-scale", type=int, choices=(1, 2, 4), default=2)
+    selection = p_derive.add_mutually_exclusive_group()
+    selection.add_argument(
+        "--include-index",
+        action="append",
+        type=lambda value: int(value, 0),
+        default=[],
+        help="derive only this descriptor index (repeatable)",
+    )
+    selection.add_argument(
+        "--exclude-index",
+        action="append",
+        type=lambda value: int(value, 0),
+        default=[],
+        help="keep this descriptor index retail (repeatable)",
+    )
+    selection.add_argument(
+        "--max-upscaled",
+        type=int,
+        help="derive only the N lowest-memory-cost records",
+    )
+    p_derive.set_defaults(func=cmd_derive)
+
+    p_psarc = sub.add_parser(
+        "psarc-pack",
+        help="rebuild an install PSARC with replacement XPPs",
+    )
+    p_psarc.add_argument("--psarc", type=Path, required=True, help="retail source PSARC")
+    p_psarc.add_argument("--xpp-dir", type=Path, required=True, help="replacement XPP directory")
+    p_psarc.add_argument("--out", type=Path, required=True, help="output PSARC")
+    p_psarc.add_argument(
+        "--include",
+        action="append",
+        help="replace only this XPP basename (repeatable)",
+    )
+    p_psarc.add_argument("--compression-level", type=int, choices=range(1, 10), default=9)
+    p_psarc.set_defaults(func=cmd_psarc_pack)
 
     p_ml = sub.add_parser("mesh-list", help="list static mesh sections")
     _add_source(p_ml)

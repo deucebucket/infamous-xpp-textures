@@ -9,11 +9,11 @@ from infamous_xpp_textures.heap import align_up, read_records, verify_layout
 from infamous_xpp_textures.xpp import parse_xpp
 
 
-def _minimal_xpp(*, width=4, height=4, mips=1, fmt=0x86, data_addr=0x1000, extra=b"") -> bytes:
+def _minimal_xpp(*, width=4, height=4, mips=1, fmt=0x86, data_addr=0x70, extra=b"") -> bytes:
     desc = bytearray(0x70)
     struct.pack_into(">III", desc, 0x24, width, height, mips)
     struct.pack_into(">I", desc, 0x40, data_addr)
-    struct.pack_into(">I", desc, 0x44, 0x00018600)  # format word; byte +0x46 = 0x86
+    struct.pack_into(">I", desc, 0x44, (mips << 16) | (fmt << 8))
     desc[0x46] = fmt
     struct.pack_into(">I", desc, 0x58, (width << 16) | height)
 
@@ -54,7 +54,7 @@ def test_parse_and_heap_offset():
 
 def test_layout_two_padded_chains():
     # two 4x4 DXT1 records; second address is +128 (align_up(8) == 128)
-    desc2_addr = 0x1000 + 128
+    desc2_addr = 0xE0 + 128
     # build by hand: two descriptors + 128+8 texel
     from infamous_xpp_textures.heap import chain_size
 
@@ -63,12 +63,12 @@ def test_layout_two_padded_chains():
 
     d0 = bytearray(0x70)
     struct.pack_into(">III", d0, 0x24, 4, 4, 1)
-    struct.pack_into(">I", d0, 0x40, 0x1000)
-    d0[0x46] = 0x86
+    struct.pack_into(">I", d0, 0x40, 0xE0)
+    struct.pack_into(">I", d0, 0x44, 0x00018600)
     d1 = bytearray(0x70)
     struct.pack_into(">III", d1, 0x24, 4, 4, 1)
     struct.pack_into(">I", d1, 0x40, desc2_addr)
-    d1[0x46] = 0x86
+    struct.pack_into(">I", d1, 0x44, 0x00018600)
     texel = bytes(128 + 8)
     payload = bytes(d0) + bytes(d1) + texel
     nseg, nchunk, nfix = 1, 2, 0
