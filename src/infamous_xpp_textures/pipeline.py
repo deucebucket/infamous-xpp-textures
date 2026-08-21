@@ -10,7 +10,7 @@ import tempfile
 from pathlib import Path, PurePosixPath
 from typing import Callable
 
-from .psarc import iter_archive_entries, read_toc, rebuild_archive
+from .psarc import iter_archive_entries, read_manifest, read_toc, rebuild_archive
 from .xpp import parse_xpp
 
 
@@ -197,6 +197,13 @@ def audit_archive(
             raise ValueError(f"PSARC audit failed: {key} changed")
     if source_names != rebuilt_names or len(source_entries) != len(rebuilt_entries):
         raise ValueError("PSARC audit failed: manifest order or entry count changed")
+    if read_manifest(source) != read_manifest(rebuilt):
+        raise ValueError("PSARC audit failed: exact manifest bytes changed")
+    if any(
+        source_entry["md5"] != rebuilt_entry["md5"]
+        for source_entry, rebuilt_entry in zip(source_entries, rebuilt_entries, strict=True)
+    ):
+        raise ValueError("PSARC audit failed: entry name digest changed")
 
     changed = unchanged = 0
     for (name, source_payload), (rebuilt_name, rebuilt_payload) in zip(
@@ -253,7 +260,12 @@ def _read_replacements(root: Path) -> dict[str, Path]:
         raise NotADirectoryError(f"replacement directory was not found: {root}")
     replacements: dict[str, Path] = {}
     duplicates = set()
-    for path in sorted((*root.rglob("*.xpp"), *root.rglob("*.xpps"))):
+    paths = (
+        path
+        for path in root.rglob("*")
+        if path.is_file() and path.suffix.casefold() in (".xpp", ".xpps")
+    )
+    for path in sorted(paths):
         folded = path.name.casefold()
         if folded in replacements:
             duplicates.add(path.name)

@@ -189,7 +189,7 @@ unknown or duplicate basenames, parses every replacement as an XPP, and builds
 both outputs in a hidden staging directory. It then reopens both archives and
 checks:
 
-- PSARC version, compression, block size, flags, entry count, and manifest order;
+- PSARC version, compression, block size, flags, entry count, name digests, and exact manifest bytes/order;
 - every replacement payload against the supplied XPP bytes;
 - every unchanged payload against the retail source bytes;
 - source and output sizes and SHA-256 hashes.

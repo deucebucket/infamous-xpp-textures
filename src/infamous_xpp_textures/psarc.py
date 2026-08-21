@@ -66,6 +66,13 @@ def iter_archive_entries(psarc_path: str | Path):
             yield name, _read_entry(handle, entry, blocks, info["block_size"])
 
 
+def read_manifest(psarc_path: str | Path) -> bytes:
+    """Return the manifest entry exactly as stored after decompression."""
+    info, entries, _names, blocks = read_toc(psarc_path)
+    with Path(psarc_path).open("rb") as handle:
+        return _read_entry(handle, entries[0], blocks, info["block_size"])
+
+
 def _bsize_width(block_size: int) -> int:
     if block_size <= 0x100:
         return 1

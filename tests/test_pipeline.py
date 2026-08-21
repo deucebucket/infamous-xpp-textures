@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from infamous_xpp_textures.pipeline import build_profile, extract_profile
+from infamous_xpp_textures.pipeline import audit_archive, build_profile, extract_profile
 from infamous_xpp_textures.psarc import build_archive, extract_entry
 
 from test_synthetic import _minimal_xpp
@@ -97,3 +97,15 @@ def test_profile_extract_rejects_duplicate_package_basenames(tmp_path: Path):
 
     with pytest.raises(ValueError, match="routing ambiguous"):
         extract_profile(install1, install2, tmp_path / "workspace")
+
+
+def test_archive_audit_rejects_changed_entry_name_digest(tmp_path: Path):
+    source = tmp_path / "source.psarc_s"
+    rebuilt = tmp_path / "rebuilt.psarc_s"
+    source.write_bytes(build_archive(["/A1.xpp"], [_minimal_xpp()]))
+    changed = bytearray(source.read_bytes())
+    changed[32 + 30] ^= 0x01  # first byte of the named entry's MD5 descriptor
+    rebuilt.write_bytes(changed)
+
+    with pytest.raises(ValueError, match="name digest changed"):
+        audit_archive(source, rebuilt, {})
