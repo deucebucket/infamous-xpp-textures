@@ -395,6 +395,21 @@ on. That reduces a pile of 13 mystery blocks to the exact five vertex arrays
 used by the 26-vertex piece. It still does not call a tab "position" or
 "weights" merely because the label looks familiar.
 
+Version 2.1 takes the next bounded step for vertex arrays whose RSX numeric
+format is already defined. It decodes big-endian `float32`, `float16`, and
+`unorm8` elements for the exact captured index span, re-encodes them into a
+copy of the original strided payload, and requires byte-for-byte and SHA-256
+identity. Reports contain only counts, formats, component minima/maxima, and
+hashes. Captured bytes and per-vertex values remain local. `cmp32` stays
+explicitly unsupported because its component packing has not been proved.
+
+RR — Really Readable rundown: we can now read three kinds of numbered vertex
+pages and put every byte back exactly where it came from. That proves the
+number reader is correct; it does not yet prove what the numbers mean. A
+three-float page may look like positions, but xpp-tool will not label it until
+those values are mathematically tied back to one packed XPP stream. Model
+export and injection therefore remain blocked.
+
 ## Typical HD texture pass
 
 1. `profile-extract` the protected retail install pair.

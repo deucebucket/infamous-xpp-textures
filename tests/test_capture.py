@@ -8,6 +8,7 @@ from infamous_xpp_textures.capture import (
     RRC_VERSION,
     RrcCaptureError,
     build_rrc_character_match_report,
+    summarize_rsx_vertex_payload_numeric,
 )
 from test_character import _wrapped_character_xpp
 
@@ -208,6 +209,20 @@ def test_capture_report_decodes_and_binds_rsx_vertex_array(tmp_path):
     assert attribute["expected_capture_size"] == 60
     assert attribute["binding_proved"] is True
     assert attribute["matching_memory_blocks"][0]["payload_size"] == 60
+    assert attribute["numeric_decode"]["status"] == "exact-byte-round-trip"
+    assert attribute["numeric_decode"]["byte_order"] == "big-endian"
+    assert attribute["numeric_decode"]["element_count"] == 4
+    assert attribute["numeric_decode"]["component_minimum"] == [0.0, 0.0, 0.0]
+    assert attribute["numeric_decode"]["component_maximum"] == [0.0, 0.0, 0.0]
+    assert attribute["numeric_decode"]["source_sha256"] == attribute["numeric_decode"][
+        "reencoded_sha256"
+    ]
+    assert report["numeric_round_trip_attribute_count"] == 1
+    assert report["unsupported_numeric_attribute_count"] == 0
+    assert report["partial_numeric_round_trip_proved"] is True
+    assert report["complete_numeric_round_trip_proved"] is True
+    assert report["export_authorized"] is False
+    assert report["injection_authorized"] is False
     assert state["decoded_vertex_semantics_proved"] is False
 
 
@@ -223,3 +238,54 @@ def test_capture_report_rejects_absent_replay_memory_block(tmp_path):
         build_rrc_character_match_report(
             _wrapped_character_xpp(), "target.xpp", capture
         )
+
+
+def _numeric_attribute(
+    type_raw: int,
+    type_name: str,
+    component_count: int,
+    stride: int,
+    element_byte_count: int,
+    index_span: int,
+) -> dict:
+    return {
+        "type_raw": type_raw,
+        "type_name": type_name,
+        "component_count": component_count,
+        "stride": stride,
+        "element_byte_count": element_byte_count,
+        "index_span": index_span,
+        "expected_capture_size": stride * index_span + element_byte_count,
+    }
+
+
+def test_numeric_vertex_decoder_round_trips_half_and_unorm_padding():
+    half_attribute = _numeric_attribute(3, "float16", 3, 8, 8, 2)
+    half_payload = (
+        struct.pack(">4e", 1.0, -2.0, 0.5, 7.0)
+        + struct.pack(">4e", 3.0, 4.0, -1.0, 8.0)
+        + bytes(8)
+    )
+    half = summarize_rsx_vertex_payload_numeric(half_attribute, half_payload)
+    assert half["component_minimum"] == [1.0, -2.0, -1.0]
+    assert half["component_maximum"] == [3.0, 4.0, 0.5]
+    assert half["source_sha256"] == half["reencoded_sha256"]
+
+    unorm_attribute = _numeric_attribute(4, "unorm8", 4, 4, 4, 2)
+    unorm_payload = bytes((0, 64, 128, 255, 255, 128, 64, 0)) + bytes(4)
+    unorm = summarize_rsx_vertex_payload_numeric(unorm_attribute, unorm_payload)
+    assert unorm["component_minimum"] == [0.0, 64 / 255, 64 / 255, 0.0]
+    assert unorm["component_maximum"] == [1.0, 128 / 255, 128 / 255, 1.0]
+    assert unorm["exact_byte_round_trip"] is True
+
+
+def test_numeric_vertex_decoder_fails_closed_for_cmp32_and_nonfinite_float():
+    cmp_attribute = _numeric_attribute(6, "cmp32", 1, 4, 4, 2)
+    unsupported = summarize_rsx_vertex_payload_numeric(cmp_attribute, b"")
+    assert unsupported["status"] == "unsupported-format"
+    assert unsupported["exact_byte_round_trip"] is False
+
+    float_attribute = _numeric_attribute(2, "float32", 3, 12, 12, 1)
+    float_payload = struct.pack(">3f", 0.0, float("nan"), 1.0) + bytes(12)
+    with pytest.raises(RrcCaptureError, match="non-finite"):
+        summarize_rsx_vertex_payload_numeric(float_attribute, float_payload)

@@ -1,9 +1,10 @@
-"""Payload-free correlation of skinned XPP topology with RPCS3 RSX captures."""
+"""Payload-free reports correlating skinned XPP topology with RPCS3 captures."""
 
 from __future__ import annotations
 
 import gzip
 import hashlib
+import math
 import struct
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -135,6 +136,125 @@ def _rsx_vertex_element_size(type_raw: int, component_count: int) -> int | None:
     if type_raw == 7 and component_count == 4:
         return 4
     return None
+
+
+def summarize_rsx_vertex_payload_numeric(attribute: dict, payload: bytes) -> dict:
+    """Decode supported RSX elements and prove an exact payload-local byte round trip."""
+
+    type_raw = attribute["type_raw"]
+    component_count = attribute["component_count"]
+    type_name = attribute["type_name"]
+    if type_raw not in (2, 3, 4):
+        return {
+            "status": "unsupported-format",
+            "type_name": type_name,
+            "reason": "numeric component packing is not proved for this RSX format",
+            "payload_bytes_serialized": False,
+            "exact_byte_round_trip": False,
+        }
+
+    index_span = attribute["index_span"]
+    stride = attribute["stride"]
+    element_byte_count = attribute["element_byte_count"]
+    expected_size = attribute["expected_capture_size"]
+    if len(payload) != expected_size:
+        raise RrcCaptureError(
+            f"bound vertex payload size drift: expected {expected_size}, found {len(payload)}"
+        )
+    if index_span <= 0 or stride <= 0 or element_byte_count <= 0:
+        raise RrcCaptureError("bound vertex payload has an invalid count, stride, or element size")
+
+    component_values: list[list[float]] = [[] for _ in range(component_count)]
+    rebuilt = bytearray(payload)
+    for index in range(index_span):
+        start = index * stride
+        end = start + element_byte_count
+        if end > len(payload):
+            raise RrcCaptureError("bound vertex payload is truncated inside its declared stride")
+        raw = payload[start:end]
+        if type_raw == 2:
+            values = struct.unpack(f">{component_count}f", raw)
+            encoded = struct.pack(f">{component_count}f", *values)
+        elif type_raw == 3:
+            stored_components = 4 if component_count == 3 else component_count
+            stored_values = struct.unpack(f">{stored_components}e", raw)
+            values = stored_values[:component_count]
+            encoded = struct.pack(f">{component_count}e", *values) + raw[component_count * 2 :]
+        else:
+            values = tuple(value / 255.0 for value in raw[:component_count])
+            encoded = bytes(round(value * 255.0) for value in values) + raw[component_count:]
+        if not all(math.isfinite(value) for value in values):
+            raise RrcCaptureError(
+                f"bound {type_name} vertex payload contains a non-finite component"
+            )
+        rebuilt[start:end] = encoded
+        for component, value in enumerate(values):
+            component_values[component].append(value)
+
+    source_sha256 = hashlib.sha256(payload).hexdigest()
+    rebuilt_bytes = bytes(rebuilt)
+    rebuilt_sha256 = hashlib.sha256(rebuilt_bytes).hexdigest()
+    exact_round_trip = rebuilt_bytes == payload
+    if not exact_round_trip:
+        raise RrcCaptureError(f"bound {type_name} vertex payload failed exact byte reconstruction")
+    return {
+        "status": "exact-byte-round-trip",
+        "type_name": type_name,
+        "byte_order": "big-endian",
+        "element_count": index_span,
+        "component_count": component_count,
+        "stride": stride,
+        "element_byte_count": element_byte_count,
+        "component_minimum": [min(values) for values in component_values],
+        "component_maximum": [max(values) for values in component_values],
+        "source_sha256": source_sha256,
+        "reencoded_sha256": rebuilt_sha256,
+        "exact_byte_round_trip": True,
+        "payload_bytes_serialized": False,
+    }
+
+
+def _read_selected_capture_payloads(capture_path: Path, states: set[int]) -> dict[int, bytes]:
+    """Re-read only selected payload states after draw descriptors identify them."""
+
+    if not states:
+        return {}
+    try:
+        with capture_path.open("rb") as probe:
+            gzip_wrapped = probe.read(2) == b"\x1f\x8b"
+        stream = gzip.open(capture_path, "rb") if gzip_wrapped else capture_path.open("rb")
+    except OSError as error:
+        raise RrcCaptureError(f"cannot reopen RRC capture: {error}") from error
+    selected: dict[int, bytes] = {}
+    with stream:
+        reader = _RrcReader(stream)
+        magic = reader.u32("numeric-pass magic")
+        version = reader.u32("numeric-pass version")
+        little_endian = reader.u32("numeric-pass endianness")
+        if magic != RRC_MAGIC or version != RRC_VERSION or little_endian != 1:
+            raise RrcCaptureError("RRC identity changed before the numeric payload pass")
+        _skip_map(reader, "numeric-pass tile-state map", RRC_TILE_STATE_BYTES)
+        _skip_map(reader, "numeric-pass memory-block map", RRC_MEMORY_BLOCK_BYTES)
+        payload_count = reader.vle("numeric-pass memory-payload map count")
+        seen: set[int] = set()
+        for index in range(payload_count):
+            state = reader.u64(f"numeric-pass memory-payload key {index}")
+            if state in seen:
+                raise RrcCaptureError("RRC numeric payload pass contains a duplicate key")
+            seen.add(state)
+            size = reader.vle(
+                f"numeric-pass memory-payload {index} size",
+                maximum=RRC_MAX_PAYLOAD_BYTES,
+            )
+            payload = reader.take(size, f"numeric-pass memory payload {index}")
+            if state in states:
+                selected[state] = payload
+        missing = states - selected.keys()
+        if missing:
+            raise RrcCaptureError(
+                f"RRC numeric payload pass could not recover {len(missing)} selected states"
+            )
+    return selected
 
 
 def _register_value(registers: dict[int, dict], offset: int) -> int | None:
@@ -651,6 +771,66 @@ def build_rrc_character_match_report(
         decompressed_size = reader.offset
         decompressed_sha256 = reader.digest.hexdigest()
 
+    selected_states: set[int] = set()
+    for binding in draw_bindings:
+        for attribute in binding["rsx_draw_state"]["vertex_arrays"]:
+            if (
+                attribute["binding_proved"]
+                and attribute["type_raw"] in (2, 3, 4)
+                and len(attribute["matching_memory_blocks"]) == 1
+            ):
+                block_key = attribute["matching_memory_blocks"][0]["block_key"]
+                selected_states.add(blocks_by_key[block_key]["data_state"])
+    selected_payloads = _read_selected_capture_payloads(capture_path, selected_states)
+    numeric_round_trip_attribute_count = 0
+    unsupported_numeric_attribute_count = 0
+    for binding in draw_bindings:
+        state = binding["rsx_draw_state"]
+        for attribute in state["vertex_arrays"]:
+            if not attribute["binding_proved"] or len(attribute["matching_memory_blocks"]) != 1:
+                numeric = {
+                    "status": "unbound-payload",
+                    "reason": "numeric decoding requires one exact bound memory block",
+                    "payload_bytes_serialized": False,
+                    "exact_byte_round_trip": False,
+                }
+            elif attribute["type_raw"] not in (2, 3, 4):
+                numeric = summarize_rsx_vertex_payload_numeric(attribute, b"")
+                unsupported_numeric_attribute_count += 1
+            else:
+                block_key = attribute["matching_memory_blocks"][0]["block_key"]
+                payload_state = blocks_by_key[block_key]["data_state"]
+                payload = selected_payloads[payload_state]
+                expected_sha256 = attribute["matching_memory_blocks"][0][
+                    "payload_sha256"
+                ]
+                if hashlib.sha256(payload).hexdigest() != expected_sha256:
+                    raise RrcCaptureError(
+                        "bound vertex payload changed between capture parsing passes"
+                    )
+                numeric = summarize_rsx_vertex_payload_numeric(
+                    attribute, payload
+                )
+                numeric_round_trip_attribute_count += 1
+            attribute["numeric_decode"] = numeric
+        active_count = state["active_vertex_attribute_count"]
+        state_round_trips = sum(
+            item["numeric_decode"]["exact_byte_round_trip"]
+            for item in state["vertex_arrays"]
+        )
+        state_unsupported = sum(
+            item["numeric_decode"]["status"] == "unsupported-format"
+            for item in state["vertex_arrays"]
+        )
+        state["numeric_round_trip_attribute_count"] = state_round_trips
+        state["unsupported_numeric_attribute_count"] = state_unsupported
+        state["partial_numeric_round_trip_proved"] = state_round_trips > 0
+        state["complete_numeric_round_trip_proved"] = (
+            state["rsx_vertex_binding_proved"]
+            and state_round_trips == active_count
+            and state_unsupported == 0
+        )
+
     exact_matches.sort(
         key=lambda item: (item["record_offset"], item["capture_data_state"])
     )
@@ -679,7 +859,7 @@ def build_rrc_character_match_report(
     ]
     return {
         "format": "infamous-rpcs3-character-capture-match",
-        "version": 3,
+        "version": 4,
         "target": {
             "source": target["source"],
             "source_sha256": target["source_sha256"],
@@ -716,6 +896,14 @@ def build_rrc_character_match_report(
         "draw_binding_count": len(draw_bindings),
         "live_draw_binding_proved": live_draw_binding_proved,
         "rsx_vertex_binding_proved": rsx_vertex_binding_proved,
+        "numeric_round_trip_attribute_count": numeric_round_trip_attribute_count,
+        "unsupported_numeric_attribute_count": unsupported_numeric_attribute_count,
+        "partial_numeric_round_trip_proved": numeric_round_trip_attribute_count > 0,
+        "complete_numeric_round_trip_proved": bool(draw_bindings)
+        and all(
+            item["rsx_draw_state"]["complete_numeric_round_trip_proved"]
+            for item in draw_bindings
+        ),
         "bounded_transform_matches": transformed_matches,
         "bounded_transform_match_count": len(transformed_matches),
         "unmatched_target_records": unmatched,
@@ -735,11 +923,15 @@ def build_rrc_character_match_report(
         ),
         "payload_bytes_serialized": False,
         "decoded_vertex_semantics_proved": False,
+        "export_authorized": False,
+        "injection_authorized": False,
         "limitations": (
             "an exact index hash binds captured guest memory to one XPP topology record; "
             "a draw-end binding proves that the block was attached to one captured draw but "
-            "an RSX vertex binding assigns raw attribute formats and memory extents without "
+            "an RSX vertex binding assigns raw attribute formats and memory extents, and "
+            "supported numeric arrays may prove an exact decode/re-encode round trip without "
             "assigning position, normal, UV, joint, or weight semantics; "
+            "cmp32 remains unsupported; "
             "byte-order/index-delta/winding candidates are reported separately and do not "
             "prove ownership; absence does not prove the character was not visible, and "
             "vertex attributes, draw ownership, skin weights, palettes, transforms, and "
