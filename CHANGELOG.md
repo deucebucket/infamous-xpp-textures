@@ -1,5 +1,22 @@
 # Changelog
 
+## 2.1.0 - 2026-08-22
+
+- Added aggregate numeric decoding for bound RSX `float32`, `float16`, and `unorm8` character arrays.
+- Required exact decode/re-encode byte and SHA-256 round trips while keeping captured payload bytes out of reports.
+- Kept `cmp32` and every model semantic fail-closed; export and injection remain unauthorized.
+
+## 2.0.0 - 2026-08-21
+
+- Replayed captured RSX draw state and bound exact character topology hits to active vertex descriptors and memory extents.
+- Kept raw attribute numbers semantic-free until numeric and packed-XPP correlation can prove their meaning.
+
+## 1.7.0 - 2026-08-21
+
+- Added deterministic skinned-XPP and owned Fallout 4/76 NIF compatibility reports.
+- Added payload-free RPCS3 capture matching and live draw-memory binding for exact character index streams.
+- Kept model conversion and injection blocked behind target stream, palette, weight, hierarchy, material, and runtime gates.
+
 ## 1.6.0 - 2026-08-21
 
 - Added atomic, explicit `runtime-bundle` output for hash-bound host GPU replacement canaries.
