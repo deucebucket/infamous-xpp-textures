@@ -1,4 +1,5 @@
 import gzip
+import hashlib
 import struct
 
 import pytest
@@ -28,8 +29,10 @@ def _rrc(
     *,
     missing_block_reference: bool = False,
     sibling_payload: bytes | None = None,
+    sibling_payloads: list[tuple[int, int, bytes]] | None = None,
     sibling_location: int = 1,
     described_draw: bool = False,
+    described_attributes: list[tuple[int, int, int]] | None = None,
 ) -> bytes:
     block_key = 0x1111222233334444
     data_state = 0xAAAABBBBCCCCDDDD
@@ -42,6 +45,16 @@ def _rrc(
                 sibling_location,
                 data_state + 1,
                 sibling_payload,
+            )
+        )
+    for offset, location, payload in sibling_payloads or []:
+        blocks.append(
+            (
+                block_key + len(blocks),
+                offset,
+                location,
+                data_state + len(blocks),
+                payload,
             )
         )
     result = bytearray(struct.pack("<III", RRC_MAGIC, RRC_VERSION, 1))
@@ -57,6 +70,25 @@ def _rrc(
     result.extend(_vle(0))
     state_keys = [block[0] for block in blocks]
     commands = (
+        [
+            (0x1738, 0, []),
+            (0x173C, 0, []),
+            *(
+                command
+                for attribute, offset_word, format_word in described_attributes
+                for command in (
+                    (0x1680 + attribute * 4, offset_word, []),
+                    (0x1740 + attribute * 4, format_word, []),
+                )
+            ),
+            (0x181C, 0x00123400, []),
+            (0x1820, 0x10, []),
+            (0x1808, 5, []),
+            (0x1824, 0x05000000, []),
+            (0x1808, 0, state_keys),
+        ]
+        if described_attributes is not None
+        else
         [
             (0x1680, 0x00123500, []),
             (0x1738, 0, []),
@@ -224,6 +256,96 @@ def test_capture_report_decodes_and_binds_rsx_vertex_array(tmp_path):
     assert report["export_authorized"] is False
     assert report["injection_authorized"] is False
     assert state["decoded_vertex_semantics_proved"] is False
+    assert state["xpp_stream_zero_binding"]["status"] == "no-exact-byte-match"
+    assert state["xpp_stream_zero_byte_binding_proved"] is False
+
+
+def _interleaved_stream_zero_xpp() -> tuple[bytes, bytes]:
+    xpp = bytearray(_wrapped_character_xpp())
+    data_offset = struct.unpack_from(">I", xpp, 8 + 8 * 4)[0]
+    records = [
+        bytes((1, 2, 3, 4)) + struct.pack(">3e", 0.25, 0.5, -1.0),
+        bytes((5, 6, 7, 8)) + struct.pack(">3e", 0.5, 0.75, -1.0),
+        bytes((9, 10, 11, 12)) + struct.pack(">3e", 0.75, 1.0, -1.0),
+        bytes((13, 14, 15, 16)) + struct.pack(">3e", 1.0, 0.25, -1.0),
+    ]
+    stream_zero = b"".join(records)
+    xpp[data_offset + 0x400 : data_offset + 0x400 + len(stream_zero)] = stream_zero
+    return bytes(xpp), stream_zero
+
+
+def test_capture_report_reconstructs_unique_interleaved_xpp_stream_zero(tmp_path):
+    xpp, stream_zero = _interleaved_stream_zero_xpp()
+    capture = tmp_path / "interleaved.rrc.gz"
+    capture.write_bytes(
+        _rrc(
+            struct.pack(">6H", 0, 1, 2, 2, 3, 0),
+            sibling_payloads=[
+                (0x123500, 1, stream_zero + bytes(4)),
+                (0x123504, 1, stream_zero[4:] + bytes(12)),
+            ],
+            described_attributes=[
+                (3, 0x80123500, 0x00000A44),
+                (9, 0x80123504, 0x00000A33),
+            ],
+        )
+    )
+    report = build_rrc_character_match_report(xpp, "target.xpp", capture)
+    state = report["draw_bindings"][0]["rsx_draw_state"]
+    binding = state["xpp_stream_zero_binding"]
+    assert binding["status"] == "unique-exact-byte-match"
+    assert binding["candidate_layout_count"] == 1
+    assert binding["exact_match_count"] == 1
+    assert binding["xpp_stream_index"] == 0
+    assert binding["vertex_count"] == 4
+    assert binding["stride"] == 10
+    assert binding["byte_count"] == 40
+    assert binding["distinct_vertex_record_count"] == 4
+    assert binding["distinct_byte_value_count"] > 1
+    assert [item["attribute"] for item in binding["attribute_layout"]] == [3, 9]
+    assert binding["source_sha256"] == hashlib.sha256(stream_zero).hexdigest()
+    assert binding["source_sha256"] == binding["reconstructed_sha256"]
+    assert binding["semantic"] is None
+    assert binding["payload_bytes_serialized"] is False
+    assert state["xpp_stream_zero_byte_binding_proved"] is True
+    assert state["xpp_stream_zero_numeric_reconstruction_proved"] is True
+    assert report["xpp_stream_zero_binding_count"] == 1
+    assert report["xpp_stream_zero_byte_binding_proved"] is True
+    assert report["xpp_stream_zero_numeric_reconstruction_proved"] is True
+    assert report["decoded_vertex_semantics_proved"] is False
+    assert report["export_authorized"] is False
+    assert report["injection_authorized"] is False
+
+
+def test_capture_report_rejects_ambiguous_stream_zero_layouts(tmp_path):
+    xpp, stream_zero = _interleaved_stream_zero_xpp()
+    capture = tmp_path / "ambiguous-interleaved.rrc.gz"
+    capture.write_bytes(
+        _rrc(
+            struct.pack(">6H", 0, 1, 2, 2, 3, 0),
+            sibling_payloads=[
+                (0x123500, 1, stream_zero + bytes(4)),
+                (0x123504, 1, stream_zero[4:] + bytes(12)),
+                (0x123600, 0, stream_zero + bytes(4)),
+                (0x123604, 0, stream_zero[4:] + bytes(12)),
+            ],
+            described_attributes=[
+                (3, 0x80123500, 0x00000A44),
+                (9, 0x80123504, 0x00000A33),
+                (4, 0x00123600, 0x00000A44),
+                (10, 0x00123604, 0x00000A33),
+            ],
+        )
+    )
+    report = build_rrc_character_match_report(xpp, "target.xpp", capture)
+    state = report["draw_bindings"][0]["rsx_draw_state"]
+    binding = state["xpp_stream_zero_binding"]
+    assert binding["status"] == "ambiguous-exact-byte-match"
+    assert binding["candidate_layout_count"] == 2
+    assert binding["exact_match_count"] == 2
+    assert state["xpp_stream_zero_byte_binding_proved"] is False
+    assert report["xpp_stream_zero_byte_binding_proved"] is False
+    assert report["decoded_vertex_semantics_proved"] is False
 
 
 def test_capture_report_rejects_absent_replay_memory_block(tmp_path):

@@ -410,6 +410,22 @@ three-float page may look like positions, but xpp-tool will not label it until
 those values are mathematically tied back to one packed XPP stream. Model
 export and injection therefore remain blocked.
 
+Version 2.2 correlates those supported arrays back to XPP stream zero. It
+searches bound arrays that share a location and stride, requires their numeric
+component bytes to cover one complete record with no gaps or overlaps, rebuilds
+every record, and compares the result with the bounded stream-zero bytes in the
+matched XPP geometry heap. A match is accepted only when it is unique and the
+source contains multiple distinct records and byte values, avoiding an
+all-zero coincidence. Reports still contain only layout metadata and hashes.
+
+RR — Really Readable rundown: two separate RSX tabs turned out to be one XPP
+page split at byte 4. For the visible 26-vertex Zeke piece, attribute 3 supplies
+four bytes and attribute 9 supplies six bytes; joining them makes each original
+10-byte XPP record exactly. This proves how stream zero is carried to the GPU.
+It still does not prove whether either field means UVs, color, weights, joints,
+or something else. The remaining three compressed streams and model semantics
+must be solved before export or injection can be enabled.
+
 ## Typical HD texture pass
 
 1. `profile-extract` the protected retail install pair.
