@@ -656,6 +656,23 @@ That means the next search needs the smaller pieces of those textures—their
 mips and prefixes—not a larger guess. The new limit fits that exact 501-hash
 evidence set with 11 spare rows; it is not an unbounded memory increase.
 
+Version 2.12 also accepts `if1-texture-bound-topology-v2`. Each captured draw
+must include exactly one 8,708-byte RSX vertex-program image (including its
+entry point) and one 8,192-byte transform-constant bank. Their filenames,
+sizes, SHA-256 values, event numbers, binding rows, completion totals, and the
+entire directory file set must reconcile before an export is written. The
+older census-v1 and texture-bound-v1 formats remain accepted unchanged.
+
+RR — Really Readable rundown: we now have real Zeke-material-bound geometry,
+but the pieces are stored before the GPU places and bends them. The v2 bundle
+preserves the small GPU “recipe and ingredient table” used for that placement:
+the vertex program says what math to perform, and the constant bank supplies
+matrices and other per-draw values. Capturing them does not magically prove
+which values are bones, but it gives the next analyzer exact, hash-bound input
+instead of forcing it to guess. A completed full Zeke render remains the gate
+for the first 3840×2160 image; partial progress can still publish immediately
+at quick resolution.
+
 ## Typical HD texture pass
 
 1. `profile-extract` the protected retail install pair.

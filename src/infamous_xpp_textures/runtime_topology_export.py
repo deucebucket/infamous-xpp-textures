@@ -55,17 +55,31 @@ _TEXTURE_BINDING_FIELDS = _BINDING_FIELDS + (
     "shader_reference_proven",
     "capture_key",
 )
+_TEXTURE_TRANSFORM_BINDING_FIELDS = _TEXTURE_BINDING_FIELDS + (
+    "vertex_program_file",
+    "vertex_program_bytes",
+    "transform_constants_file",
+    "transform_constants_bytes",
+)
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 _BINDING_NAME = re.compile(r"topology-(\d+)-binding\.tsv")
 _PAYLOAD_NAME = re.compile(r"topology-(\d+)-(?:index|block-(\d+))-[0-9a-f]{16}\.bin")
+_VERTEX_PROGRAM_NAME = re.compile(
+    r"topology-(\d+)-vertex-program-([0-9a-f]{16})\.bin"
+)
+_TRANSFORM_CONSTANTS_NAME = re.compile(
+    r"topology-(\d+)-transform-constants-([0-9a-f]{16})\.bin"
+)
 _MAX_TARGETS = 16
 _MAX_TEXTURE_HASHES = 512
 _MAX_BOUND_ADDRESSES = 256
 _MAX_TEXTURE_ALLOWLIST_BYTES = 40 * 1024
-_MAX_BUNDLE_FILES = 1 + _MAX_TARGETS + _MAX_TARGETS * 17
+_MAX_BUNDLE_FILES = 1 + _MAX_TARGETS + _MAX_TARGETS * 19
 _MAX_INDEX_BYTES = 4 * 1024 * 1024
 _MAX_BLOCK_BYTES = 8 * 1024 * 1024
 _MAX_PAYLOAD_BYTES = 64 * 1024 * 1024
+_VERTEX_PROGRAM_BYTES = 544 * 4 * 4 + 4
+_TRANSFORM_CONSTANTS_BYTES = 512 * 4 * 4
 
 
 @dataclass(frozen=True)
@@ -95,6 +109,8 @@ class _Event:
     vertex_program_sha256: str
     fragment_program_register_sha256: str
     transform_constants_sha256: str
+    vertex_program_file: str | None = None
+    transform_constants_file: str | None = None
     target_texture_slots: tuple[int, ...] = ()
     target_texture_sha256s: tuple[str, ...] = ()
     binding_scope: str | None = None
@@ -134,6 +150,23 @@ def _payload_filename(value: str, event: int, block: int | None) -> str:
     if match is None or int(match.group(1), 10) != event or captured_block != block:
         raise RuntimeTopologyExportError(
             "payload filename does not match its event/block"
+        )
+    return value
+
+
+def _auxiliary_filename(
+    value: str, event: int, expected_sha: str, *, constants: bool
+) -> str:
+    value = _plain_filename(value, "auxiliary payload filename")
+    pattern = _TRANSFORM_CONSTANTS_NAME if constants else _VERTEX_PROGRAM_NAME
+    match = pattern.fullmatch(value)
+    if (
+        match is None
+        or int(match.group(1), 10) != event
+        or match.group(2) != expected_sha[:16]
+    ):
+        raise RuntimeTopologyExportError(
+            "auxiliary payload filename does not match its event/SHA-256"
         )
     return value
 
@@ -255,7 +288,10 @@ def _parse_completion(path: Path) -> dict[str, int | str]:
             )
         return result
 
-    if capture_format != "if1-texture-bound-topology-v1" or set(rows) != texture_fields:
+    if capture_format not in (
+        "if1-texture-bound-topology-v1",
+        "if1-texture-bound-topology-v2",
+    ) or set(rows) != texture_fields:
         raise RuntimeTopologyExportError("capture.complete schema or format is invalid")
     result = {"format": capture_format, "binding_scope": rows["binding_scope"]}
     nonzero_names = {"target_texture_hashes", "capture_limit"}
@@ -279,7 +315,7 @@ def _parse_completion(path: Path) -> dict[str, int | str]:
             result["capture_limit_reached"] == 1
             and result["captured_draws"] != _MAX_TARGETS
         )
-        or result["payload_files"] > _MAX_TARGETS * 17
+        or result["payload_files"] > _MAX_TARGETS * 19
         or result["payload_bytes"] > _MAX_PAYLOAD_BYTES
         or result["bound_addresses"] > _MAX_BOUND_ADDRESSES
         or result["target_uploads"] > result["observed_uploads"]
@@ -312,8 +348,18 @@ def _parse_binding(
         )
     with path.open("r", encoding="ascii", newline="") as handle:
         reader = csv.DictReader(handle, delimiter="\t")
-        texture_bound = capture_format == "if1-texture-bound-topology-v1"
-        expected_fields = _TEXTURE_BINDING_FIELDS if texture_bound else _BINDING_FIELDS
+        texture_bound = capture_format in (
+            "if1-texture-bound-topology-v1",
+            "if1-texture-bound-topology-v2",
+        )
+        transform_bound = capture_format == "if1-texture-bound-topology-v2"
+        expected_fields = (
+            _TEXTURE_TRANSFORM_BINDING_FIELDS
+            if transform_bound
+            else _TEXTURE_BINDING_FIELDS
+            if texture_bound
+            else _BINDING_FIELDS
+        )
         if tuple(reader.fieldnames or ()) != expected_fields:
             raise RuntimeTopologyExportError(
                 f"{path.name} has an invalid binding schema"
@@ -349,6 +395,13 @@ def _parse_binding(
             "shader_reference_proven",
             "capture_key",
         )
+    if transform_bound:
+        common_names += (
+            "vertex_program_file",
+            "vertex_program_bytes",
+            "transform_constants_file",
+            "transform_constants_bytes",
+        )
     common = {name: rows[0][name] for name in common_names}
     if any(row[name] != value for row in rows for name, value in common.items()):
         raise RuntimeTopologyExportError(
@@ -381,6 +434,8 @@ def _parse_binding(
     target_texture_sha256s: tuple[str, ...] = ()
     binding_scope: str | None = None
     capture_key: str | None = None
+    vertex_program_file: str | None = None
+    transform_constants_file: str | None = None
     if texture_bound:
         if allowed_texture_hashes is None:
             raise RuntimeTopologyExportError(
@@ -416,6 +471,36 @@ def _parse_binding(
         if _sha256(capture_material.encode("ascii")) != capture_key:
             raise RuntimeTopologyExportError(
                 "texture-bound event capture key does not reconcile"
+            )
+        if transform_bound:
+            if (
+                _integer(
+                    common["vertex_program_bytes"],
+                    "vertex program bytes",
+                    allow_zero=False,
+                )
+                != _VERTEX_PROGRAM_BYTES
+                or _integer(
+                    common["transform_constants_bytes"],
+                    "transform constants bytes",
+                    allow_zero=False,
+                )
+                != _TRANSFORM_CONSTANTS_BYTES
+            ):
+                raise RuntimeTopologyExportError(
+                    "vertex transform payload extent is outside the fixed contract"
+                )
+            vertex_program_file = _auxiliary_filename(
+                common["vertex_program_file"],
+                event,
+                common["vertex_program_sha256"],
+                constants=False,
+            )
+            transform_constants_file = _auxiliary_filename(
+                common["transform_constants_file"],
+                event,
+                common["transform_constants_sha256"],
+                constants=True,
             )
     elif allowed_texture_hashes is not None:
         raise RuntimeTopologyExportError(
@@ -551,6 +636,8 @@ def _parse_binding(
         transform_constants_sha256=_sha(
             common["transform_constants_sha256"], "transform constants SHA-256"
         ),
+        vertex_program_file=vertex_program_file,
+        transform_constants_file=transform_constants_file,
         target_texture_slots=target_texture_slots,
         target_texture_sha256s=target_texture_sha256s,
         binding_scope=binding_scope,
@@ -574,7 +661,11 @@ def _load_bundle(
             "bundle entries must be regular non-symlink files"
         )
     completion = _parse_completion(bundle / "capture.complete")
-    texture_bound = completion["format"] == "if1-texture-bound-topology-v1"
+    texture_bound = completion["format"] in (
+        "if1-texture-bound-topology-v1",
+        "if1-texture-bound-topology-v2",
+    )
+    transform_bound = completion["format"] == "if1-texture-bound-topology-v2"
     allowed_texture_hashes: set[str] | None = None
     allowlist_sha256: str | None = None
     if texture_bound:
@@ -634,8 +725,37 @@ def _load_bundle(
                 bundle, block.payload_file, block.payload_bytes, block.payload_sha256
             )
             payload_sizes[block.payload_file] = len(payload)
+        if transform_bound:
+            if (
+                event.vertex_program_file is None
+                or event.transform_constants_file is None
+            ):
+                raise RuntimeTopologyExportError(
+                    "v2 event is missing vertex transform payload references"
+                )
+            for filename, expected_size, expected_sha in (
+                (
+                    event.vertex_program_file,
+                    _VERTEX_PROGRAM_BYTES,
+                    event.vertex_program_sha256,
+                ),
+                (
+                    event.transform_constants_file,
+                    _TRANSFORM_CONSTANTS_BYTES,
+                    event.transform_constants_sha256,
+                ),
+            ):
+                if filename in payload_sizes:
+                    raise RuntimeTopologyExportError(
+                        "one payload file is referenced more than once"
+                    )
+                payload = _read_payload(bundle, filename, expected_size, expected_sha)
+                payload_sizes[filename] = len(payload)
         referenced.add(event.index_payload_file)
         referenced.update(block.payload_file for block in event.blocks)
+        if transform_bound:
+            referenced.add(event.vertex_program_file)
+            referenced.add(event.transform_constants_file)
     if {entry.name for entry in entries} != referenced:
         raise RuntimeTopologyExportError(
             "bundle has missing or unreferenced extra files"
@@ -783,7 +903,11 @@ def export_runtime_topology_glb(
         "SCALAR",
         34963,
     )
-    texture_bound = completion["format"] == "if1-texture-bound-topology-v1"
+    texture_bound = completion["format"] in (
+        "if1-texture-bound-topology-v1",
+        "if1-texture-bound-topology-v2",
+    )
+    transform_bound = completion["format"] == "if1-texture-bound-topology-v2"
     evidence = {
         "diagnosticOnly": True,
         "runtimeOnly": True,
@@ -812,13 +936,16 @@ def export_runtime_topology_glb(
                 "shaderReferenceProved": False,
                 "captureKey": event.capture_key,
                 "textureAllowlistSha256": allowlist_sha256,
+                "vertexTransformPayloadIdentityProved": transform_bound,
             }
         )
     document = {
         "asset": {
             "version": "2.0",
             "generator": (
-                "xpp-tool 2.11.0 texture-bound runtime topology diagnostic exporter"
+                "xpp-tool 2.12.0 transform-bound runtime topology diagnostic exporter"
+                if transform_bound
+                else "xpp-tool 2.11.0 texture-bound runtime topology diagnostic exporter"
                 if texture_bound
                 else "xpp-tool 2.8.0 runtime topology diagnostic exporter"
             ),
@@ -866,7 +993,7 @@ def export_runtime_topology_glb(
     _write_atomic(output, glb)
     report = {
         "format": "infamous-runtime-topology-diagnostic-export",
-        "version": 2 if texture_bound else 1,
+        "version": 3 if transform_bound else 2 if texture_bound else 1,
         "status": "diagnostic-glb-written",
         "event": event.number,
         "vertices": len(positions),
@@ -913,9 +1040,11 @@ def export_runtime_topology_glb(
                 "shader_reference_proved": False,
                 "capture_key": event.capture_key,
                 "texture_allowlist_sha256": allowlist_sha256,
+                "vertex_transform_payloads_proved": transform_bound,
             }
         )
         report["gates"]["texture_identity_correlation"] = True
+        report["gates"]["vertex_transform_payload_identity"] = transform_bound
     else:
         report["bundle_captured_targets"] = completion["captured_targets"]
     return report
