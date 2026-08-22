@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.15.0 - 2026-08-22
+
+- Added strict `if1-texture-bound-topology-v3` validation for exact bounded RSX fragment-program payloads, independently decoded sampler references, captured-mask reconciliation, and target-slot proof.
+- Added `runtime-fragment-sampler-census` for deterministic payload-free filtering before character-part assembly.
+- Kept v1/v2 compatibility and taught the transform census and affine position replay to consume v3 without turning static shader reference into a runtime-path, material-semantic, or ownership claim.
+
 ## 2.14.0 - 2026-08-22
 
 - Added a bounded `runtime-position-replay-export` that symbolically replays straight-line fixed-constant RSX vertex arithmetic and accepts output zero only when it is a finite affine function of attribute zero alone.
