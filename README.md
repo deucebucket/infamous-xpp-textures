@@ -179,6 +179,42 @@ modified package is safe in both games. Build or validate replacements against
 the exact target pair, then prove the target scene in runtime. The oracle always
 keeps direct cross-build replacement transfer unauthorized.
 
+### Rebase texture edits onto another retail build
+
+Do not copy a modified package wholesale when the oracle says the source and
+target package bytes differ. Keep the target retail XPP as the base and transfer
+only the texture edits whose original retail identities match uniquely:
+
+```bash
+xpp-tool texture-rebase \
+  --source-retail ./source/retail.xpp \
+  --source-candidate ./source/hd.xpp \
+  --target-psarc ./target/install1/infamous1.psarc_s \
+  --target-entry /matching-package.xpp \
+  --out ./target/rebased-hd.xpp \
+  --json
+```
+
+The identity is the exact original retail texture chain plus its format, face
+count, dimensions, and mip topology. Descriptor numbers are deliberately not
+used as cross-build identities. The command detects both resized textures and
+same-size pixel edits, refuses missing or ambiguous matches, rejects cubemap
+edits, verifies every unselected target texture remained exact, validates the
+rebuilt target, and publishes the output atomically. `--include-index` can limit
+the transfer to explicitly changed source records. `--allow-zero-change`
+produces an exact target-retail control only when no edit is selected.
+An already extracted target may be supplied with `--target-retail` instead of
+the `--target-psarc`/`--target-entry` pair.
+Without `--include-index`, every changed chain transfers, including same-size
+re-encodes; inspect `source_changed_records` before building the profile.
+
+RR — Really Readable rundown: think of the source retail texture as a
+fingerprint card. The tool finds exactly one matching original fingerprint in
+the target build, then puts the edited picture into that target-owned slot. If
+there are zero or several matching slots, it stops. This proves a careful
+offline conversion, not that the target game has loaded or displayed it;
+profile validation and scene-specific runtime proof still follow.
+
 ### 1. Extract the complete retail pair
 
 ```bash

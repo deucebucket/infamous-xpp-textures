@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.6.0 - 2026-08-22
+
+- Added fail-closed cross-build texture rebasing that keeps the target retail XPP as the structural base.
+- Bound source edits to target records by exact retail chain bytes plus format, face count, dimensions, and mip topology instead of descriptor ordinal.
+- Detected resized and same-size texture edits, preserved every unselected target texture, and rejected missing, duplicate, ambiguous, cubemap, and unchanged selections before publication.
+- Added an explicit byte-identical zero-change control and aggregate target validation report; runtime proof remains required.
+
 ## 2.5.0 - 2026-08-22
 
 - Added explicit `install1/` and `install2/` replacement ownership for packed profiles with cross-archive duplicate basenames.
