@@ -426,6 +426,21 @@ It still does not prove whether either field means UVs, color, weights, joints,
 or something else. The remaining three compressed streams and model semantics
 must be solved before export or injection can be enabled.
 
+Version 2.3 adds the remaining RSX numeric format observed in that draw:
+`cmp32`. It follows RPCS3's maintained vertex-fetch contract: one big-endian
+word stores signed 11-, 11-, and 10-bit components, the values are extended
+through the RSX 16-bit scale and divided by 32767, and W is 1. Every decoded
+word must rebuild exactly. The source contract is available in the
+[RPCS3 vertex fetch implementation](https://github.com/RPCS3/rpcs3/blob/8fd2ae954d80d867fd2d58795848c77d1954574b/rpcs3/Emu/RSX/Program/GLSLSnippets/RSXProg/RSXVertexFetch.glsl).
+
+RR — Really Readable rundown: the last two unread tabs each squeeze three
+signed numbers into one 32-bit word. xpp-tool now opens all five tabs in the
+captured Zeke draw and can close them again without changing a byte. That is
+complete numeric coverage, not complete model understanding: the tool still
+does not call the two packed tabs normals or tangents, and it still cannot skip
+the game's decompression, skinning, or output-compression stages. Export and
+injection remain blocked.
+
 ## Typical HD texture pass
 
 1. `profile-extract` the protected retail install pair.
