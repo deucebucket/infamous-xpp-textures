@@ -19,6 +19,7 @@ from .character_export import (
     CharacterDiagnosticExportError,
     export_character_diagnostic_glb,
 )
+from .cross_build import CrossBuildOracleError, build_cross_build_character_oracle
 from .decode import extract_package, load_xpp_bytes
 from .derive import derive_scaled
 from .mesh import MeshExportError, export_glb, find_mesh_sections
@@ -522,6 +523,44 @@ def cmd_character_report(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_character_oracle(args: argparse.Namespace) -> int:
+    try:
+        if args.left_xpp.resolve() == args.right_xpp.resolve():
+            raise CrossBuildOracleError("left and right XPP inputs must be different files")
+        if args.json_out is not None:
+            output = args.json_out.resolve()
+            if output in {args.left_xpp.resolve(), args.right_xpp.resolve()}:
+                raise CrossBuildOracleError("JSON output must not overwrite an input")
+            if args.json_out.exists():
+                raise FileExistsError(f"output already exists: {args.json_out}")
+        report = build_cross_build_character_oracle(
+            args.left_xpp.read_bytes(),
+            args.right_xpp.read_bytes(),
+            left_label=args.left_label,
+            right_label=args.right_label,
+        )
+        rendered = json.dumps(report, indent=2, sort_keys=True) + "\n"
+        if args.json_out is not None:
+            args.json_out.parent.mkdir(parents=True, exist_ok=True)
+            with args.json_out.open("x", encoding="utf-8") as output_file:
+                output_file.write(rendered)
+    except (OSError, CrossBuildOracleError, ValidationError, ValueError) as exc:
+        print(f"character-oracle: {exc}", file=sys.stderr)
+        return 1
+
+    if args.json_out is None:
+        print(rendered, end="")
+    else:
+        print(
+            "character oracle: "
+            f"{report['texture']['unique_matches']} texture descriptors, "
+            f"{report['character']['unique_matches']} character contracts; "
+            f"verdict {report['verdict']}"
+        )
+        print(f"wrote {args.json_out}")
+    return 0 if report["audited_semantics_match"] else 2
+
+
 def cmd_character_capture_report(args: argparse.Namespace) -> int:
     try:
         data, stem = _load(args)
@@ -876,6 +915,21 @@ def main(argv: list[str] | None = None) -> int:
         help="also write the deterministic report to this path",
     )
     p_character.set_defaults(func=cmd_character_report)
+
+    p_character_oracle = sub.add_parser(
+        "character-oracle",
+        help="compare two character XPPs by content rather than index or offset",
+    )
+    p_character_oracle.add_argument("--left-xpp", type=Path, required=True)
+    p_character_oracle.add_argument("--right-xpp", type=Path, required=True)
+    p_character_oracle.add_argument("--left-label", default="left")
+    p_character_oracle.add_argument("--right-label", default="right")
+    p_character_oracle.add_argument(
+        "--json-out",
+        type=Path,
+        help="write a new deterministic payload-free report (refuses overwrite)",
+    )
+    p_character_oracle.set_defaults(func=cmd_character_oracle)
 
     p_character_capture = sub.add_parser(
         "character-capture-report",
