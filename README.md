@@ -696,6 +696,32 @@ palette. It still does not name any value a matrix or bone. The next gate must
 replay the actual shader arithmetic and prove which output places vertices on
 screen before those pieces can be assembled honestly.
 
+Version 2.14 performs that next bounded arithmetic replay for an explicit event
+set:
+
+```console
+xpp-tool runtime-position-replay-export \
+  --bundle /path/to/owned/texture-bound-topology-v2 \
+  --texture-allowlist /path/to/exact-targets.sha256 \
+  --events 1,2,3 \
+  --projection-event 4 \
+  --output /path/outside-the-bundle/cluster.glb \
+  --json-out /path/outside-the-bundle/cluster.json
+```
+
+It symbolically executes only the supported straight-line affine path from RSX
+attribute zero to output zero. The selected projection constants must invert
+cleanly and decompose at least two captured program outputs before any GLB is
+written. Relative positions are preserved in one pre-projection frame; the
+combined result is recentered only for inspection.
+
+RR — Really Readable rundown: the tool is taking the exact GPU placement math
+and undoing the final camera projection so nearby pieces can finally be viewed
+together. A colorful multi-piece result is still a diagnostic: an enabled Zeke
+texture slot does not prove the shader sampled that texture or that every draw
+belongs to Zeke. The render is evidence for geometry placement, not yet a full
+textured character.
+
 ## Typical HD texture pass
 
 1. `profile-extract` the protected retail install pair.

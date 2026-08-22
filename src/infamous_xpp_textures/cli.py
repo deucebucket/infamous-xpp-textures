@@ -27,6 +27,7 @@ from .oracle import build_profile_oracle
 from .pack import PackError, pack_replacements, replacements_from_dir, replacements_from_scale
 from .pipeline import build_profile, extract_profile, validate_profile
 from .pngio import read_png
+from .position_replay import PositionReplayError, export_position_replay_glb
 from .psarc import extract_entry, rebuild_archive
 from .rebase import RebaseError, rebase_texture_edits
 from .runtime import build_replacement_bundle, build_runtime_index, write_allowlist
@@ -702,6 +703,50 @@ def cmd_runtime_vertex_transform_census(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_runtime_position_replay_export(args: argparse.Namespace) -> int:
+    try:
+        selected_events = tuple(
+            int(value, 10) for value in args.events.split(",") if value
+        )
+        if not selected_events or ",".join(map(str, selected_events)) != args.events:
+            raise PositionReplayError(
+                "--events must be unique canonical comma-separated positive integers"
+            )
+        bundle = args.bundle.resolve()
+        destinations = (args.output.resolve(), args.json_out.resolve())
+        if len(set(destinations)) != 2:
+            raise PositionReplayError("GLB and JSON outputs must differ")
+        if any(
+            destination == bundle or bundle in destination.parents
+            for destination in destinations
+        ):
+            raise PositionReplayError(
+                "replay outputs must remain outside the immutable input bundle"
+            )
+        if any(path.is_symlink() or path.exists() for path in (args.output, args.json_out)):
+            raise PositionReplayError("replay output exists; refusing to overwrite it")
+        result = export_position_replay_glb(
+            args.bundle,
+            args.texture_allowlist,
+            selected_events,
+            args.output,
+            projection_event=args.projection_event,
+            model_constant_start=args.model_constant_start,
+            projection_constant_start=args.projection_constant_start,
+        )
+        rendered = render_report(result)
+        args.json_out.parent.mkdir(parents=True, exist_ok=True)
+        with args.json_out.open("x", encoding="utf-8") as handle:
+            handle.write(rendered)
+            handle.flush()
+            os.fsync(handle.fileno())
+    except (OSError, PositionReplayError, ValueError) as exc:
+        print(f"runtime-position-replay-export: {exc}", file=sys.stderr)
+        return 1
+    print(rendered, end="")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         prog=Path(sys.argv[0]).name,
@@ -1064,6 +1109,28 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_vertex_transform.add_argument("--json-out", type=Path, required=True)
     p_vertex_transform.set_defaults(func=cmd_runtime_vertex_transform_census)
+
+    p_position_replay = sub.add_parser(
+        "runtime-position-replay-export",
+        help="replay selected draws into one shared pre-projection diagnostic GLB",
+    )
+    p_position_replay.add_argument("--bundle", type=Path, required=True)
+    p_position_replay.add_argument("--texture-allowlist", type=Path, required=True)
+    p_position_replay.add_argument(
+        "--events",
+        required=True,
+        help="canonical comma-separated event numbers, for example 1,2,3",
+    )
+    p_position_replay.add_argument("--projection-event", type=int, required=True)
+    p_position_replay.add_argument(
+        "--model-constant-start", type=int, default=256
+    )
+    p_position_replay.add_argument(
+        "--projection-constant-start", type=int, default=263
+    )
+    p_position_replay.add_argument("--output", type=Path, required=True)
+    p_position_replay.add_argument("--json-out", type=Path, required=True)
+    p_position_replay.set_defaults(func=cmd_runtime_position_replay_export)
 
     args = ap.parse_args(argv)
     return args.func(args)
