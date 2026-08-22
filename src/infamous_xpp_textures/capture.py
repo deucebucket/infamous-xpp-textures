@@ -148,7 +148,7 @@ def summarize_rsx_vertex_payload_numeric(attribute: dict, payload: bytes) -> dic
     type_raw = attribute["type_raw"]
     component_count = attribute["component_count"]
     type_name = attribute["type_name"]
-    if type_raw not in (2, 3, 4):
+    if type_raw not in (2, 3, 4, 6):
         return {
             "status": "unsupported-format",
             "type_name": type_name,
@@ -167,8 +167,13 @@ def summarize_rsx_vertex_payload_numeric(attribute: dict, payload: bytes) -> dic
         )
     if index_span <= 0 or stride <= 0 or element_byte_count <= 0:
         raise RrcCaptureError("bound vertex payload has an invalid count, stride, or element size")
+    if type_raw == 6 and (component_count != 1 or element_byte_count != 4):
+        raise RrcCaptureError("bound cmp32 payload has an invalid declared layout")
 
-    component_values: list[list[float]] = [[] for _ in range(component_count)]
+    decoded_component_count = 4 if type_raw == 6 else component_count
+    component_values: list[list[float]] = [
+        [] for _ in range(decoded_component_count)
+    ]
     rebuilt = bytearray(payload)
     for index in range(index_span):
         start = index * stride
@@ -184,9 +189,39 @@ def summarize_rsx_vertex_payload_numeric(attribute: dict, payload: bytes) -> dic
             stored_values = struct.unpack(f">{stored_components}e", raw)
             values = stored_values[:component_count]
             encoded = struct.pack(f">{component_count}e", *values) + raw[component_count * 2 :]
-        else:
+        elif type_raw == 4:
             values = tuple(value / 255.0 for value in raw[:component_count])
             encoded = bytes(round(value * 255.0) for value in values) + raw[component_count:]
+        else:
+            word = int.from_bytes(raw, "big")
+            encoded_components = (
+                word & 0x7FF,
+                (word >> 11) & 0x7FF,
+                (word >> 22) & 0x3FF,
+            )
+            signed_components = tuple(
+                value - (1 << width) if value & (1 << (width - 1)) else value
+                for value, width in zip(encoded_components, (11, 11, 10))
+            )
+            values = (
+                signed_components[0] * 32.0 / 32767.0,
+                signed_components[1] * 32.0 / 32767.0,
+                signed_components[2] * 64.0 / 32767.0,
+                1.0,
+            )
+            reencoded_signed_components = (
+                round(values[0] * 32767.0 / 32.0),
+                round(values[1] * 32767.0 / 32.0),
+                round(values[2] * 32767.0 / 64.0),
+            )
+            if reencoded_signed_components != signed_components:
+                raise RrcCaptureError("bound cmp32 payload failed numeric reconstruction")
+            rebuilt_word = (
+                (reencoded_signed_components[0] & 0x7FF)
+                | ((reencoded_signed_components[1] & 0x7FF) << 11)
+                | ((reencoded_signed_components[2] & 0x3FF) << 22)
+            )
+            encoded = rebuilt_word.to_bytes(4, "big")
         if not all(math.isfinite(value) for value in values):
             raise RrcCaptureError(
                 f"bound {type_name} vertex payload contains a non-finite component"
@@ -206,7 +241,8 @@ def summarize_rsx_vertex_payload_numeric(attribute: dict, payload: bytes) -> dic
         "type_name": type_name,
         "byte_order": "big-endian",
         "element_count": index_span,
-        "component_count": component_count,
+        "component_count": decoded_component_count,
+        "declared_component_count": component_count,
         "stride": stride,
         "element_byte_count": element_byte_count,
         "component_minimum": [min(values) for values in component_values],
@@ -942,7 +978,7 @@ def build_rrc_character_match_report(
         for attribute in binding["rsx_draw_state"]["vertex_arrays"]:
             if (
                 attribute["binding_proved"]
-                and attribute["type_raw"] in (2, 3, 4)
+                and attribute["type_raw"] in (2, 3, 4, 6)
                 and len(attribute["matching_memory_blocks"]) == 1
             ):
                 block_key = attribute["matching_memory_blocks"][0]["block_key"]
@@ -961,7 +997,7 @@ def build_rrc_character_match_report(
                     "payload_bytes_serialized": False,
                     "exact_byte_round_trip": False,
                 }
-            elif attribute["type_raw"] not in (2, 3, 4):
+            elif attribute["type_raw"] not in (2, 3, 4, 6):
                 numeric = summarize_rsx_vertex_payload_numeric(attribute, b"")
                 unsupported_numeric_attribute_count += 1
             else:
@@ -1044,7 +1080,7 @@ def build_rrc_character_match_report(
     ]
     return {
         "format": "infamous-rpcs3-character-capture-match",
-        "version": 5,
+        "version": 6,
         "target": {
             "source": target["source"],
             "source_sha256": target["source_sha256"],
@@ -1122,7 +1158,7 @@ def build_rrc_character_match_report(
             "supported numeric arrays may prove an exact decode/re-encode round trip without "
             "assigning position, normal, UV, joint, or weight semantics; a unique stream-zero "
             "byte binding proves one XPP-to-RSX record layout but still assigns no semantics; "
-            "cmp32 remains unsupported; "
+            "cmp32 numeric packing may round-trip without proving normal or tangent meaning; "
             "byte-order/index-delta/winding candidates are reported separately and do not "
             "prove ownership; absence does not prove the character was not visible, and "
             "vertex attributes, draw ownership, skin weights, palettes, transforms, and "

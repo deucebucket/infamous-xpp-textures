@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.3.0 - 2026-08-22
+
+- Added exact big-endian RSX `cmp32` decoding for signed X11G11Z10 components and derived W=1.
+- Mirrored the maintained RPCS3 sign-extension and normalization contract and required exact word reconstruction.
+- Closed numeric coverage for all five bound visible-draw arrays while keeping their meanings unproved.
+
 ## 2.2.0 - 2026-08-22
 
 - Added a fail-closed search for interleaved numeric RSX arrays that uniquely rebuild XPP stream zero.

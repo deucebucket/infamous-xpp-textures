@@ -401,9 +401,32 @@ def test_numeric_vertex_decoder_round_trips_half_and_unorm_padding():
     assert unorm["exact_byte_round_trip"] is True
 
 
-def test_numeric_vertex_decoder_fails_closed_for_cmp32_and_nonfinite_float():
-    cmp_attribute = _numeric_attribute(6, "cmp32", 1, 4, 4, 2)
-    unsupported = summarize_rsx_vertex_payload_numeric(cmp_attribute, b"")
+def test_numeric_vertex_decoder_round_trips_cmp32_sign_boundaries():
+    cmp_attribute = _numeric_attribute(6, "cmp32", 1, 4, 4, 1)
+    word = 0x400 | (0x3FF << 11) | (0x200 << 22)
+    payload = word.to_bytes(4, "big") + bytes(4)
+    result = summarize_rsx_vertex_payload_numeric(cmp_attribute, payload)
+    assert result["status"] == "exact-byte-round-trip"
+    assert result["component_count"] == 4
+    assert result["declared_component_count"] == 1
+    assert result["component_minimum"] == [
+        -1024 * 32 / 32767,
+        1023 * 32 / 32767,
+        -512 * 64 / 32767,
+        1.0,
+    ]
+    assert result["component_maximum"] == result["component_minimum"]
+    assert result["source_sha256"] == result["reencoded_sha256"]
+    assert result["exact_byte_round_trip"] is True
+
+
+def test_numeric_vertex_decoder_fails_closed_for_bad_layout_and_nonfinite_float():
+    cmp_attribute = _numeric_attribute(6, "cmp32", 2, 4, 4, 1)
+    with pytest.raises(RrcCaptureError, match="invalid declared layout"):
+        summarize_rsx_vertex_payload_numeric(cmp_attribute, bytes(8))
+
+    unsupported_attribute = _numeric_attribute(7, "uint8", 4, 4, 4, 1)
+    unsupported = summarize_rsx_vertex_payload_numeric(unsupported_attribute, b"")
     assert unsupported["status"] == "unsupported-format"
     assert unsupported["exact_byte_round_trip"] is False
 
