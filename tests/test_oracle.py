@@ -42,7 +42,9 @@ def test_oracle_counts_identical_changed_and_added_packages(tmp_path: Path):
     )
 
     report = build_profile_oracle(*left, *right, left_label="disc", right_label="psn")
+    replay = build_profile_oracle(*left, *right, left_label="disc", right_label="psn")
 
+    assert replay == report
     assert report["kind"] == "xpp-cross-build-oracle"
     assert report["left_label"] == "disc"
     assert report["right_label"] == "psn"
