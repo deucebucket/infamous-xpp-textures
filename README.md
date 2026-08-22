@@ -642,6 +642,20 @@ resolution. The 3840×2160 treatment starts when head, hair, body/skin, clothes,
 and gear are assembled into the fully textured character; 4× source textures
 and a 4K output canvas remain separate concepts.
 
+Version 2.11 raises only the bounded texture-identity input envelope from 64
+hashes / 16 KiB to 512 hashes / 40 KiB. A real surface-only cross-build oracle
+produced 501 unique whole-chain, face, mip, and mip-prefix identities because
+large textures may reach RPCS3 as partial uploads rather than one whole XPP
+descriptor. Strict lowercase SHA-256, duplicate, symlink, byte-size, and count
+validation is unchanged.
+
+RR — Really Readable rundown: the first live texture-bound draw matched a 1×1
+texture because its entire file is one tiny upload. The 28 larger Zeke
+descriptor hashes produced zero runtime matches even while Zeke was visible.
+That means the next search needs the smaller pieces of those textures—their
+mips and prefixes—not a larger guess. The new limit fits that exact 501-hash
+evidence set with 11 spare rows; it is not an unbounded memory increase.
+
 ## Typical HD texture pass
 
 1. `profile-extract` the protected retail install pair.

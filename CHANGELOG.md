@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.11.0 - 2026-08-22
+
+- Raised the texture-bound runtime allowlist to the smallest bounds that contain the cross-build-stable surface identity set: 512 unique hashes and 40 KiB.
+- Kept strict ASCII, lowercase SHA-256, duplicate, symlink, size, and count rejection while adding exact-bound positive and over-bound negative tests.
+
 ## 2.10.0 - 2026-08-22
 
 - Added explicit validation/export support for `if1-texture-bound-topology-v1` bundles without weakening the 2.8.0 census format.
