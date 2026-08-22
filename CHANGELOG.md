@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.7.0 - 2026-08-22
+
+- Added a deterministic diagnostic GLB export for one exact character topology and one caller-selected, hash-bound `float32x3` position hypothesis.
+- Required a complete RSX draw binding, exact XPP index identity, bounded payload size and SHA-256, finite coordinates, and at least one nondegenerate triangle before writing output.
+- Embedded explicit diagnostic metadata and kept position meaning, UVs, materials, skin weights, joint palettes, skeletons, inverse binds, rigged export, and game injection unproved.
+
 ## 2.6.0 - 2026-08-22
 
 - Added fail-closed cross-build texture rebasing that keeps the target retail XPP as the structural base.

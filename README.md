@@ -517,6 +517,39 @@ does not call the two packed tabs normals or tangents, and it still cannot skip
 the game's decompression, skinning, or output-compression stages. Export and
 injection remain blocked.
 
+Version 2.7 can export one proven draw as a deliberately limited Blender GLB:
+
+```bash
+xpp-tool character-diagnostic-export \
+  --xpp /path/to/owned/male_base_Zeke.xpp \
+  --binding-report /path/to/owned/exact-draw-binding.json \
+  --attribute-payload /path/to/owned/attribute-0.bin \
+  --position-hypothesis-attribute 0 \
+  --output ./zeke-piece-diagnostic.glb \
+  --json-out ./zeke-piece-diagnostic.json
+```
+
+The command requires exactly one complete RSX draw binding, one exact XPP
+topology match, and one explicitly selected `float32x3` attribute. It verifies
+the captured payload's exact size and SHA-256, bounds every indexed vertex,
+rejects non-finite or fully degenerate geometry, recenters the result, and
+writes the retail triangle list unchanged. Repeating the same export produces
+the same GLB bytes.
+
+This is an inspection aid, not a rigged-character converter. The GLB embeds a
+plain unlit diagnostic material and labels the selected attribute as an
+unproved position hypothesis. It contains no UVs, skin, skeleton, inverse bind
+matrices, retail material, or injection authorization. Captured payloads and
+game packages remain local and must not be committed.
+
+RR — Really Readable rundown: we can now put one small, exact piece of the
+visible Zeke draw on Blender's workbench. The triangle connections are proved,
+and the candidate coordinates make a real, non-flat shape, but the game has not
+yet told us what body part it is or how it attaches to Zeke's bones. A Blender
+render proves the export is usable for inspection. It does not prove the full
+character, textures, animation, or a safe replacement pack. Those remain the
+next gates.
+
 ## Typical HD texture pass
 
 1. `profile-extract` the protected retail install pair.
