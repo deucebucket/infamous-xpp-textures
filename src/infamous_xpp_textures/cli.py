@@ -15,6 +15,10 @@ from .character import (
     render_report,
 )
 from .capture import RrcCaptureError, build_rrc_character_match_report
+from .character_export import (
+    CharacterDiagnosticExportError,
+    export_character_diagnostic_glb,
+)
 from .decode import extract_package, load_xpp_bytes
 from .derive import derive_scaled
 from .mesh import MeshExportError, export_glb, find_mesh_sections
@@ -529,6 +533,58 @@ def cmd_character_capture_report(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_character_diagnostic_export(args: argparse.Namespace) -> int:
+    try:
+        source_paths = [
+            path
+            for path in (args.xpp, args.psarc, args.binding_report, args.attribute_payload)
+            if path is not None
+        ]
+        destination_paths = [args.output]
+        if args.json_out is not None:
+            destination_paths.append(args.json_out)
+        if len({path.resolve() for path in destination_paths}) != len(destination_paths):
+            raise CharacterDiagnosticExportError(
+                "--output and --json-out must be different paths"
+            )
+        for destination in destination_paths:
+            if any(
+                destination.resolve() == source.resolve()
+                or (
+                    destination.exists()
+                    and source.exists()
+                    and destination.samefile(source)
+                )
+                for source in source_paths
+            ):
+                raise CharacterDiagnosticExportError(
+                    "diagnostic outputs must not overwrite an input"
+                )
+        data, _ = _load(args)
+        binding_report = json.loads(args.binding_report.read_text(encoding="utf-8"))
+        result = export_character_diagnostic_glb(
+            data,
+            binding_report,
+            args.attribute_payload.read_bytes(),
+            args.output,
+            position_hypothesis_attribute=args.position_hypothesis_attribute,
+        )
+    except (
+        OSError,
+        json.JSONDecodeError,
+        CharacterDiagnosticExportError,
+        ValueError,
+    ) as exc:
+        print(f"character-diagnostic-export: {exc}", file=sys.stderr)
+        return 1
+    rendered = render_report(result)
+    if args.json_out:
+        args.json_out.parent.mkdir(parents=True, exist_ok=True)
+        args.json_out.write_text(rendered, encoding="utf-8")
+    print(rendered, end="")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         prog=Path(sys.argv[0]).name,
@@ -798,6 +854,35 @@ def main(argv: list[str] | None = None) -> int:
         help="also write the deterministic payload-free report to this path",
     )
     p_character_capture.set_defaults(func=cmd_character_capture_report)
+
+    p_character_export = sub.add_parser(
+        "character-diagnostic-export",
+        help="export one proven character topology with an explicit position hypothesis",
+    )
+    _add_source(p_character_export)
+    p_character_export.add_argument(
+        "--binding-report",
+        type=Path,
+        required=True,
+        help="deterministic character-capture-report JSON with one complete draw binding",
+    )
+    p_character_export.add_argument(
+        "--attribute-payload",
+        type=Path,
+        required=True,
+        help="owned captured payload for the explicitly selected attribute",
+    )
+    p_character_export.add_argument(
+        "--position-hypothesis-attribute",
+        type=int,
+        required=True,
+        help="RSX attribute to place in GLB POSITION; remains explicitly unproved",
+    )
+    p_character_export.add_argument("--output", type=Path, required=True)
+    p_character_export.add_argument(
+        "--json-out", type=Path, help="also write the deterministic export report"
+    )
+    p_character_export.set_defaults(func=cmd_character_diagnostic_export)
 
     args = ap.parse_args(argv)
     return args.func(args)
