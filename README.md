@@ -192,13 +192,16 @@ This writes every XPP/XPPS under `workspace/xpp/install1` or
 `workspace/xpp/install2`, preserving its manifest path. `workspace.json`
 records both source hashes plus the name, size, and hash of every PSARC entry.
 The output directory must not already exist; an interrupted extraction never
-publishes a partial workspace.
+publishes a partial workspace. The slot directories preserve packages that use
+the same basename in both archives; neither copy overwrites the other.
 
 ### 2. Extract, edit, and repack selected XPPs
 
 Use the existing `extract`, `pack`, `derive`, and `verify` commands. Put only
 the finished replacement `.xpp`/`.xpps` files in one replacement directory.
-Nested folders are allowed; basenames must be unique.
+Nested folders are allowed. A flat basename keeps the legacy workflow when it
+has exactly one owner across the retail pair. When a basename exists in both
+archives, preserve the extracted `install1/` or `install2/` prefix:
 
 ```bash
 xpp-tool extract --xpp ./workspace/xpp/install1/textures/A21.xpp --outdir ./png
@@ -207,7 +210,16 @@ xpp-tool pack \
   --from-dir ./png \
   --out ./replacements/A21.xpp
 xpp-tool verify --xpp ./replacements/A21.xpp
+
+mkdir -p ./replacements/install1/textures
+cp ./workspace/xpp/install1/textures/A21.xpp \
+  ./replacements/install1/textures/A21.xpp
 ```
+
+An exact manifest-relative path wins inside an explicit slot. A slot-local
+basename shortcut is accepted only when unique in that archive. The tool fails
+before staging if a flat name has several owners, a file names the wrong slot,
+two inputs resolve to one retail target, or an inexact name is still ambiguous.
 
 ### 3. Strictly preflight the replacements
 
@@ -296,10 +308,10 @@ xpp-tool profile-build \
   --outdir ./profile
 ```
 
-`profile-build` finds which source archive owns each replacement, rejects
-unknown or duplicate basenames, performs the same strict retail comparison on
-every XPP, and only then builds both outputs in a hidden staging directory. It
-then reopens both archives and checks:
+`profile-build` resolves each replacement to one exact archive/manifest owner,
+rejects unknown or ambiguous inputs, performs the same strict retail comparison
+on every XPP, and only then builds both outputs in a hidden staging directory.
+It then reopens both archives and checks:
 
 - PSARC version, compression, block size, flags, entry count, name digests, and exact manifest bytes/order;
 - every replacement payload against the supplied XPP bytes;
