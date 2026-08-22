@@ -25,10 +25,12 @@ def _descriptor(attributes: tuple[tuple[int, int, int, int, int, int], ...]) -> 
     return _sha(material.encode("ascii"))
 
 
-def _write_bundle(tmp_path):
+def _write_bundle(tmp_path, *, range_first=0, index_values=None):
     bundle = tmp_path / "bundle"
     bundle.mkdir()
-    indices = struct.pack(">6H", 0, 1, 2, 2, 3, 0)
+    if index_values is None:
+        index_values = tuple(range_first + value for value in (0, 1, 2, 2, 3, 0))
+    indices = struct.pack(">6H", *index_values)
     positions = b"".join(
         struct.pack(">3f", *value)
         for value in ((10, 20, 30), (11, 20, 30), (10, 21, 30), (10, 20, 31))
@@ -85,7 +87,7 @@ def _write_bundle(tmp_path):
                     ),
                     "attribute_count": str(len(block_attributes)),
                     "block_stride": str(stride),
-                    "range_first": "0",
+                    "range_first": str(range_first),
                     "range_count": "4",
                     "memory_location": "0",
                     "attribute": str(attribute),
@@ -198,6 +200,42 @@ def test_exports_complete_runtime_event_deterministically(tmp_path):
     )
     assert second.read_bytes() == output.read_bytes()
     assert second_report == report
+
+
+def test_exports_nonzero_vertex_range_with_bounded_index_rebase(tmp_path):
+    bundle = _write_bundle(tmp_path, range_first=7)
+    output = tmp_path / "runtime-nonzero-range.glb"
+    report = export_runtime_topology_glb(
+        bundle, 1, output, position_hypothesis_attribute=0
+    )
+    assert report["source_range_first"] == 7
+    assert report["indices_rebased_for_inspection"] is True
+    assert report["vertices"] == 4
+    assert report["triangles"] == 2
+    document = _glb_document(output.read_bytes())
+    evidence = document["asset"]["extras"]["infamousRuntimeDiagnostic"]
+    assert evidence["sourceRangeFirst"] == 7
+    assert evidence["indicesRebasedForInspection"] is True
+
+
+@pytest.mark.parametrize(
+    "index_values",
+    (
+        (6, 8, 9, 9, 10, 7),
+        (7, 8, 9, 9, 11, 12),
+    ),
+)
+def test_rejects_indices_outside_nonzero_vertex_range(tmp_path, index_values):
+    bundle = _write_bundle(
+        tmp_path, range_first=7, index_values=index_values
+    )
+    with pytest.raises(
+        RuntimeTopologyExportError,
+        match="indices and selected position block do not reconcile",
+    ):
+        export_runtime_topology_glb(
+            bundle, 1, tmp_path / "bad.glb", position_hypothesis_attribute=0
+        )
 
 
 def test_exports_texture_bound_event_with_exact_correlation(tmp_path):

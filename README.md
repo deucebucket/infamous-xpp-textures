@@ -596,9 +596,12 @@ The command validates the complete bundle as one immutable set: the completion
 totals, all event binding files, reconstructed descriptor hashes, exact index
 and vertex payload hashes and sizes, and absence of missing, extra, or symlinked
 files. The selected event must contain one bounded big-endian u16 triangle list
-and one unambiguous zero-frequency `float32x3` attribute beginning at vertex
-zero. Coordinates must be finite and produce at least one nondegenerate
-triangle. Output is refused inside the input bundle.
+and one unambiguous zero-frequency `float32x3` attribute. Every source index
+must fall inside the captured vertex range. When that range begins after vertex
+zero, the exporter subtracts the recorded first vertex to make GLB-local
+indices while retaining the original range and index hashes as evidence.
+Coordinates must be finite and produce at least one nondegenerate triangle.
+Output is refused inside the input bundle.
 
 RR — Really Readable rundown: this lets us quickly put a GPU draw on Blender's
 workbench before we know which XPP record produced it. That is useful for

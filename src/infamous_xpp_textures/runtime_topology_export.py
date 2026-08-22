@@ -715,18 +715,20 @@ def export_runtime_topology_glb(
         or attribute["modulo"] != 0
         or attribute["array_stride"] != block.stride
         or block.stride < 12
-        or block.range_first != 0
     ):
         raise RuntimeTopologyExportError(
-            "selected attribute is not a bounded zero-frequency float32x3 stream from vertex zero"
+            "selected attribute is not a bounded zero-frequency float32x3 stream"
         )
+    range_end = block.range_first + block.range_count
     if (
-        max(indices) >= block.range_count
+        min(indices) < block.range_first
+        or max(indices) >= range_end
         or block.payload_bytes != block.range_count * block.stride
     ):
         raise RuntimeTopologyExportError(
             "indices and selected position block do not reconcile"
         )
+    local_indices = tuple(index - block.range_first for index in indices)
     position_payload = _read_payload(
         bundle, block.payload_file, block.payload_bytes, block.payload_sha256
     )
@@ -742,12 +744,12 @@ def export_runtime_topology_glb(
         )
     nondegenerate = sum(
         _cross_length_squared(
-            source_positions[indices[offset]],
-            source_positions[indices[offset + 1]],
-            source_positions[indices[offset + 2]],
+            source_positions[local_indices[offset]],
+            source_positions[local_indices[offset + 1]],
+            source_positions[local_indices[offset + 2]],
         )
         > 1e-12
-        for offset in range(0, len(indices), 3)
+        for offset in range(0, len(local_indices), 3)
     )
     if not nondegenerate:
         raise RuntimeTopologyExportError(
@@ -775,7 +777,11 @@ def export_runtime_topology_glb(
         position_max,
     )
     index_accessor = builder.add_accessor(
-        struct.pack(f"<{len(indices)}H", *indices), 5123, len(indices), "SCALAR", 34963
+        struct.pack(f"<{len(local_indices)}H", *local_indices),
+        5123,
+        len(local_indices),
+        "SCALAR",
+        34963,
     )
     texture_bound = completion["format"] == "if1-texture-bound-topology-v1"
     evidence = {
@@ -792,6 +798,8 @@ def export_runtime_topology_glb(
         "injectionAuthorized": False,
         "indexSha256": event.index_sha256,
         "positionPayloadSha256": block.payload_sha256,
+        "sourceRangeFirst": block.range_first,
+        "indicesRebasedForInspection": block.range_first != 0,
     }
     if texture_bound:
         evidence.update(
@@ -869,6 +877,8 @@ def export_runtime_topology_glb(
         "position_hypothesis_attribute": position_hypothesis_attribute,
         "position_payload_sha256": block.payload_sha256,
         "index_sha256": event.index_sha256,
+        "source_range_first": block.range_first,
+        "indices_rebased_for_inspection": block.range_first != 0,
         "source_bounds_min": source_min,
         "source_bounds_max": source_max,
         "source_bounds_center": center,
