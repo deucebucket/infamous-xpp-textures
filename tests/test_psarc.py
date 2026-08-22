@@ -5,6 +5,8 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
+import pytest
+
 from infamous_xpp_textures.psarc import build_archive, extract_entry, read_toc, rebuild_archive
 
 
@@ -43,3 +45,25 @@ def test_rebuild_archive_can_require_every_replacement(tmp_path: Path):
         assert "absent from the PSARC" in str(exc)
     else:
         raise AssertionError("missing explicit replacement was accepted")
+
+
+def test_rebuild_archive_uses_exact_manifest_path_for_duplicate_basename(tmp_path: Path):
+    source = tmp_path / "retail.psarc_s"
+    source.write_bytes(build_archive(["/one/A.xpp", "/two/A.xpp"], [b"one", b"two"]))
+    output = tmp_path / "modded.psarc_s"
+
+    rebuild_archive(source, output, {"/one/A.xpp": b"changed"}, require_all=True)
+
+    assert extract_entry(output, "/one/A.xpp") == b"changed"
+    assert extract_entry(output, "/two/A.xpp") == b"two"
+
+
+def test_rebuild_archive_rejects_ambiguous_basename_before_output(tmp_path: Path):
+    source = tmp_path / "retail.psarc_s"
+    source.write_bytes(build_archive(["/one/A.xpp", "/two/A.xpp"], [b"one", b"two"]))
+    output = tmp_path / "modded.psarc_s"
+
+    with pytest.raises(ValueError, match="matches multiple"):
+        rebuild_archive(source, output, {"A.xpp": b"changed"}, require_all=True)
+
+    assert not output.exists()

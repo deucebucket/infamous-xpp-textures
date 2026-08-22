@@ -136,15 +136,115 @@ def test_profile_build_rejects_malformed_replacement(tmp_path: Path):
         build_profile(install1, install2, replacements, tmp_path / "profile")
 
 
-def test_profile_extract_rejects_duplicate_package_basenames(tmp_path: Path):
+def test_profile_extract_keeps_cross_slot_duplicate_basenames_separate(tmp_path: Path):
+    package1 = _minimal_xpp(extra=bytes([1]) * 8)
+    package2 = _minimal_xpp(extra=bytes([2]) * 8)
+    install1 = tmp_path / "infamous1.psarc_s"
+    install2 = tmp_path / "infamous2.psarc_s"
+    install1.write_bytes(build_archive(["/one/shared.xpp"], [package1]))
+    install2.write_bytes(build_archive(["/two/SHARED.XPP"], [package2]))
+    workspace = tmp_path / "workspace"
+
+    manifest = extract_profile(install1, install2, workspace)
+
+    assert manifest["kind"] == "xpp-workspace"
+    assert (workspace / "xpp/install1/one/shared.xpp").read_bytes() == package1
+    assert (workspace / "xpp/install2/two/SHARED.XPP").read_bytes() == package2
+
+
+def test_profile_build_rejects_unqualified_cross_slot_duplicate(tmp_path: Path):
     package = _minimal_xpp()
     install1 = tmp_path / "infamous1.psarc_s"
     install2 = tmp_path / "infamous2.psarc_s"
     install1.write_bytes(build_archive(["/one/shared.xpp"], [package]))
-    install2.write_bytes(build_archive(["/two/SHARED.XPP"], [package]))
+    install2.write_bytes(build_archive(["/two/shared.xpp"], [package]))
+    replacements = tmp_path / "replacements"
+    replacements.mkdir()
+    (replacements / "shared.xpp").write_bytes(package)
 
-    with pytest.raises(ValueError, match="routing ambiguous"):
-        extract_profile(install1, install2, tmp_path / "workspace")
+    with pytest.raises(ValueError, match="2 retail owners"):
+        build_profile(install1, install2, replacements, tmp_path / "profile")
+
+
+def test_profile_build_routes_same_basename_to_both_explicit_slots(tmp_path: Path):
+    retail1 = _minimal_xpp(extra=bytes([1]) * 8)
+    retail2 = _minimal_xpp(extra=bytes([2]) * 8)
+    candidate1 = _minimal_xpp(extra=bytes([3]) * 8)
+    candidate2 = _minimal_xpp(extra=bytes([4]) * 8)
+    install1 = tmp_path / "infamous1.psarc_s"
+    install2 = tmp_path / "infamous2.psarc_s"
+    install1.write_bytes(build_archive(["/one/shared.xpp"], [retail1]))
+    install2.write_bytes(build_archive(["/two/shared.xpp"], [retail2]))
+    replacements = tmp_path / "replacements"
+    (replacements / "install1/one").mkdir(parents=True)
+    (replacements / "install2/two").mkdir(parents=True)
+    (replacements / "install1/one/shared.xpp").write_bytes(candidate1)
+    (replacements / "install2/two/shared.xpp").write_bytes(candidate2)
+
+    manifest = build_profile(install1, install2, replacements, tmp_path / "profile")
+
+    assert manifest["replacement_count"] == 2
+    assert extract_entry(tmp_path / "profile/infamous1.psarc_s", "/one/shared.xpp") == candidate1
+    assert extract_entry(tmp_path / "profile/infamous2.psarc_s", "/two/shared.xpp") == candidate2
+
+
+def test_profile_build_rejects_wrong_explicit_slot(tmp_path: Path):
+    install1, install2, _retail1, retail2 = _write_pair(tmp_path)
+    replacements = tmp_path / "replacements"
+    (replacements / "install1").mkdir(parents=True)
+    (replacements / "install1/A2.xpp").write_bytes(retail2)
+
+    with pytest.raises(ValueError, match="absent from retail install1"):
+        build_profile(install1, install2, replacements, tmp_path / "profile")
+
+
+def test_profile_build_rejects_two_inputs_for_one_explicit_target(tmp_path: Path):
+    install1, install2, retail1, _retail2 = _write_pair(tmp_path)
+    replacements = tmp_path / "replacements"
+    (replacements / "install1/textures").mkdir(parents=True)
+    (replacements / "install1/alias").mkdir(parents=True)
+    (replacements / "install1/textures/A1.xpp").write_bytes(retail1)
+    (replacements / "install1/alias/A1.xpp").write_bytes(retail1)
+
+    with pytest.raises(ValueError, match="same retail target"):
+        build_profile(install1, install2, replacements, tmp_path / "profile")
+
+
+def test_profile_build_uses_exact_path_for_within_slot_duplicate_basename(tmp_path: Path):
+    retail1 = _minimal_xpp(extra=bytes([1]) * 8)
+    retail2 = _minimal_xpp(extra=bytes([2]) * 8)
+    candidate = _minimal_xpp(extra=bytes([3]) * 8)
+    install1 = tmp_path / "infamous1.psarc_s"
+    install2 = tmp_path / "infamous2.psarc_s"
+    install1.write_bytes(
+        build_archive(["/one/shared.xpp", "/two/shared.xpp"], [retail1, retail2])
+    )
+    install2.write_bytes(build_archive(["/other.xpp"], [_minimal_xpp()]))
+    replacements = tmp_path / "replacements"
+    (replacements / "install1/one").mkdir(parents=True)
+    (replacements / "install1/one/shared.xpp").write_bytes(candidate)
+
+    build_profile(install1, install2, replacements, tmp_path / "profile")
+
+    rebuilt = tmp_path / "profile/infamous1.psarc_s"
+    assert extract_entry(rebuilt, "/one/shared.xpp") == candidate
+    assert extract_entry(rebuilt, "/two/shared.xpp") == retail2
+
+
+def test_profile_build_rejects_inexact_within_slot_duplicate_basename(tmp_path: Path):
+    package = _minimal_xpp()
+    install1 = tmp_path / "infamous1.psarc_s"
+    install2 = tmp_path / "infamous2.psarc_s"
+    install1.write_bytes(
+        build_archive(["/one/shared.xpp", "/two/shared.xpp"], [package, package])
+    )
+    install2.write_bytes(build_archive(["/other.xpp"], [package]))
+    replacements = tmp_path / "replacements"
+    (replacements / "install1/alias").mkdir(parents=True)
+    (replacements / "install1/alias/shared.xpp").write_bytes(package)
+
+    with pytest.raises(ValueError, match="2 owners inside install1"):
+        build_profile(install1, install2, replacements, tmp_path / "profile")
 
 
 def test_archive_audit_rejects_changed_entry_name_digest(tmp_path: Path):

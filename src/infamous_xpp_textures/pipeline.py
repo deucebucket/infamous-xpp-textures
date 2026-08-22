@@ -40,7 +40,7 @@ def extract_profile(
     _validate_complete_sources(sources)
     _report(progress, "Reading both PSARC catalogs and checking package ownership...")
     catalogs = _catalog_sources(sources)
-    _require_unique_package_basenames(catalogs)
+    _require_unique_extract_destinations(catalogs)
 
     temporary = Path(tempfile.mkdtemp(prefix=f".{output_directory.name}.", dir=output_directory.parent))
     try:
@@ -161,7 +161,10 @@ def build_profile(
             "schema_version": SCHEMA_VERSION,
             "kind": "xpp-psarc-profile",
             "archives": archive_records,
-            "replacements": sorted(replacement_records, key=lambda record: (record["slot"], record["file_name"].lower())),
+            "replacements": sorted(
+                replacement_records,
+                key=lambda record: (record["slot"], record["file_name"].lower()),
+            ),
             "replacement_count": len(replacement_records),
             "preflight": preflight,
         }
@@ -208,22 +211,34 @@ def _prepare_replacements(
     progress: Callable[[str], None] | None,
 ) -> tuple[dict[str, dict[str, bytes]], list[dict], dict]:
     _validate_complete_sources(sources)
-    _report(progress, "Reading both retail catalogs and routing replacement basenames...")
+    _report(progress, "Reading both retail catalogs and routing replacement ownership...")
     catalogs = _catalog_sources(sources)
-    owners = _require_unique_package_basenames(catalogs)
+    owners_by_basename, owners_by_slot_path = _catalog_package_owners(catalogs)
     replacements = _read_replacements(replacement_directory)
 
     routed: dict[str, dict[str, bytes]] = {"install1": {}, "install2": {}}
     replacement_records = []
-    for folded_name, replacement in replacements.items():
-        if folded_name not in owners:
-            raise ValueError(f"replacement is absent from both retail PSARCs: {replacement.name}")
-        slot, retail_name = owners[folded_name]
-        data = replacement.read_bytes()
-        routed[slot][retail_name] = data
+    routed_targets: set[tuple[str, str]] = set()
+    for replacement in replacements:
+        target = _resolve_replacement_owner(
+            replacement,
+            owners_by_basename,
+            owners_by_slot_path,
+        )
+        slot, manifest_name = target
+        folded_target = (slot, manifest_name.casefold())
+        if folded_target in routed_targets:
+            raise ValueError(
+                f"multiple replacements resolve to the same retail target: "
+                f"{slot}/{Path(manifest_name).name}"
+            )
+        routed_targets.add(folded_target)
+        data = replacement["path"].read_bytes()
+        routed[slot][manifest_name] = data
         replacement_records.append(
             {
-                "file_name": retail_name,
+                "file_name": Path(manifest_name).name,
+                "manifest_name": manifest_name,
                 "slot": slot,
                 "bytes": len(data),
                 "sha256": hashlib.sha256(data).hexdigest(),
@@ -273,11 +288,12 @@ def audit_archive(
     ):
         if name != rebuilt_name:
             raise ValueError("PSARC audit failed: entry iteration order changed")
-        expected = replacements.get(Path(name).name, source_payload)
+        replacement_key = _replacement_key(name, replacements)
+        expected = replacements.get(replacement_key, source_payload)
         if rebuilt_payload != expected:
-            state = "replacement" if Path(name).name in replacements else "unchanged"
+            state = "replacement" if replacement_key is not None else "unchanged"
             raise ValueError(f"PSARC audit failed: {state} entry differs: {name}")
-        if Path(name).name in replacements:
+        if replacement_key is not None:
             changed += 1
         else:
             unchanged += 1
@@ -299,45 +315,119 @@ def _catalog_sources(sources: dict[str, Path]) -> dict[str, dict]:
     return catalogs
 
 
-def _require_unique_package_basenames(catalogs: dict[str, dict]) -> dict[str, tuple[str, str]]:
-    owners: dict[str, tuple[str, str]] = {}
-    duplicates = set()
+def _require_unique_extract_destinations(catalogs: dict[str, dict]) -> None:
+    """Reject only manifest paths that would overwrite inside one slot."""
+    for slot, catalog in catalogs.items():
+        destinations = set()
+        for name in catalog["names"]:
+            if not name.lower().endswith((".xpp", ".xpps")):
+                continue
+            destination = _safe_manifest_path(name).as_posix().casefold()
+            if destination in destinations:
+                raise ValueError(f"duplicate manifest path would overwrite inside {slot}")
+            destinations.add(destination)
+
+
+def _catalog_package_owners(
+    catalogs: dict[str, dict],
+) -> tuple[dict[str, list[tuple[str, str]]], dict[str, dict[str, str]]]:
+    owners_by_basename: dict[str, list[tuple[str, str]]] = {}
+    owners_by_slot_path: dict[str, dict[str, str]] = {
+        "install1": {},
+        "install2": {},
+    }
     for slot, catalog in catalogs.items():
         for name in catalog["names"]:
             if not name.lower().endswith((".xpp", ".xpps")):
                 continue
-            basename = Path(name).name
-            folded = basename.casefold()
-            if folded in owners:
-                duplicates.add(basename)
-            else:
-                owners[folded] = (slot, basename)
-    if duplicates:
-        raise ValueError(f"duplicate package basenames make routing ambiguous: {sorted(duplicates)}")
-    return owners
+            folded_basename = PurePosixPath(name).name.casefold()
+            owners_by_basename.setdefault(folded_basename, []).append((slot, name))
+            folded_path = _safe_manifest_path(name).as_posix().casefold()
+            if folded_path in owners_by_slot_path[slot]:
+                raise ValueError(f"duplicate manifest path makes {slot} routing ambiguous")
+            owners_by_slot_path[slot][folded_path] = name
+    return owners_by_basename, owners_by_slot_path
 
 
-def _read_replacements(root: Path) -> dict[str, Path]:
+def _read_replacements(root: Path) -> list[dict]:
     if not root.is_dir():
         raise NotADirectoryError(f"replacement directory was not found: {root}")
-    replacements: dict[str, Path] = {}
-    duplicates = set()
     paths = (
         path
         for path in root.rglob("*")
         if path.is_file() and path.suffix.casefold() in (".xpp", ".xpps")
     )
+    replacements = []
     for path in sorted(paths):
-        folded = path.name.casefold()
-        if folded in replacements:
-            duplicates.add(path.name)
-        else:
-            replacements[folded] = path
-    if duplicates:
-        raise ValueError(f"duplicate replacement basenames: {sorted(duplicates)}")
+        relative = path.relative_to(root)
+        parts = relative.parts
+        slot = (
+            parts[0].casefold()
+            if parts and parts[0].casefold() in {"install1", "install2"}
+            else None
+        )
+        manifest_hint = None
+        if slot is not None:
+            if len(parts) == 1:
+                raise ValueError(f"slot-qualified replacement needs a package path: {relative}")
+            manifest_hint = PurePosixPath(*parts[1:]).as_posix().casefold()
+        replacements.append(
+            {
+                "path": path,
+                "slot": slot,
+                "manifest_hint": manifest_hint,
+                "basename": path.name.casefold(),
+            }
+        )
     if not replacements:
         raise ValueError(f"no replacement XPP/XPPS files were found under {root}")
     return replacements
+
+
+def _resolve_replacement_owner(
+    replacement: dict,
+    owners_by_basename: dict[str, list[tuple[str, str]]],
+    owners_by_slot_path: dict[str, dict[str, str]],
+) -> tuple[str, str]:
+    slot = replacement["slot"]
+    basename = replacement["basename"]
+    if slot is None:
+        candidates = owners_by_basename.get(basename, [])
+        if not candidates:
+            raise ValueError(
+                f"replacement is absent from both retail PSARCs: {replacement['path'].name}"
+            )
+        if len(candidates) != 1:
+            raise ValueError(
+                f"replacement basename has {len(candidates)} retail owners; "
+                "place it under install1/ or install2/"
+            )
+        return candidates[0]
+
+    exact = owners_by_slot_path[slot].get(replacement["manifest_hint"])
+    if exact is not None:
+        return slot, exact
+    candidates = [owner for owner in owners_by_basename.get(basename, []) if owner[0] == slot]
+    if not candidates:
+        raise ValueError(f"slot-qualified replacement is absent from retail {slot}")
+    if len(candidates) != 1:
+        raise ValueError(
+            f"replacement basename has {len(candidates)} owners inside {slot}; "
+            "preserve its exact manifest-relative path"
+        )
+    return candidates[0]
+
+
+def _replacement_key(name: str, replacements: dict[str, bytes]) -> str | None:
+    if name in replacements:
+        return name
+    portable = name.lstrip("/")
+    if portable in replacements:
+        return portable
+    basename = PurePosixPath(name).name
+    if basename in replacements:
+        return basename
+    return None
 
 
 def _validate_complete_sources(sources: dict[str, Path]) -> None:

@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.5.0 - 2026-08-22
+
+- Added explicit `install1/` and `install2/` replacement ownership for packed profiles with cross-archive duplicate basenames.
+- Preserved legacy flat replacement routing when one package owner is globally unique and rejected every ambiguous, wrong-slot, or duplicate-target input before output staging.
+- Preserved exact manifest-relative paths for within-slot duplicate basenames through validation, PSARC rebuild, and full payload audit.
+- Allowed slot-separated profile extraction when the same basename occurs in both install archives.
+
 ## 2.4.0 - 2026-08-22
 
 - Added a payload-free `profile-oracle` comparison for two caller-supplied packed install pairs.

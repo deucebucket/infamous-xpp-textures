@@ -196,7 +196,7 @@ def rebuild_archive(
     compression_level: int = 9,
     require_all: bool = False,
 ) -> dict[str, int]:
-    """Atomically rebuild a PSARC, replacing matching entries by basename."""
+    """Atomically rebuild a PSARC using exact manifest names or legacy basenames."""
     source = Path(source)
     destination = Path(destination)
     info, entries, names, blocks = read_toc(source)
@@ -205,23 +205,33 @@ def rebuild_archive(
     if len(names) != len(entries) - 1:
         raise ValueError("PSARC manifest and entry table lengths differ")
 
-    manifest: bytes
-    payloads: list[bytes] = []
-    replaced: set[str] = set()
-    with source.open("rb") as handle:
-        manifest = _read_entry(handle, entries[0], blocks, info["block_size"])
-        for name, entry in zip(names, entries[1:]):
-            basename = Path(name).name
-            if basename in replacements:
-                payloads.append(replacements[basename])
-                replaced.add(basename)
-            else:
-                payloads.append(_read_entry(handle, entry, blocks, info["block_size"]))
+    replacement_keys = [_replacement_key(name, replacements) for name in names]
+    replacement_occurrences: dict[str, int] = {}
+    for replacement_key in replacement_keys:
+        if replacement_key is None:
+            continue
+        replacement_occurrences[replacement_key] = (
+            replacement_occurrences.get(replacement_key, 0) + 1
+        )
+    ambiguous = [key for key, count in replacement_occurrences.items() if count != 1]
+    if ambiguous:
+        raise ValueError("replacement key matches multiple PSARC entries")
+    replaced = set(replacement_occurrences)
     missing = set(replacements) - replaced
     if require_all and missing:
         raise ValueError(f"replacement names are absent from the PSARC: {sorted(missing)}")
     if not replaced:
         raise ValueError("none of the replacement names are present in the PSARC")
+
+    manifest: bytes
+    payloads: list[bytes] = []
+    with source.open("rb") as handle:
+        manifest = _read_entry(handle, entries[0], blocks, info["block_size"])
+        for entry, replacement_key in zip(entries[1:], replacement_keys, strict=True):
+            if replacement_key is not None:
+                payloads.append(replacements[replacement_key])
+            else:
+                payloads.append(_read_entry(handle, entry, blocks, info["block_size"]))
 
     major, minor = (int(part) for part in info["version"].split(".", 1))
     rebuilt = build_archive(
@@ -253,3 +263,15 @@ def rebuild_archive(
         "entries": len(names),
         "bytes": len(rebuilt),
     }
+
+
+def _replacement_key(name: str, replacements: dict[str, bytes]) -> str | None:
+    if name in replacements:
+        return name
+    portable = name.lstrip("/")
+    if portable in replacements:
+        return portable
+    basename = Path(name).name
+    if basename in replacements:
+        return basename
+    return None

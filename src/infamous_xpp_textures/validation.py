@@ -218,16 +218,26 @@ def validate_replacement_set(
     for slot, source in sources.items():
         if progress is not None:
             progress(f"Strictly validating {len(routed[slot])} {slot} replacement XPPs...")
+        if not routed[slot]:
+            continue
         for manifest_name, retail_data in iter_archive_entries(source):
-            basename = Path(manifest_name).name
-            if basename not in routed[slot]:
+            replacement_key = _replacement_key(manifest_name, routed[slot])
+            if replacement_key is None:
                 continue
+            basename = Path(manifest_name).name
             try:
-                report = compare_xpp(retail_data, routed[slot][basename])
+                report = compare_xpp(retail_data, routed[slot][replacement_key])
             except ValidationError as error:
                 raise ValidationError(f"{slot}/{basename}: {error}") from error
-            found.add((slot, basename))
-            package_reports.append({"slot": slot, "file_name": basename, **report})
+            found.add((slot, replacement_key))
+            package_reports.append(
+                {
+                    "slot": slot,
+                    "file_name": basename,
+                    "manifest_name": manifest_name,
+                    **report,
+                }
+            )
 
     expected = {(slot, name) for slot, replacements in routed.items() for name in replacements}
     missing = expected - found
@@ -249,3 +259,15 @@ def validate_replacement_set(
             package_reports, key=lambda report: (report["slot"], report["file_name"].casefold())
         ),
     }
+
+
+def _replacement_key(name: str, replacements: dict[str, bytes]) -> str | None:
+    if name in replacements:
+        return name
+    portable = name.lstrip("/")
+    if portable in replacements:
+        return portable
+    basename = Path(name).name
+    if basename in replacements:
+        return basename
+    return None
