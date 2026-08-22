@@ -323,6 +323,7 @@ def _build_xpp_stream_zero_binding(
                 continue
             source_start = parsed_xpp.data_offset + stream_zero_offset
             source = xpp_data[source_start : source_start + byte_count]
+            rebuilt_bytes = bytes(rebuilt)
             distinct_vertex_record_count = len(
                 {source[index : index + stride] for index in range(0, len(source), stride)}
             )
@@ -331,10 +332,11 @@ def _build_xpp_stream_zero_binding(
                 len(source) != byte_count
                 or distinct_vertex_record_count < 2
                 or distinct_byte_value_count < 2
-                or bytes(rebuilt) != source
+                or rebuilt_bytes != source
             ):
                 continue
             source_sha256 = hashlib.sha256(source).hexdigest()
+            reconstructed_sha256 = hashlib.sha256(rebuilt_bytes).hexdigest()
             exact_matches.append(
                 {
                     "record_offset": record_offset,
@@ -349,7 +351,7 @@ def _build_xpp_stream_zero_binding(
                     "distinct_vertex_record_count": distinct_vertex_record_count,
                     "distinct_byte_value_count": distinct_byte_value_count,
                     "source_sha256": source_sha256,
-                    "reconstructed_sha256": source_sha256,
+                    "reconstructed_sha256": reconstructed_sha256,
                 }
             )
 
