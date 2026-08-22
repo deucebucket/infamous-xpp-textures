@@ -212,6 +212,30 @@ def test_rejects_ambiguous_draw_report(tmp_path):
 
 
 @pytest.mark.parametrize(
+    ("mutation", "message"),
+    (
+        (lambda report: report.update(draw_binding_count=True), "draw binding count"),
+        (lambda report: report.update(exact_matches={}), "exact matches"),
+        (
+            lambda report: report["draw_bindings"][0]["rsx_draw_state"].update(
+                vertex_arrays={}
+            ),
+            "vertex arrays",
+        ),
+    ),
+)
+def test_rejects_malformed_binding_schema(tmp_path, mutation, message):
+    xpp = _character_xpp()
+    payload = _payload()
+    report = _binding_report(xpp, payload)
+    mutation(report)
+    with pytest.raises(CharacterDiagnosticExportError, match=message):
+        export_character_diagnostic_glb(
+            xpp, report, payload, tmp_path / "bad.glb", position_hypothesis_attribute=0
+        )
+
+
+@pytest.mark.parametrize(
     ("field", "value"),
     (("type_name", "float16"), ("component_count", 2), ("frequency", 1), ("stride", 8)),
 )

@@ -23,6 +23,24 @@ def _sha256(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
 
 
+def _object(value, label: str) -> dict:
+    if not isinstance(value, dict):
+        raise CharacterDiagnosticExportError(f"{label} must be a JSON object")
+    return value
+
+
+def _array(value, label: str) -> list:
+    if not isinstance(value, list):
+        raise CharacterDiagnosticExportError(f"{label} must be a JSON array")
+    return value
+
+
+def _integer(value, label: str) -> int:
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise CharacterDiagnosticExportError(f"{label} must be an integer")
+    return value
+
+
 def _one(items: list, label: str):
     if len(items) != 1:
         raise CharacterDiagnosticExportError(f"expected one {label}, found {len(items)}")
@@ -91,16 +109,30 @@ def export_character_diagnostic_glb(
 ) -> dict:
     """Export one exact topology with an explicit, unproved position hypothesis."""
 
-    if not isinstance(position_hypothesis_attribute, int) or isinstance(
-        position_hypothesis_attribute, bool
-    ):
-        raise CharacterDiagnosticExportError("position hypothesis attribute must be an integer")
-    if binding_report.get("draw_binding_count") != 1:
+    position_hypothesis_attribute = _integer(
+        position_hypothesis_attribute, "position hypothesis attribute"
+    )
+    binding_report = _object(binding_report, "binding report")
+    if _integer(
+        binding_report.get("draw_binding_count"), "draw binding count"
+    ) != 1:
         raise CharacterDiagnosticExportError("binding report must contain exactly one draw")
-    exact = _one(binding_report.get("exact_matches", []), "exact topology match")
-    draw = _one(binding_report.get("draw_bindings", []), "draw binding")
+    exact = _object(
+        _one(
+            _array(binding_report.get("exact_matches"), "exact matches"),
+            "exact topology match",
+        ),
+        "exact topology match",
+    )
+    draw = _object(
+        _one(
+            _array(binding_report.get("draw_bindings"), "draw bindings"),
+            "draw binding",
+        ),
+        "draw binding",
+    )
     state = draw.get("rsx_draw_state")
-    if not isinstance(state, dict) or not state.get("rsx_vertex_binding_proved"):
+    if not isinstance(state, dict) or state.get("rsx_vertex_binding_proved") is not True:
         raise CharacterDiagnosticExportError("RSX vertex binding is not complete")
     if state.get("status") != "complete-vertex-binding":
         raise CharacterDiagnosticExportError("RSX vertex binding status is not complete")
@@ -117,10 +149,12 @@ def export_character_diagnostic_glb(
     contract = _one(contracts, "matching XPP geometry contract")
     vertex_count = contract["vertex_count"]
     if (
-        exact.get("vertex_count") != vertex_count
-        or exact.get("index_count") != contract["index_count"]
-        or exact.get("index_min") != 0
-        or exact.get("index_max") != vertex_count - 1
+        _integer(exact.get("vertex_count"), "exact vertex count") != vertex_count
+        or _integer(exact.get("index_count"), "exact index count")
+        != contract["index_count"]
+        or _integer(exact.get("index_min"), "exact index minimum") != 0
+        or _integer(exact.get("index_max"), "exact index maximum")
+        != vertex_count - 1
     ):
         raise CharacterDiagnosticExportError("exact topology counts do not reconcile")
 
@@ -136,33 +170,50 @@ def export_character_diagnostic_glb(
     if not indices or max(indices) >= vertex_count or len(indices) % 3:
         raise CharacterDiagnosticExportError("XPP triangle indices are invalid")
 
+    vertex_arrays = [
+        _object(item, "vertex array")
+        for item in _array(state.get("vertex_arrays"), "vertex arrays")
+    ]
     attributes = [
         item
-        for item in state.get("vertex_arrays", [])
-        if item.get("attribute") == position_hypothesis_attribute
+        for item in vertex_arrays
+        if _integer(item.get("attribute"), "vertex attribute number")
+        == position_hypothesis_attribute
     ]
     attribute = _one(attributes, "selected position-hypothesis attribute")
-    if not attribute.get("binding_proved"):
+    if attribute.get("binding_proved") is not True:
         raise CharacterDiagnosticExportError("selected attribute is not bound to one payload")
     if (
         attribute.get("type_raw") != 2
         or attribute.get("type_name") != "float32"
         or attribute.get("component_count") != 3
-        or attribute.get("frequency") != 0
-        or not isinstance(attribute.get("stride"), int)
-        or attribute["stride"] < 12
-        or attribute.get("index_span") != vertex_count
+        or _integer(attribute.get("frequency"), "attribute frequency") != 0
+        or _integer(attribute.get("stride"), "attribute stride") < 12
+        or _integer(attribute.get("index_span"), "attribute index span")
+        != vertex_count
     ):
         raise CharacterDiagnosticExportError(
             "selected attribute is not a bounded zero-frequency float32x3 stream"
         )
-    block = _one(attribute.get("matching_memory_blocks", []), "attribute payload binding")
-    if len(attribute_payload) != attribute.get("expected_capture_size"):
+    block = _object(
+        _one(
+            _array(
+                attribute.get("matching_memory_blocks"),
+                "matching attribute memory blocks",
+            ),
+            "attribute payload binding",
+        ),
+        "attribute payload binding",
+    )
+    expected_capture_size = _integer(
+        attribute.get("expected_capture_size"), "expected capture size"
+    )
+    if len(attribute_payload) != expected_capture_size:
         raise CharacterDiagnosticExportError("attribute payload size does not match the binding")
     payload_sha256 = _sha256(attribute_payload)
     if payload_sha256 != block.get("payload_sha256"):
         raise CharacterDiagnosticExportError("attribute payload SHA-256 does not match the binding")
-    stride = attribute["stride"]
+    stride = _integer(attribute.get("stride"), "attribute stride")
     required_bytes = (vertex_count - 1) * stride + 12
     if required_bytes > len(attribute_payload):
         raise CharacterDiagnosticExportError("attribute payload is truncated")
