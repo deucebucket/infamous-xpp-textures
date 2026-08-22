@@ -596,9 +596,12 @@ The command validates the complete bundle as one immutable set: the completion
 totals, all event binding files, reconstructed descriptor hashes, exact index
 and vertex payload hashes and sizes, and absence of missing, extra, or symlinked
 files. The selected event must contain one bounded big-endian u16 triangle list
-and one unambiguous zero-frequency `float32x3` attribute beginning at vertex
-zero. Coordinates must be finite and produce at least one nondegenerate
-triangle. Output is refused inside the input bundle.
+and one unambiguous zero-frequency `float32x3` attribute. Every source index
+must fall inside the captured vertex range. When that range begins after vertex
+zero, the exporter subtracts the recorded first vertex to make GLB-local
+indices while retaining the original range and index hashes as evidence.
+Coordinates must be finite and produce at least one nondegenerate triangle.
+Output is refused inside the input bundle.
 
 RR — Really Readable rundown: this lets us quickly put a GPU draw on Blender's
 workbench before we know which XPP record produced it. That is useful for
@@ -607,6 +610,37 @@ scene objects. The tool still labels every result “runtime-only and unowned.�
 Looking like Zeke is a clue, not identity proof; XPP correlation, UVs, textures,
 bones, and injection remain separate gates. Progress pieces can render quickly
 at normal resolution, while 4K is reserved for the assembled full character.
+
+Version 2.10 accepts the stricter texture-bound capture format as a separate
+mode. The exact allowlist used by the private runtime capture is required again
+at validation time:
+
+```bash
+xpp-tool runtime-topology-diagnostic-export \
+  --bundle /path/to/owned/texture-bound-topology-output \
+  --texture-allowlist /path/to/exact-target-textures.sha256 \
+  --event 1 \
+  --position-hypothesis-attribute 0 \
+  --output ./texture-bound-draw-01.glb \
+  --json-out ./texture-bound-draw-01.json
+```
+
+The validator proves that the listed texture identity was associated with an
+enabled fragment-texture address when RPCS3 captured the draw. It also proves
+the exact local payload set, capture-key calculation, bounds, and triangle
+topology. It deliberately records `shader_reference_proven=0`: an enabled slot
+is not yet proof that the active shader sampled it, and a texture-bound draw is
+not automatically a uniquely owned Zeke body part. Visual inspection and XPP
+correlation remain required.
+
+RR — Really Readable rundown: the old search recognized a piece only when its
+runtime index list exactly matched the retail XPP index list. The new route can
+also ask, “Which bounded draw had this exact known Zeke texture switched on?”
+That is a stronger clue for reordered or alternate-LOD geometry, but still a
+clue. Each partial can be exported and rendered immediately at quick normal
+resolution. The 3840×2160 treatment starts when head, hair, body/skin, clothes,
+and gear are assembled into the fully textured character; 4× source textures
+and a 4K output canvas remain separate concepts.
 
 ## Typical HD texture pass
 

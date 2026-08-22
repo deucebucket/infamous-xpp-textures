@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.10.0 - 2026-08-22
+
+- Added explicit validation/export support for `if1-texture-bound-topology-v1` bundles without weakening the 2.8.0 census format.
+- Required the exact external target-texture allowlist, slot/hash reconciliation, capture-key reconstruction, enabled-address binding scope, and an honest `shader_reference_proven=0` claim.
+- Enforced 64-hash, 256-address, 16-draw, per-payload, and 64 MiB bounds; rejected mixed schemas, counter drift, unallowed hashes, duplicate keys, malformed files, and overwrite attempts.
+- Kept texture identity correlation separate from unique component ownership, geometry-to-XPP identity, UV, materials, rigging, injection, and full-character claims.
+- Preserved byte-compatible 2.8.0 GLB/report output for the original `if1-topology-census-v1` bundles.
+
 ## 2.8.0 - 2026-08-22
 
 - Added a deterministic runtime-topology diagnostic GLB exporter for complete, caller-owned topology census bundles.
