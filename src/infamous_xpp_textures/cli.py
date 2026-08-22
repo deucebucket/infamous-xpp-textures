@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
+import tempfile
 from pathlib import Path
 
 from .character import (
@@ -20,7 +22,8 @@ from .oracle import build_profile_oracle
 from .pack import PackError, pack_replacements, replacements_from_dir, replacements_from_scale
 from .pipeline import build_profile, extract_profile, validate_profile
 from .pngio import read_png
-from .psarc import rebuild_archive
+from .psarc import extract_entry, rebuild_archive
+from .rebase import RebaseError, rebase_texture_edits
 from .runtime import build_replacement_bundle, build_runtime_index, write_allowlist
 from .validation import ValidationError, compare_xpp, validate_xpp
 from .xpp import parse_xpp
@@ -173,6 +176,65 @@ def cmd_derive(args: argparse.Namespace) -> int:
         f"wrote {args.out}  ({len(result):,} bytes)  "
         f"derived {changed}/{total} texture records at {args.target_scale}x"
     )
+    return 0
+
+
+def cmd_texture_rebase(args: argparse.Namespace) -> int:
+    try:
+        protected_inputs = [args.source_retail, args.source_candidate]
+        if args.target_retail is not None:
+            protected_inputs.append(args.target_retail)
+        if args.target_psarc is not None:
+            protected_inputs.append(args.target_psarc)
+        same_path = args.out.resolve() in {path.resolve() for path in protected_inputs}
+        same_file = args.out.exists() and any(
+            path.exists() and args.out.samefile(path) for path in protected_inputs
+        )
+        if same_path or same_file:
+            raise RebaseError("--out must not overwrite a source or target retail XPP")
+        if args.target_psarc is not None:
+            if not args.target_entry:
+                raise RebaseError("--target-psarc requires --target-entry")
+            target_retail = extract_entry(args.target_psarc, args.target_entry)
+        else:
+            if args.target_entry:
+                raise RebaseError("--target-entry is only valid with --target-psarc")
+            target_retail = args.target_retail.read_bytes()
+        output, report = rebase_texture_edits(
+            args.source_retail.read_bytes(),
+            args.source_candidate.read_bytes(),
+            target_retail,
+            include_indices=(set(args.include_index) if args.include_index else None),
+            allow_zero_change=args.allow_zero_change,
+        )
+        args.out.parent.mkdir(parents=True, exist_ok=True)
+        descriptor, temporary = tempfile.mkstemp(
+            prefix=f".{args.out.name}.", dir=args.out.parent
+        )
+        try:
+            with os.fdopen(descriptor, "wb") as handle:
+                handle.write(output)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, args.out)
+        except BaseException:
+            try:
+                os.unlink(temporary)
+            except FileNotFoundError:
+                pass
+            raise
+    except (OSError, RebaseError, ValueError) as error:
+        print(f"texture-rebase failed: {error}", file=sys.stderr)
+        return 1
+
+    if args.json:
+        print(json.dumps(report, indent=2, sort_keys=True))
+    else:
+        print(
+            f"wrote {args.out}: {report['mapped_record_count']} exact retail-identity "
+            f"mapping(s), {report['target_unchanged_records_verified']} untouched target records"
+        )
+        print("target package remained the structural base; runtime proof is still required")
     return 0
 
 
@@ -550,6 +612,37 @@ def main(argv: list[str] | None = None) -> int:
         help="derive only the N lowest-memory-cost records",
     )
     p_derive.set_defaults(func=cmd_derive)
+
+    p_rebase = sub.add_parser(
+        "texture-rebase",
+        help="apply source texture edits to a different retail build by exact identity",
+    )
+    p_rebase.add_argument("--source-retail", type=Path, required=True)
+    p_rebase.add_argument("--source-candidate", type=Path, required=True)
+    target_source = p_rebase.add_mutually_exclusive_group(required=True)
+    target_source.add_argument("--target-retail", type=Path)
+    target_source.add_argument("--target-psarc", type=Path)
+    p_rebase.add_argument(
+        "--target-entry",
+        help="manifest path inside --target-psarc",
+    )
+    p_rebase.add_argument("--out", type=Path, required=True)
+    p_rebase.add_argument(
+        "--include-index",
+        action="append",
+        type=lambda value: int(value, 0),
+        default=[],
+        help="transfer only this changed source descriptor index (repeatable)",
+    )
+    p_rebase.add_argument(
+        "--allow-zero-change",
+        action="store_true",
+        help="permit a no-op control and emit target retail byte-for-byte",
+    )
+    p_rebase.add_argument(
+        "--json", action="store_true", help="print a machine-readable aggregate report"
+    )
+    p_rebase.set_defaults(func=cmd_texture_rebase)
 
     p_psarc = sub.add_parser(
         "psarc-pack",
