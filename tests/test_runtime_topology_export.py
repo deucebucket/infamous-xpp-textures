@@ -10,6 +10,7 @@ from infamous_xpp_textures.runtime_topology_export import (
     RuntimeTopologyExportError,
     _BINDING_FIELDS,
     _TEXTURE_BINDING_FIELDS,
+    _TEXTURE_TRANSFORM_BINDING_FIELDS,
     _parse_texture_allowlist,
     export_runtime_topology_glb,
 )
@@ -163,6 +164,56 @@ def _make_texture_bound(bundle, tmp_path):
     return allowlist
 
 
+def _make_transform_bound_v2(bundle, tmp_path):
+    allowlist = _make_texture_bound(bundle, tmp_path)
+    binding = bundle / "topology-01-binding.tsv"
+    with binding.open(encoding="ascii", newline="") as handle:
+        rows = list(csv.DictReader(handle, delimiter="\t"))
+    vertex_program = bytes(range(251)) * 34 + bytes(range(174))
+    constants = bytes(range(256)) * 32
+    assert len(vertex_program) == 8708
+    assert len(constants) == 8192
+    vertex_sha = _sha(vertex_program)
+    constants_sha = _sha(constants)
+    vertex_name = f"topology-01-vertex-program-{vertex_sha[:16]}.bin"
+    constants_name = f"topology-01-transform-constants-{constants_sha[:16]}.bin"
+    (bundle / vertex_name).write_bytes(vertex_program)
+    (bundle / constants_name).write_bytes(constants)
+    for row in rows:
+        row.update(
+            {
+                "vertex_program_sha256": vertex_sha,
+                "transform_constants_sha256": constants_sha,
+                "vertex_program_file": vertex_name,
+                "vertex_program_bytes": str(len(vertex_program)),
+                "transform_constants_file": constants_name,
+                "transform_constants_bytes": str(len(constants)),
+            }
+        )
+    with binding.open("w", encoding="ascii", newline="") as handle:
+        writer = csv.DictWriter(
+            handle, fieldnames=_TEXTURE_TRANSFORM_BINDING_FIELDS, delimiter="\t"
+        )
+        writer.writeheader()
+        writer.writerows(rows)
+    payloads = list(bundle.glob("*.bin"))
+    completion = bundle / "capture.complete"
+    completion.write_text(
+        completion.read_text(encoding="ascii")
+        .replace(
+            "format\tif1-texture-bound-topology-v1",
+            "format\tif1-texture-bound-topology-v2",
+        )
+        .replace("payload_files\t3", f"payload_files\t{len(payloads)}")
+        .replace(
+            "payload_bytes\t116",
+            f"payload_bytes\t{sum(path.stat().st_size for path in payloads)}",
+        ),
+        encoding="ascii",
+    )
+    return allowlist
+
+
 def _glb_document(data: bytes) -> dict:
     magic, version, total = struct.unpack_from("<III", data)
     assert (magic, version, total) == (0x46546C67, 2, len(data))
@@ -274,6 +325,102 @@ def test_exports_texture_bound_event_with_exact_correlation(tmp_path):
     )
     assert second.read_bytes() == output.read_bytes()
     assert second_report == report
+
+
+def test_exports_v2_transform_bound_event_with_exact_payload_identity(tmp_path):
+    bundle = _write_bundle(tmp_path)
+    allowlist = _make_transform_bound_v2(bundle, tmp_path)
+    output = tmp_path / "transform-bound.glb"
+    report = export_runtime_topology_glb(
+        bundle,
+        1,
+        output,
+        position_hypothesis_attribute=0,
+        texture_allowlist=allowlist,
+    )
+    assert report["version"] == 3
+    assert report["bundle_format"] == "if1-texture-bound-topology-v2"
+    assert report["vertex_transform_payloads_proved"] is True
+    assert report["gates"]["vertex_transform_payload_identity"] is True
+    document = _glb_document(output.read_bytes())
+    evidence = document["asset"]["extras"]["infamousRuntimeDiagnostic"]
+    assert document["asset"]["generator"].startswith("xpp-tool 2.12.0")
+    assert evidence["vertexTransformPayloadIdentityProved"] is True
+
+    second = tmp_path / "transform-bound-second.glb"
+    second_report = export_runtime_topology_glb(
+        bundle,
+        1,
+        second,
+        position_hypothesis_attribute=0,
+        texture_allowlist=allowlist,
+    )
+    assert second.read_bytes() == output.read_bytes()
+    assert second_report == report
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    (
+        ("vertex_program_bytes", "8707", "fixed contract"),
+        ("transform_constants_bytes", "8191", "fixed contract"),
+        ("vertex_program_file", "wrong.bin", "event/SHA-256"),
+        ("transform_constants_file", "wrong.bin", "event/SHA-256"),
+    ),
+)
+def test_v2_rejects_transform_manifest_drift(tmp_path, field, value, message):
+    bundle = _write_bundle(tmp_path)
+    allowlist = _make_transform_bound_v2(bundle, tmp_path)
+    binding = bundle / "topology-01-binding.tsv"
+    with binding.open(encoding="ascii", newline="") as handle:
+        rows = list(csv.DictReader(handle, delimiter="\t"))
+    for row in rows:
+        row[field] = value
+    with binding.open("w", encoding="ascii", newline="") as handle:
+        writer = csv.DictWriter(
+            handle, fieldnames=_TEXTURE_TRANSFORM_BINDING_FIELDS, delimiter="\t"
+        )
+        writer.writeheader()
+        writer.writerows(rows)
+    with pytest.raises(RuntimeTopologyExportError, match=message):
+        export_runtime_topology_glb(
+            bundle,
+            1,
+            tmp_path / "bad.glb",
+            position_hypothesis_attribute=0,
+            texture_allowlist=allowlist,
+        )
+
+
+@pytest.mark.parametrize("kind", ("vertex-program", "transform-constants"))
+def test_v2_rejects_tampered_transform_payload(tmp_path, kind):
+    bundle = _write_bundle(tmp_path)
+    allowlist = _make_transform_bound_v2(bundle, tmp_path)
+    path = next(bundle.glob(f"topology-01-{kind}-*.bin"))
+    payload = path.read_bytes()
+    path.write_bytes(payload[:-1] + bytes([payload[-1] ^ 1]))
+    with pytest.raises(RuntimeTopologyExportError, match="exact size/SHA-256"):
+        export_runtime_topology_glb(
+            bundle,
+            1,
+            tmp_path / "bad.glb",
+            position_hypothesis_attribute=0,
+            texture_allowlist=allowlist,
+        )
+
+
+def test_v2_rejects_missing_transform_payload(tmp_path):
+    bundle = _write_bundle(tmp_path)
+    allowlist = _make_transform_bound_v2(bundle, tmp_path)
+    next(bundle.glob("topology-01-transform-constants-*.bin")).unlink()
+    with pytest.raises(RuntimeTopologyExportError, match="missing or is not a regular"):
+        export_runtime_topology_glb(
+            bundle,
+            1,
+            tmp_path / "bad.glb",
+            position_hypothesis_attribute=0,
+            texture_allowlist=allowlist,
+        )
 
 
 def test_texture_bound_bundle_requires_matching_allowlist(tmp_path):

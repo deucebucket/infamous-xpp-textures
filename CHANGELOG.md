@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.12.0 - 2026-08-22
+
+- Added strict validation for `if1-texture-bound-topology-v2` bundles carrying the exact 8,708-byte RSX vertex-program image/entry point and 8,192-byte transform-constant bank used by each bounded draw.
+- Required event/SHA-derived filenames, fixed extents, exact SHA-256 identity, complete-file reconciliation, and the existing 16-draw/64 MiB ceiling while preserving v1 bundle output byte-for-byte.
+- Exposed only a vertex-transform-payload identity gate; bone palettes, shader semantics, assembled character ownership, UVs, materials, rigging, and injection remain separate proof gates.
+
 ## 2.11.0 - 2026-08-22
 
 - Raised the texture-bound runtime allowlist to the smallest bounds that contain the cross-build-stable surface identity set: 512 unique hashes and 40 KiB.
