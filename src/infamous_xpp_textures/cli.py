@@ -16,6 +16,7 @@ from .capture import RrcCaptureError, build_rrc_character_match_report
 from .decode import extract_package, load_xpp_bytes
 from .derive import derive_scaled
 from .mesh import MeshExportError, export_glb, find_mesh_sections
+from .oracle import build_profile_oracle
 from .pack import PackError, pack_replacements, replacements_from_dir, replacements_from_scale
 from .pipeline import build_profile, extract_profile, validate_profile
 from .pngio import read_png
@@ -280,6 +281,48 @@ def cmd_profile_validate(args: argparse.Namespace) -> int:
         print("scene coverage: REQUIRED")
     if args.fail_on_budget and report["budget"]["status"] == "at-or-above-observed-startup-fail-range":
         return 2
+    return 0
+
+
+def cmd_profile_oracle(args: argparse.Namespace) -> int:
+    try:
+        report = build_profile_oracle(
+            args.left_install1,
+            args.left_install2,
+            args.right_install1,
+            args.right_install2,
+            left_label=args.left_label,
+            right_label=args.right_label,
+            compare_bytes=not args.catalog_only,
+            progress=(
+                (lambda message: print(message, flush=True))
+                if args.json_out is not None
+                else None
+            ),
+        )
+    except (OSError, ValueError) as error:
+        print(f"profile-oracle failed: {error}", file=sys.stderr)
+        return 1
+    rendered = json.dumps(report, indent=2, sort_keys=True) + "\n"
+    if args.json_out is None:
+        print(rendered, end="")
+        return 0
+    args.json_out.parent.mkdir(parents=True, exist_ok=True)
+    args.json_out.write_text(rendered, encoding="utf-8")
+    pair = report["pair"]
+    byte_summary = (
+        "not compared"
+        if pair["byte_identical_shared_packages"] is None
+        else (
+            f"{pair['byte_identical_shared_packages']} byte-identical, "
+            f"{pair['changed_shared_packages']} changed"
+        )
+    )
+    print(
+        f"profile oracle: {pair['shared_full_names']} shared package names, "
+        f"{byte_summary}; verdict {report['verdict']}"
+    )
+    print(f"wrote {args.json_out}")
     return 0
 
 
@@ -558,6 +601,28 @@ def main(argv: list[str] | None = None) -> int:
     )
     _add_budget_options(p_profile_validate)
     p_profile_validate.set_defaults(func=cmd_profile_validate)
+
+    p_profile_oracle = sub.add_parser(
+        "profile-oracle",
+        help="compare two packed install pairs without emitting package names or payloads",
+    )
+    p_profile_oracle.add_argument("--left-install1", type=Path, required=True)
+    p_profile_oracle.add_argument("--left-install2", type=Path, required=True)
+    p_profile_oracle.add_argument("--right-install1", type=Path, required=True)
+    p_profile_oracle.add_argument("--right-install2", type=Path, required=True)
+    p_profile_oracle.add_argument("--left-label", default="left")
+    p_profile_oracle.add_argument("--right-label", default="right")
+    p_profile_oracle.add_argument(
+        "--catalog-only",
+        action="store_true",
+        help="skip slow payload hashing and withhold byte-identity claims",
+    )
+    p_profile_oracle.add_argument(
+        "--json-out",
+        type=Path,
+        help="write the aggregate JSON report instead of printing it",
+    )
+    p_profile_oracle.set_defaults(func=cmd_profile_oracle)
 
     p_runtime_index = sub.add_parser(
         "runtime-index",
