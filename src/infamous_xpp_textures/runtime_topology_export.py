@@ -7,10 +7,14 @@ import hashlib
 import math
 import re
 import struct
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from .character_export import _cross_length_squared, _pack_glb, _write_atomic
+from .fragment_sampler import (
+    FragmentSamplerCensusError,
+    analyze_fragment_program_payload,
+)
 from .mesh import GlbBuilder
 
 
@@ -61,6 +65,12 @@ _TEXTURE_TRANSFORM_BINDING_FIELDS = _TEXTURE_BINDING_FIELDS + (
     "transform_constants_file",
     "transform_constants_bytes",
 )
+_TEXTURE_FRAGMENT_BINDING_FIELDS = _TEXTURE_TRANSFORM_BINDING_FIELDS + (
+    "fragment_program_sha256",
+    "fragment_program_file",
+    "fragment_program_bytes",
+    "fragment_referenced_textures_mask",
+)
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 _BINDING_NAME = re.compile(r"topology-(\d+)-binding\.tsv")
 _PAYLOAD_NAME = re.compile(r"topology-(\d+)-(?:index|block-(\d+))-[0-9a-f]{16}\.bin")
@@ -70,16 +80,20 @@ _VERTEX_PROGRAM_NAME = re.compile(
 _TRANSFORM_CONSTANTS_NAME = re.compile(
     r"topology-(\d+)-transform-constants-([0-9a-f]{16})\.bin"
 )
+_FRAGMENT_PROGRAM_NAME = re.compile(
+    r"topology-(\d+)-fragment-program-([0-9a-f]{16})\.bin"
+)
 _MAX_TARGETS = 16
 _MAX_TEXTURE_HASHES = 512
 _MAX_BOUND_ADDRESSES = 256
 _MAX_TEXTURE_ALLOWLIST_BYTES = 40 * 1024
-_MAX_BUNDLE_FILES = 1 + _MAX_TARGETS + _MAX_TARGETS * 19
+_MAX_BUNDLE_FILES = 1 + _MAX_TARGETS + _MAX_TARGETS * 20
 _MAX_INDEX_BYTES = 4 * 1024 * 1024
 _MAX_BLOCK_BYTES = 8 * 1024 * 1024
 _MAX_PAYLOAD_BYTES = 64 * 1024 * 1024
 _VERTEX_PROGRAM_BYTES = 544 * 4 * 4 + 4
 _TRANSFORM_CONSTANTS_BYTES = 512 * 4 * 4
+_MAX_FRAGMENT_PROGRAM_BYTES = 64 * 1024
 
 
 @dataclass(frozen=True)
@@ -111,6 +125,13 @@ class _Event:
     transform_constants_sha256: str
     vertex_program_file: str | None = None
     transform_constants_file: str | None = None
+    fragment_program_sha256: str | None = None
+    fragment_program_file: str | None = None
+    fragment_program_bytes: int = 0
+    fragment_referenced_textures_mask: int = 0
+    fragment_sampler_slots: tuple[int, ...] = ()
+    fragment_texture_instruction_count: int = 0
+    fragment_branch_instruction_count: int = 0
     target_texture_slots: tuple[int, ...] = ()
     target_texture_sha256s: tuple[str, ...] = ()
     binding_scope: str | None = None
@@ -167,6 +188,20 @@ def _auxiliary_filename(
     ):
         raise RuntimeTopologyExportError(
             "auxiliary payload filename does not match its event/SHA-256"
+        )
+    return value
+
+
+def _fragment_program_filename(value: str, event: int, expected_sha: str) -> str:
+    value = _plain_filename(value, "fragment program filename")
+    match = _FRAGMENT_PROGRAM_NAME.fullmatch(value)
+    if (
+        match is None
+        or int(match.group(1), 10) != event
+        or match.group(2) != expected_sha[:16]
+    ):
+        raise RuntimeTopologyExportError(
+            "fragment program filename does not match its event/SHA-256"
         )
     return value
 
@@ -291,6 +326,7 @@ def _parse_completion(path: Path) -> dict[str, int | str]:
     if capture_format not in (
         "if1-texture-bound-topology-v1",
         "if1-texture-bound-topology-v2",
+        "if1-texture-bound-topology-v3",
     ) or set(rows) != texture_fields:
         raise RuntimeTopologyExportError("capture.complete schema or format is invalid")
     result = {"format": capture_format, "binding_scope": rows["binding_scope"]}
@@ -298,10 +334,17 @@ def _parse_completion(path: Path) -> dict[str, int | str]:
     numeric_names = texture_fields - {"format", "binding_scope"}
     for name in numeric_names:
         result[name] = _integer(rows[name], name, allow_zero=name not in nonzero_names)
+    fragment_bound = capture_format == "if1-texture-bound-topology-v3"
+    expected_scope = (
+        "fragment-program-static-texture-reference"
+        if fragment_bound
+        else "enabled-fragment-texture-address"
+    )
+    expected_reference_proof = 1 if fragment_bound else 0
     if (
         result["guest_memory_untouched"] != 1
-        or result["shader_reference_proven"] != 0
-        or result["binding_scope"] != "enabled-fragment-texture-address"
+        or result["shader_reference_proven"] != expected_reference_proof
+        or result["binding_scope"] != expected_scope
     ):
         raise RuntimeTopologyExportError(
             "texture-bound capture has an unsupported binding or mutation claim"
@@ -315,7 +358,7 @@ def _parse_completion(path: Path) -> dict[str, int | str]:
             result["capture_limit_reached"] == 1
             and result["captured_draws"] != _MAX_TARGETS
         )
-        or result["payload_files"] > _MAX_TARGETS * 19
+        or result["payload_files"] > _MAX_TARGETS * (20 if fragment_bound else 19)
         or result["payload_bytes"] > _MAX_PAYLOAD_BYTES
         or result["bound_addresses"] > _MAX_BOUND_ADDRESSES
         or result["target_uploads"] > result["observed_uploads"]
@@ -351,10 +394,17 @@ def _parse_binding(
         texture_bound = capture_format in (
             "if1-texture-bound-topology-v1",
             "if1-texture-bound-topology-v2",
+            "if1-texture-bound-topology-v3",
         )
-        transform_bound = capture_format == "if1-texture-bound-topology-v2"
+        transform_bound = capture_format in (
+            "if1-texture-bound-topology-v2",
+            "if1-texture-bound-topology-v3",
+        )
+        fragment_bound = capture_format == "if1-texture-bound-topology-v3"
         expected_fields = (
-            _TEXTURE_TRANSFORM_BINDING_FIELDS
+            _TEXTURE_FRAGMENT_BINDING_FIELDS
+            if fragment_bound
+            else _TEXTURE_TRANSFORM_BINDING_FIELDS
             if transform_bound
             else _TEXTURE_BINDING_FIELDS
             if texture_bound
@@ -402,6 +452,13 @@ def _parse_binding(
             "transform_constants_file",
             "transform_constants_bytes",
         )
+    if fragment_bound:
+        common_names += (
+            "fragment_program_sha256",
+            "fragment_program_file",
+            "fragment_program_bytes",
+            "fragment_referenced_textures_mask",
+        )
     common = {name: rows[0][name] for name in common_names}
     if any(row[name] != value for row in rows for name, value in common.items()):
         raise RuntimeTopologyExportError(
@@ -436,6 +493,10 @@ def _parse_binding(
     capture_key: str | None = None
     vertex_program_file: str | None = None
     transform_constants_file: str | None = None
+    fragment_program_sha256: str | None = None
+    fragment_program_file: str | None = None
+    fragment_program_bytes = 0
+    fragment_referenced_textures_mask = 0
     if texture_bound:
         if allowed_texture_hashes is None:
             raise RuntimeTopologyExportError(
@@ -457,9 +518,14 @@ def _parse_binding(
             or any(slot > 15 for slot in target_texture_slots)
             or tuple(sorted(set(target_texture_slots))) != target_texture_slots
             or any(value not in allowed_texture_hashes for value in target_texture_sha256s)
-            or binding_scope != "enabled-fragment-texture-address"
+            or binding_scope
+            != (
+                "fragment-program-static-texture-reference"
+                if fragment_bound
+                else "enabled-fragment-texture-address"
+            )
             or _integer(common["shader_reference_proven"], "shader reference proof")
-            != 0
+            != (1 if fragment_bound else 0)
         ):
             raise RuntimeTopologyExportError(
                 "texture-bound event has an invalid slot/hash/binding claim"
@@ -468,10 +534,6 @@ def _parse_binding(
             f":{slot}:{value}"
             for slot, value in zip(target_texture_slots, target_texture_sha256s)
         )
-        if _sha256(capture_material.encode("ascii")) != capture_key:
-            raise RuntimeTopologyExportError(
-                "texture-bound event capture key does not reconcile"
-            )
         if transform_bound:
             if (
                 _integer(
@@ -501,6 +563,40 @@ def _parse_binding(
                 event,
                 common["transform_constants_sha256"],
                 constants=True,
+            )
+        if fragment_bound:
+            fragment_program_sha256 = _sha(
+                common["fragment_program_sha256"], "fragment program SHA-256"
+            )
+            fragment_program_bytes = _integer(
+                common["fragment_program_bytes"],
+                "fragment program bytes",
+                allow_zero=False,
+            )
+            fragment_referenced_textures_mask = _integer(
+                common["fragment_referenced_textures_mask"],
+                "fragment referenced textures mask",
+                allow_zero=False,
+            )
+            if (
+                fragment_program_bytes > _MAX_FRAGMENT_PROGRAM_BYTES
+                or fragment_program_bytes % 16
+                or fragment_referenced_textures_mask > 0xFFFF
+                or any(
+                    not fragment_referenced_textures_mask & (1 << slot)
+                    for slot in target_texture_slots
+                )
+            ):
+                raise RuntimeTopologyExportError(
+                    "fragment sampler proof is outside the bounded contract"
+                )
+            fragment_program_file = _fragment_program_filename(
+                common["fragment_program_file"], event, fragment_program_sha256
+            )
+            capture_material += f":{fragment_program_sha256}"
+        if _sha256(capture_material.encode("ascii")) != capture_key:
+            raise RuntimeTopologyExportError(
+                "texture-bound event capture key does not reconcile"
             )
     elif allowed_texture_hashes is not None:
         raise RuntimeTopologyExportError(
@@ -638,10 +734,14 @@ def _parse_binding(
         ),
         vertex_program_file=vertex_program_file,
         transform_constants_file=transform_constants_file,
+        fragment_program_sha256=fragment_program_sha256,
+        fragment_program_file=fragment_program_file,
+        fragment_program_bytes=fragment_program_bytes,
+        fragment_referenced_textures_mask=fragment_referenced_textures_mask,
         target_texture_slots=target_texture_slots,
         target_texture_sha256s=target_texture_sha256s,
         binding_scope=binding_scope,
-        shader_reference_proven=False,
+        shader_reference_proven=fragment_bound,
         capture_key=capture_key,
     )
 
@@ -664,8 +764,13 @@ def _load_bundle(
     texture_bound = completion["format"] in (
         "if1-texture-bound-topology-v1",
         "if1-texture-bound-topology-v2",
+        "if1-texture-bound-topology-v3",
     )
-    transform_bound = completion["format"] == "if1-texture-bound-topology-v2"
+    transform_bound = completion["format"] in (
+        "if1-texture-bound-topology-v2",
+        "if1-texture-bound-topology-v3",
+    )
+    fragment_bound = completion["format"] == "if1-texture-bound-topology-v3"
     allowed_texture_hashes: set[str] | None = None
     allowlist_sha256: str | None = None
     if texture_bound:
@@ -704,7 +809,6 @@ def _load_bundle(
         raise RuntimeTopologyExportError(
             "texture-bound events must be contiguous with unique capture keys"
         )
-    by_event = {event.number: event for event in events}
     referenced = {"capture.complete", *(path.name for path in binding_paths)}
     payload_sizes: dict[str, int] = {}
     for event in events:
@@ -751,11 +855,57 @@ def _load_bundle(
                     )
                 payload = _read_payload(bundle, filename, expected_size, expected_sha)
                 payload_sizes[filename] = len(payload)
+        if fragment_bound:
+            if (
+                event.fragment_program_file is None
+                or event.fragment_program_sha256 is None
+            ):
+                raise RuntimeTopologyExportError(
+                    "v3 event is missing fragment program payload references"
+                )
+            if event.fragment_program_file in payload_sizes:
+                raise RuntimeTopologyExportError(
+                    "one payload file is referenced more than once"
+                )
+            fragment_payload = _read_payload(
+                bundle,
+                event.fragment_program_file,
+                event.fragment_program_bytes,
+                event.fragment_program_sha256,
+            )
+            try:
+                fragment_report = analyze_fragment_program_payload(fragment_payload)
+            except FragmentSamplerCensusError as exc:
+                raise RuntimeTopologyExportError(str(exc)) from exc
+            if (
+                fragment_report["referenced_textures_mask"]
+                != event.fragment_referenced_textures_mask
+                or any(
+                    slot not in fragment_report["sampler_slots"]
+                    for slot in event.target_texture_slots
+                )
+            ):
+                raise RuntimeTopologyExportError(
+                    "fragment sampler decode does not reconcile with captured metadata"
+                )
+            payload_sizes[event.fragment_program_file] = len(fragment_payload)
+            events[events.index(event)] = replace(
+                event,
+                fragment_sampler_slots=tuple(fragment_report["sampler_slots"]),
+                fragment_texture_instruction_count=int(
+                    fragment_report["texture_instruction_count"]
+                ),
+                fragment_branch_instruction_count=int(
+                    fragment_report["branch_instruction_count"]
+                ),
+            )
         referenced.add(event.index_payload_file)
         referenced.update(block.payload_file for block in event.blocks)
         if transform_bound:
             referenced.add(event.vertex_program_file)
             referenced.add(event.transform_constants_file)
+        if fragment_bound:
+            referenced.add(event.fragment_program_file)
     if {entry.name for entry in entries} != referenced:
         raise RuntimeTopologyExportError(
             "bundle has missing or unreferenced extra files"
@@ -769,7 +919,70 @@ def _load_bundle(
         raise RuntimeTopologyExportError(
             "completion totals do not reconcile with the bundle"
         )
-    return completion, by_event, allowlist_sha256
+    return completion, {event.number: event for event in events}, allowlist_sha256
+
+
+def census_runtime_fragment_samplers(
+    bundle: Path, texture_allowlist: Path
+) -> dict:
+    """Validate a complete v3 bundle and emit a payload-free sampler census."""
+
+    completion, events, allowlist_sha256 = _load_bundle(bundle, texture_allowlist)
+    if completion["format"] != "if1-texture-bound-topology-v3":
+        raise RuntimeTopologyExportError(
+            "fragment sampler census requires if1-texture-bound-topology-v3"
+        )
+    rows = []
+    for event in events.values():
+        rows.append(
+            {
+                "event": event.number,
+                "draw_event": event.draw_event,
+                "index_sha256": event.index_sha256,
+                "target_texture_slots": list(event.target_texture_slots),
+                "target_texture_sha256s": list(event.target_texture_sha256s),
+                "fragment_program_sha256": event.fragment_program_sha256,
+                "fragment_program_bytes": event.fragment_program_bytes,
+                "referenced_textures_mask": event.fragment_referenced_textures_mask,
+                "sampler_slots": list(event.fragment_sampler_slots),
+                "texture_instruction_count": event.fragment_texture_instruction_count,
+                "branch_instruction_count": event.fragment_branch_instruction_count,
+                "target_slots_statically_referenced": True,
+                "runtime_branch_execution_proved": False,
+                "draw_ownership_proved": False,
+                "material_semantic_proved": False,
+            }
+        )
+    return {
+        "format": "infamous-runtime-fragment-sampler-census",
+        "version": 1,
+        "status": "fragment-sampler-census-complete",
+        "bundle_format": completion["format"],
+        "captured_draws": completion["captured_draws"],
+        "texture_allowlist_sha256": allowlist_sha256,
+        "events": rows,
+        "totals": {
+            "events": len(rows),
+            "target_slots": sum(len(row["target_texture_slots"]) for row in rows),
+            "texture_instructions": sum(
+                int(row["texture_instruction_count"]) for row in rows
+            ),
+            "events_with_branches": sum(
+                int(row["branch_instruction_count"]) > 0 for row in rows
+            ),
+        },
+        "gates": {
+            "bundle_complete": True,
+            "fragment_payload_identity": True,
+            "independent_sampler_decode": True,
+            "captured_mask_reconciled": True,
+            "target_slots_statically_referenced": True,
+            "runtime_branch_execution": False,
+            "draw_ownership": False,
+            "material_semantic": False,
+            "full_character": False,
+        },
+    }
 
 
 def export_runtime_topology_glb(
@@ -906,8 +1119,13 @@ def export_runtime_topology_glb(
     texture_bound = completion["format"] in (
         "if1-texture-bound-topology-v1",
         "if1-texture-bound-topology-v2",
+        "if1-texture-bound-topology-v3",
     )
-    transform_bound = completion["format"] == "if1-texture-bound-topology-v2"
+    transform_bound = completion["format"] in (
+        "if1-texture-bound-topology-v2",
+        "if1-texture-bound-topology-v3",
+    )
+    fragment_bound = completion["format"] == "if1-texture-bound-topology-v3"
     evidence = {
         "diagnosticOnly": True,
         "runtimeOnly": True,
@@ -933,17 +1151,23 @@ def export_runtime_topology_glb(
                 "targetTextureSlots": list(event.target_texture_slots),
                 "targetTextureSha256s": list(event.target_texture_sha256s),
                 "bindingScope": event.binding_scope,
-                "shaderReferenceProved": False,
+                "shaderReferenceProved": event.shader_reference_proven,
                 "captureKey": event.capture_key,
                 "textureAllowlistSha256": allowlist_sha256,
                 "vertexTransformPayloadIdentityProved": transform_bound,
+                "fragmentProgramPayloadIdentityProved": fragment_bound,
+                "fragmentReferencedTexturesMask": event.fragment_referenced_textures_mask,
+                "fragmentSamplerSlots": list(event.fragment_sampler_slots),
+                "runtimeBranchExecutionProved": False,
             }
         )
     document = {
         "asset": {
             "version": "2.0",
             "generator": (
-                "xpp-tool 2.12.0 transform-bound runtime topology diagnostic exporter"
+                "xpp-tool 2.15.0 fragment-referenced runtime topology diagnostic exporter"
+                if fragment_bound
+                else "xpp-tool 2.12.0 transform-bound runtime topology diagnostic exporter"
                 if transform_bound
                 else "xpp-tool 2.11.0 texture-bound runtime topology diagnostic exporter"
                 if texture_bound
@@ -993,7 +1217,7 @@ def export_runtime_topology_glb(
     _write_atomic(output, glb)
     report = {
         "format": "infamous-runtime-topology-diagnostic-export",
-        "version": 3 if transform_bound else 2 if texture_bound else 1,
+        "version": 4 if fragment_bound else 3 if transform_bound else 2 if texture_bound else 1,
         "status": "diagnostic-glb-written",
         "event": event.number,
         "vertices": len(positions),
@@ -1037,14 +1261,22 @@ def export_runtime_topology_glb(
                 "target_texture_slots": list(event.target_texture_slots),
                 "target_texture_sha256s": list(event.target_texture_sha256s),
                 "binding_scope": event.binding_scope,
-                "shader_reference_proved": False,
+                "shader_reference_proved": event.shader_reference_proven,
                 "capture_key": event.capture_key,
                 "texture_allowlist_sha256": allowlist_sha256,
                 "vertex_transform_payloads_proved": transform_bound,
+                "fragment_program_payload_proved": fragment_bound,
+                "fragment_referenced_textures_mask": event.fragment_referenced_textures_mask,
+                "fragment_sampler_slots": list(event.fragment_sampler_slots),
+                "fragment_texture_instruction_count": event.fragment_texture_instruction_count,
+                "fragment_branch_instruction_count": event.fragment_branch_instruction_count,
+                "runtime_branch_execution_proved": False,
             }
         )
         report["gates"]["texture_identity_correlation"] = True
         report["gates"]["vertex_transform_payload_identity"] = transform_bound
+        report["gates"]["fragment_program_payload_identity"] = fragment_bound
+        report["gates"]["static_shader_reference"] = fragment_bound
     else:
         report["bundle_captured_targets"] = completion["captured_targets"]
     return report

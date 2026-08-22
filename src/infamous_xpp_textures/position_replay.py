@@ -360,8 +360,11 @@ def export_position_replay_glb(
         completion, events, allowlist_sha256 = _load_bundle(bundle, texture_allowlist)
     except RuntimeTopologyExportError as exc:
         raise PositionReplayError(str(exc)) from exc
-    if completion["format"] != "if1-texture-bound-topology-v2":
-        raise PositionReplayError("position replay requires a complete v2 bundle")
+    if completion["format"] not in (
+        "if1-texture-bound-topology-v2",
+        "if1-texture-bound-topology-v3",
+    ):
+        raise PositionReplayError("position replay requires a complete v2 or v3 bundle")
     if projection_event not in events or any(item not in events for item in selected_events):
         raise PositionReplayError("selected or projection event is absent")
 
@@ -519,7 +522,8 @@ def export_position_replay_glb(
         "modelConstantStart": model_constant_start,
         "projectionValidationEvents": validation_events,
         "componentOwnershipProved": False,
-        "textureSamplingProved": False,
+        "staticShaderReferenceProved": completion["format"] == "if1-texture-bound-topology-v3",
+        "runtimeTextureSamplingProved": False,
         "fullCharacterProved": False,
         "rigged": False,
         "retailMaterialProved": False,
@@ -527,7 +531,7 @@ def export_position_replay_glb(
     document = {
         "asset": {
             "version": "2.0",
-            "generator": "xpp-tool 2.14.0 bounded RSX position replay",
+            "generator": "xpp-tool 2.15.0 bounded RSX position replay",
             "extras": {"infamousPositionReplay": evidence},
         },
         "extensionsUsed": ["KHR_materials_unlit"],
@@ -593,14 +597,15 @@ def export_position_replay_glb(
         "output_size": len(glb),
         "output_sha256": _sha256(glb),
         "gates": {
-            "complete_v2_bundle_identity": True,
+            "complete_transform_bundle_identity": True,
             "straight_line_fixed_constant_programs": True,
             "attribute_zero_to_output_zero_affine_path": True,
             "shared_projection_candidate": True,
             "inverse_projection_replay": True,
             "finite_nondegenerate_geometry": True,
             "attribute_zero_position_semantics": False,
-            "texture_shader_sampling": False,
+            "static_shader_reference": completion["format"] == "if1-texture-bound-topology-v3",
+            "runtime_texture_sampling": False,
             "component_ownership": False,
             "full_character": False,
             "skin_weights": False,

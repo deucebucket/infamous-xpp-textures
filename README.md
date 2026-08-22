@@ -722,6 +722,27 @@ texture slot does not prove the shader sampled that texture or that every draw
 belongs to Zeke. The render is evidence for geometry placement, not yet a full
 textured character.
 
+Version 2.15 adds the missing fragment-side filter. A complete
+`if1-texture-bound-topology-v3` bundle includes one bounded, hash-bound RSX
+fragment program per draw. The validator independently walks its exact
+instruction extent, decodes texture opcodes and sampler numbers, reconciles the
+derived sampler mask with RPCS3's captured mask, and requires every target
+texture slot to appear in that mask:
+
+```console
+xpp-tool runtime-fragment-sampler-census \
+  --bundle /path/to/owned/texture-bound-topology-v3 \
+  --texture-allowlist /path/to/exact-targets.sha256 \
+  --json-out /path/outside-the-bundle/fragment-samplers.json
+```
+
+This proves a static reference from the captured fragment program to the exact
+sampler slot carrying the target texture. It does not prove that a branch ran,
+that the texture owns the draw, or that a UV/material semantic is understood.
+The v3 filter exists specifically to exclude enabled-but-unused texture slots
+before geometry is assembled. The existing vertex-transform census and
+position replay accept both v2 and v3 bundles.
+
 ## Typical HD texture pass
 
 1. `profile-extract` the protected retail install pair.

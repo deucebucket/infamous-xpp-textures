@@ -10,8 +10,10 @@ from infamous_xpp_textures.runtime_topology_export import (
     RuntimeTopologyExportError,
     _BINDING_FIELDS,
     _TEXTURE_BINDING_FIELDS,
+    _TEXTURE_FRAGMENT_BINDING_FIELDS,
     _TEXTURE_TRANSFORM_BINDING_FIELDS,
     _parse_texture_allowlist,
+    census_runtime_fragment_samplers,
     export_runtime_topology_glb,
 )
 
@@ -214,6 +216,68 @@ def _make_transform_bound_v2(bundle, tmp_path):
     return allowlist
 
 
+def _fragment_instruction(*, opcode=1, sampler=0, end=False):
+    return struct.pack(
+        "<4I", (opcode << 16) | (sampler << 25) | (int(end) << 8), 0, 0, 0
+    )
+
+
+def _make_fragment_bound_v3(bundle, tmp_path):
+    allowlist = _make_transform_bound_v2(bundle, tmp_path)
+    binding = bundle / "topology-01-binding.tsv"
+    with binding.open(encoding="ascii", newline="") as handle:
+        rows = list(csv.DictReader(handle, delimiter="\t"))
+    fragment_program = _fragment_instruction(
+        opcode=0x17, sampler=3
+    ) + _fragment_instruction(end=True)
+    fragment_sha = _sha(fragment_program)
+    fragment_name = f"topology-01-fragment-program-{fragment_sha[:16]}.bin"
+    (bundle / fragment_name).write_bytes(fragment_program)
+    capture_material = (
+        f"{rows[0]['index_sha256']}:3:{rows[0]['target_texture_sha256s']}"
+        f":{fragment_sha}"
+    )
+    for row in rows:
+        row.update(
+            {
+                "binding_scope": "fragment-program-static-texture-reference",
+                "shader_reference_proven": "1",
+                "capture_key": _sha(capture_material.encode("ascii")),
+                "fragment_program_sha256": fragment_sha,
+                "fragment_program_file": fragment_name,
+                "fragment_program_bytes": str(len(fragment_program)),
+                "fragment_referenced_textures_mask": str(1 << 3),
+            }
+        )
+    with binding.open("w", encoding="ascii", newline="") as handle:
+        writer = csv.DictWriter(
+            handle, fieldnames=_TEXTURE_FRAGMENT_BINDING_FIELDS, delimiter="\t"
+        )
+        writer.writeheader()
+        writer.writerows(rows)
+    payloads = list(bundle.glob("*.bin"))
+    completion = bundle / "capture.complete"
+    completion.write_text(
+        completion.read_text(encoding="ascii")
+        .replace(
+            "format\tif1-texture-bound-topology-v2",
+            "format\tif1-texture-bound-topology-v3",
+        )
+        .replace(
+            "binding_scope\tenabled-fragment-texture-address",
+            "binding_scope\tfragment-program-static-texture-reference",
+        )
+        .replace("shader_reference_proven\t0", "shader_reference_proven\t1")
+        .replace("payload_files\t5", f"payload_files\t{len(payloads)}")
+        .replace(
+            "payload_bytes\t17016",
+            f"payload_bytes\t{sum(path.stat().st_size for path in payloads)}",
+        ),
+        encoding="ascii",
+    )
+    return allowlist
+
+
 def _glb_document(data: bytes) -> dict:
     magic, version, total = struct.unpack_from("<III", data)
     assert (magic, version, total) == (0x46546C67, 2, len(data))
@@ -357,6 +421,147 @@ def test_exports_v2_transform_bound_event_with_exact_payload_identity(tmp_path):
     )
     assert second.read_bytes() == output.read_bytes()
     assert second_report == report
+
+
+def test_exports_v3_fragment_referenced_event_with_independent_sampler_proof(
+    tmp_path,
+):
+    bundle = _write_bundle(tmp_path)
+    allowlist = _make_fragment_bound_v3(bundle, tmp_path)
+    output = tmp_path / "fragment-bound.glb"
+    report = export_runtime_topology_glb(
+        bundle,
+        1,
+        output,
+        position_hypothesis_attribute=0,
+        texture_allowlist=allowlist,
+    )
+    assert report["version"] == 4
+    assert report["bundle_format"] == "if1-texture-bound-topology-v3"
+    assert report["shader_reference_proved"] is True
+    assert report["fragment_program_payload_proved"] is True
+    assert report["fragment_referenced_textures_mask"] == 1 << 3
+    assert report["fragment_sampler_slots"] == [3]
+    assert report["fragment_texture_instruction_count"] == 1
+    assert report["runtime_branch_execution_proved"] is False
+    assert report["gates"]["static_shader_reference"] is True
+    document = _glb_document(output.read_bytes())
+    evidence = document["asset"]["extras"]["infamousRuntimeDiagnostic"]
+    assert document["asset"]["generator"].startswith("xpp-tool 2.15.0")
+    assert evidence["shaderReferenceProved"] is True
+    assert evidence["fragmentSamplerSlots"] == [3]
+    assert evidence["runtimeBranchExecutionProved"] is False
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    (
+        ("fragment_program_bytes", "31", "bounded contract"),
+        ("fragment_program_file", "wrong.bin", "event/SHA-256"),
+        ("fragment_referenced_textures_mask", "4", "bounded contract"),
+    ),
+)
+def test_v3_rejects_fragment_manifest_drift(tmp_path, field, value, message):
+    bundle = _write_bundle(tmp_path)
+    allowlist = _make_fragment_bound_v3(bundle, tmp_path)
+    binding = bundle / "topology-01-binding.tsv"
+    with binding.open(encoding="ascii", newline="") as handle:
+        rows = list(csv.DictReader(handle, delimiter="\t"))
+    for row in rows:
+        row[field] = value
+    with binding.open("w", encoding="ascii", newline="") as handle:
+        writer = csv.DictWriter(
+            handle, fieldnames=_TEXTURE_FRAGMENT_BINDING_FIELDS, delimiter="\t"
+        )
+        writer.writeheader()
+        writer.writerows(rows)
+    with pytest.raises(RuntimeTopologyExportError, match=message):
+        export_runtime_topology_glb(
+            bundle,
+            1,
+            tmp_path / "bad.glb",
+            position_hypothesis_attribute=0,
+            texture_allowlist=allowlist,
+        )
+
+
+def test_v3_rejects_fragment_program_mask_mismatch(tmp_path):
+    bundle = _write_bundle(tmp_path)
+    allowlist = _make_fragment_bound_v3(bundle, tmp_path)
+    path = next(bundle.glob("topology-01-fragment-program-*.bin"))
+    original = path.read_bytes()
+    replacement = _fragment_instruction(
+        opcode=0x17, sampler=4
+    ) + _fragment_instruction(end=True)
+    assert len(replacement) == len(original)
+    path.write_bytes(replacement)
+    binding = bundle / "topology-01-binding.tsv"
+    with binding.open(encoding="ascii", newline="") as handle:
+        rows = list(csv.DictReader(handle, delimiter="\t"))
+    replacement_sha = _sha(replacement)
+    replacement_name = f"topology-01-fragment-program-{replacement_sha[:16]}.bin"
+    path.rename(bundle / replacement_name)
+    for row in rows:
+        row["fragment_program_sha256"] = replacement_sha
+        row["fragment_program_file"] = replacement_name
+        capture_material = (
+            f"{row['index_sha256']}:3:{row['target_texture_sha256s']}"
+            f":{replacement_sha}"
+        )
+        row["capture_key"] = _sha(capture_material.encode("ascii"))
+    with binding.open("w", encoding="ascii", newline="") as handle:
+        writer = csv.DictWriter(
+            handle, fieldnames=_TEXTURE_FRAGMENT_BINDING_FIELDS, delimiter="\t"
+        )
+        writer.writeheader()
+        writer.writerows(rows)
+    with pytest.raises(RuntimeTopologyExportError, match="does not reconcile"):
+        export_runtime_topology_glb(
+            bundle,
+            1,
+            tmp_path / "bad.glb",
+            position_hypothesis_attribute=0,
+            texture_allowlist=allowlist,
+        )
+
+
+def test_v3_fragment_sampler_census_is_deterministic_and_payload_free(tmp_path):
+    bundle = _write_bundle(tmp_path)
+    allowlist = _make_fragment_bound_v3(bundle, tmp_path)
+    first = census_runtime_fragment_samplers(bundle, allowlist)
+    second = census_runtime_fragment_samplers(bundle, allowlist)
+    assert first == second
+    assert first["totals"] == {
+        "events": 1,
+        "target_slots": 1,
+        "texture_instructions": 1,
+        "events_with_branches": 0,
+    }
+    assert first["events"][0]["sampler_slots"] == [3]
+    assert first["gates"]["target_slots_statically_referenced"] is True
+    assert first["gates"]["runtime_branch_execution"] is False
+    assert "fragment_program_file" not in first["events"][0]
+
+
+def test_cli_writes_v3_fragment_sampler_census_once(tmp_path, capsys):
+    bundle = _write_bundle(tmp_path)
+    allowlist = _make_fragment_bound_v3(bundle, tmp_path)
+    report = tmp_path / "fragment-samplers.json"
+    args = [
+        "runtime-fragment-sampler-census",
+        "--bundle",
+        str(bundle),
+        "--texture-allowlist",
+        str(allowlist),
+        "--json-out",
+        str(report),
+    ]
+    assert main(args) == 0
+    parsed = json.loads(report.read_text(encoding="utf-8"))
+    assert parsed["events"][0]["target_slots_statically_referenced"] is True
+    assert json.loads(capsys.readouterr().out) == parsed
+    assert main(args) == 1
+    assert "refusing to overwrite" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize(

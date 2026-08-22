@@ -328,15 +328,18 @@ def analyze_vertex_program_payload(program: bytes, constants: bytes) -> dict:
 
 
 def analyze_vertex_transform_bundle(bundle: Path, texture_allowlist: Path) -> dict:
-    """Validate a complete v2 bundle and return a payload-free transform census."""
+    """Validate a complete v2/v3 bundle and return a payload-free transform census."""
 
     try:
         completion, events, allowlist_sha256 = _load_bundle(bundle, texture_allowlist)
     except RuntimeTopologyExportError as exc:
         raise VertexTransformCensusError(str(exc)) from exc
-    if completion["format"] != "if1-texture-bound-topology-v2":
+    if completion["format"] not in (
+        "if1-texture-bound-topology-v2",
+        "if1-texture-bound-topology-v3",
+    ):
         raise VertexTransformCensusError(
-            "vertex-transform census requires if1-texture-bound-topology-v2"
+            "vertex-transform census requires if1-texture-bound-topology-v2 or v3"
         )
 
     event_reports: list[dict] = []
@@ -426,7 +429,7 @@ def analyze_vertex_transform_bundle(bundle: Path, texture_allowlist: Path) -> di
         "program_groups": program_groups,
         "indexed_constant_events": indexed_events,
         "gates": {
-            "complete_v2_bundle_identity": True,
+            "complete_transform_bundle_identity": True,
             "reachable_instruction_census": True,
             "vertex_input_references": True,
             "fixed_constant_references": True,
