@@ -1,6 +1,8 @@
 # xpp-tool
 
-End-to-end XPP/PSARC tools for inFAMOUS 1 (PS3, BCUS-98119):
+End-to-end XPP/PSARC tools for packed inFAMOUS 1 PS3 profiles, with
+BCUS98119 as the primary established render/decomp authority and NPUA80480 as
+a separately validated deployment target:
 
 - extract textures to PNG
 - encode PNGs back into XPP (same format the game already reads)
@@ -151,6 +153,32 @@ retail and HD launch profiles.
 
 ## Full chain: retail PSARCs → editable XPPs → verified profile
 
+### Compare two builds before transferring anything
+
+```bash
+xpp-tool profile-oracle \
+  --left-install1 ./bcus/install1/infamous1.psarc_s \
+  --left-install2 ./bcus/install2/infamous2.psarc_s \
+  --right-install1 ./npua/install1/infamous1.psarc_s \
+  --right-install2 ./npua/install2/infamous2.psarc_s \
+  --left-label BCUS98119 \
+  --right-label NPUA80480 \
+  --json-out ./oracle.json
+```
+
+The oracle emits aggregate archive contracts, package counts, case-insensitive
+full-name and basename overlap, duplicate-routing counts, and exact shared
+package byte identity. It never emits input paths, package names, payloads, or
+payload hashes. `--catalog-only` skips slow payload hashing and explicitly
+withholds byte-identity claims.
+
+RR — Really Readable rundown: matching names only prove that two filing
+cabinets have labels in common. Matching sizes still do not prove the files are
+the same. Even byte-identical retail packages do not automatically prove that a
+modified package is safe in both games. Build or validate replacements against
+the exact target pair, then prove the target scene in runtime. The oracle always
+keeps direct cross-build replacement transfer unauthorized.
+
 ### 1. Extract the complete retail pair
 
 ```bash
@@ -281,7 +309,7 @@ then reopens both archives and checks:
 Only a completely verified pair is renamed to `profile/`. `profile.json`
 contains the audit counts and hashes. The resulting flat
 `infamous1.psarc_s`/`infamous2.psarc_s` directory can be selected directly in
-the universal inFAMOUS Mod Manager's `BCUS98119` packed-profile controls.
+the universal inFAMOUS Mod Manager's matching packed-profile controls.
 
 ## Static meshes
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.4.0 - 2026-08-22
+
+- Added a payload-free `profile-oracle` comparison for two caller-supplied packed install pairs.
+- Counted archive contracts, full-name and basename overlap, ambiguous routing, added packages, and exact shared-package byte identity without persisting names, paths, payloads, or payload hashes.
+- Added catalog-only mode for fast structural comparison and kept direct replacement transfer fail-closed even when retail names, sizes, or bytes match.
+- Documented NPUA80480 as a separate packed target profile while retaining BCUS98119 as the primary established render/decomp authority.
+
 ## 2.3.0 - 2026-08-22
 
 - Added exact big-endian RSX `cmp32` decoding for signed X11G11Z10 components and derived W=1.
