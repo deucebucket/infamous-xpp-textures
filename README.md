@@ -385,6 +385,36 @@ Character packages print that there are no static sections and exit non-zero.
 
 ## Rigged characters: report before conversion
 
+Compare two owned builds before trusting descriptor numbers or internal
+locations:
+
+```bash
+xpp-tool character-oracle \
+  --left-xpp ./build-a/male_base_Zeke.xpp \
+  --right-xpp ./build-b/male_base_Zeke.xpp \
+  --left-label build-a \
+  --right-label build-b \
+  --json-out ./zeke-cross-build-oracle.json
+```
+
+Version 2.9 matches texture descriptors by their complete encoded-content
+identity and structural shape, never by list position. It separately matches
+character geometry contracts after removing only location fields, then reports
+location-delta histograms instead of raw payload bytes. Missing, changed, or
+ambiguous members fail closed; an existing output is never overwritten. A
+positive report may prove that one exact observer allowlist applies to both
+builds, while still keeping cross-build repacking, model export, and injection
+unauthorized.
+
+RR — Really Readable rundown: two editions can contain the same Zeke textures
+but shuffle every numbered slot. The old slot number is therefore a shelf
+address, not the texture's identity. This oracle fingerprints the picture and
+its complete mip layout, finds its one matching shelf in the other edition,
+and does the same for the packed geometry contracts. A complete match gives us
+a universal lookup map. It does not yet tell Blender which packed numbers are
+positions, UVs, bones, or weights; that still needs one complete decoded retail
+vertex-stream proof.
+
 ```bash
 xpp-tool character-report \
   --xpp /path/to/male_base_Zeke.xpp \

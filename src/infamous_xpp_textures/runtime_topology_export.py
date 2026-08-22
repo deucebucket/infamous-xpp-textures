@@ -578,7 +578,7 @@ def export_runtime_topology_glb(
     document = {
         "asset": {
             "version": "2.0",
-            "generator": "xpp-tool 2.8.0 runtime topology diagnostic exporter",
+            "generator": "xpp-tool 2.9.0 runtime topology diagnostic exporter",
             "extras": {"infamousRuntimeDiagnostic": evidence},
         },
         "extensionsUsed": ["KHR_materials_unlit"],
