@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.2.0 - 2026-08-22
+
+- Added a fail-closed search for interleaved numeric RSX arrays that uniquely rebuild XPP stream zero.
+- Required exact bytes, hashes, vertex records, layout coverage, geometry-heap bounds, and non-constant evidence.
+- Kept attribute meanings, the three compressed streams, model export, and model injection unproved.
+
 ## 2.1.0 - 2026-08-22
 
 - Added aggregate numeric decoding for bound RSX `float32`, `float16`, and `unorm8` character arrays.

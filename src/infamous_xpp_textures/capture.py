@@ -10,7 +10,11 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import BinaryIO
 
-from .character import build_xpp_character_report
+from .character import (
+    GEOMETRY_HEAP_CHUNK,
+    build_xpp_character_report,
+    find_edge_geometry_envelopes,
+)
 from .xpp import parse_xpp
 
 
@@ -214,6 +218,164 @@ def summarize_rsx_vertex_payload_numeric(attribute: dict, payload: bytes) -> dic
     }
 
 
+def _rsx_numeric_component_byte_count(attribute: dict) -> int | None:
+    component_count = attribute["component_count"]
+    if attribute["type_raw"] == 2:
+        return component_count * 4
+    if attribute["type_raw"] == 3:
+        return component_count * 2
+    if attribute["type_raw"] == 4:
+        return component_count
+    return None
+
+
+def _build_xpp_stream_zero_binding(
+    *,
+    xpp_data: bytes,
+    parsed_xpp,
+    envelope_stream_zero_offsets: dict[int, int],
+    binding: dict,
+    selected_payloads: dict[int, bytes],
+    blocks_by_key: dict[int, dict],
+) -> dict:
+    """Find a unique raw XPP stream-zero match without assigning semantics."""
+
+    matched_records = binding["matched_index_records"]
+    if len(matched_records) != 1:
+        return {
+            "status": "unavailable-ambiguous-target-record",
+            "candidate_layout_count": 0,
+            "exact_match_count": 0,
+            "payload_bytes_serialized": False,
+            "semantic": None,
+        }
+    record = matched_records[0]
+    record_offset = record["record_offset"]
+    stream_zero_offset = envelope_stream_zero_offsets.get(record_offset)
+    if stream_zero_offset is None:
+        return {
+            "status": "unavailable-stream-zero-offset",
+            "record_offset": record_offset,
+            "candidate_layout_count": 0,
+            "exact_match_count": 0,
+            "payload_bytes_serialized": False,
+            "semantic": None,
+        }
+
+    grouped: dict[tuple[int, int], list[dict]] = defaultdict(list)
+    for attribute in binding["rsx_draw_state"]["vertex_arrays"]:
+        if (
+            attribute["numeric_decode"]["exact_byte_round_trip"]
+            and len(attribute["matching_memory_blocks"]) == 1
+        ):
+            grouped[(attribute["location"], attribute["stride"])].append(attribute)
+
+    candidate_count = 0
+    exact_matches: list[dict] = []
+    vertex_count = record["index_max"] - record["index_min"] + 1
+    geometry_heaps = [
+        chunk for chunk in parsed_xpp.chunks if chunk.type_tag == GEOMETRY_HEAP_CHUNK
+    ]
+    if len(geometry_heaps) != 1:
+        raise RrcCaptureError("XPP stream-zero binding requires one geometry heap")
+    geometry_heap = geometry_heaps[0]
+    for (location, stride), attributes in sorted(grouped.items()):
+        ordered = sorted(attributes, key=lambda item: item["live_offset"])
+        base_offset = ordered[0]["live_offset"]
+        cursor = 0
+        layout: list[dict] = []
+        for attribute in ordered:
+            component_byte_count = _rsx_numeric_component_byte_count(attribute)
+            if (
+                component_byte_count is None
+                or attribute["index_span"] != vertex_count
+                or attribute["live_offset"] != base_offset + cursor
+            ):
+                break
+            layout.append(
+                {
+                    "attribute": attribute["attribute"],
+                    "type_name": attribute["type_name"],
+                    "component_count": attribute["component_count"],
+                    "byte_offset": cursor,
+                    "component_byte_count": component_byte_count,
+                }
+            )
+            cursor += component_byte_count
+        else:
+            if cursor != stride:
+                continue
+            candidate_count += 1
+            rebuilt = bytearray()
+            for vertex in range(vertex_count):
+                for attribute, item in zip(ordered, layout):
+                    block_key = attribute["matching_memory_blocks"][0]["block_key"]
+                    payload_state = blocks_by_key[block_key]["data_state"]
+                    payload = selected_payloads[payload_state]
+                    start = vertex * stride
+                    rebuilt.extend(payload[start : start + item["component_byte_count"]])
+            byte_count = vertex_count * stride
+            if not (
+                geometry_heap.offset <= stream_zero_offset
+                and stream_zero_offset + byte_count
+                <= geometry_heap.offset + geometry_heap.size
+            ):
+                continue
+            source_start = parsed_xpp.data_offset + stream_zero_offset
+            source = xpp_data[source_start : source_start + byte_count]
+            rebuilt_bytes = bytes(rebuilt)
+            distinct_vertex_record_count = len(
+                {source[index : index + stride] for index in range(0, len(source), stride)}
+            )
+            distinct_byte_value_count = len(set(source))
+            if (
+                len(source) != byte_count
+                or distinct_vertex_record_count < 2
+                or distinct_byte_value_count < 2
+                or rebuilt_bytes != source
+            ):
+                continue
+            source_sha256 = hashlib.sha256(source).hexdigest()
+            reconstructed_sha256 = hashlib.sha256(rebuilt_bytes).hexdigest()
+            exact_matches.append(
+                {
+                    "record_offset": record_offset,
+                    "xpp_stream_index": 0,
+                    "xpp_stream_offset": stream_zero_offset,
+                    "vertex_count": vertex_count,
+                    "stride": stride,
+                    "byte_count": byte_count,
+                    "capture_location": location,
+                    "capture_base_offset": base_offset,
+                    "attribute_layout": layout,
+                    "distinct_vertex_record_count": distinct_vertex_record_count,
+                    "distinct_byte_value_count": distinct_byte_value_count,
+                    "source_sha256": source_sha256,
+                    "reconstructed_sha256": reconstructed_sha256,
+                }
+            )
+
+    if len(exact_matches) != 1:
+        return {
+            "status": (
+                "no-exact-byte-match" if not exact_matches else "ambiguous-exact-byte-match"
+            ),
+            "record_offset": record_offset,
+            "candidate_layout_count": candidate_count,
+            "exact_match_count": len(exact_matches),
+            "payload_bytes_serialized": False,
+            "semantic": None,
+        }
+    return {
+        "status": "unique-exact-byte-match",
+        "candidate_layout_count": candidate_count,
+        "exact_match_count": 1,
+        **exact_matches[0],
+        "payload_bytes_serialized": False,
+        "semantic": None,
+    }
+
+
 def _read_selected_capture_payloads(capture_path: Path, states: set[int]) -> dict[int, bytes]:
     """Re-read only selected payload states after draw descriptors identify them."""
 
@@ -414,6 +576,10 @@ def build_rrc_character_match_report(
     target = build_xpp_character_report(xpp_data, xpp_source_name)
     target_by_hash = {item["index_sha256"]: item for item in target["contracts"]}
     parsed_xpp = parse_xpp(xpp_data, len(xpp_data))
+    envelope_stream_zero_offsets = {
+        item.record_offset: item.stream_offsets[0]
+        for item in find_edge_geometry_envelopes(xpp_data, parsed_xpp)
+    }
     targets_by_size: dict[int, list[tuple[dict, tuple[int, ...]]]] = defaultdict(list)
     for item in target["contracts"]:
         start = parsed_xpp.data_offset + item["index_offset"]
@@ -784,6 +950,7 @@ def build_rrc_character_match_report(
     selected_payloads = _read_selected_capture_payloads(capture_path, selected_states)
     numeric_round_trip_attribute_count = 0
     unsupported_numeric_attribute_count = 0
+    xpp_stream_zero_binding_count = 0
     for binding in draw_bindings:
         state = binding["rsx_draw_state"]
         for attribute in state["vertex_arrays"]:
@@ -830,6 +997,24 @@ def build_rrc_character_match_report(
             and state_round_trips == active_count
             and state_unsupported == 0
         )
+        stream_zero_binding = _build_xpp_stream_zero_binding(
+            xpp_data=xpp_data,
+            parsed_xpp=parsed_xpp,
+            envelope_stream_zero_offsets=envelope_stream_zero_offsets,
+            binding=binding,
+            selected_payloads=selected_payloads,
+            blocks_by_key=blocks_by_key,
+        )
+        state["xpp_stream_zero_binding"] = stream_zero_binding
+        state["xpp_stream_zero_byte_binding_proved"] = (
+            stream_zero_binding["status"] == "unique-exact-byte-match"
+        )
+        state["xpp_stream_zero_numeric_reconstruction_proved"] = state[
+            "xpp_stream_zero_byte_binding_proved"
+        ]
+        xpp_stream_zero_binding_count += state[
+            "xpp_stream_zero_byte_binding_proved"
+        ]
 
     exact_matches.sort(
         key=lambda item: (item["record_offset"], item["capture_data_state"])
@@ -859,7 +1044,7 @@ def build_rrc_character_match_report(
     ]
     return {
         "format": "infamous-rpcs3-character-capture-match",
-        "version": 4,
+        "version": 5,
         "target": {
             "source": target["source"],
             "source_sha256": target["source_sha256"],
@@ -898,6 +1083,11 @@ def build_rrc_character_match_report(
         "rsx_vertex_binding_proved": rsx_vertex_binding_proved,
         "numeric_round_trip_attribute_count": numeric_round_trip_attribute_count,
         "unsupported_numeric_attribute_count": unsupported_numeric_attribute_count,
+        "xpp_stream_zero_binding_count": xpp_stream_zero_binding_count,
+        "xpp_stream_zero_byte_binding_proved": xpp_stream_zero_binding_count > 0,
+        "xpp_stream_zero_numeric_reconstruction_proved": (
+            xpp_stream_zero_binding_count > 0
+        ),
         "partial_numeric_round_trip_proved": numeric_round_trip_attribute_count > 0,
         "complete_numeric_round_trip_proved": bool(draw_bindings)
         and all(
@@ -930,7 +1120,8 @@ def build_rrc_character_match_report(
             "a draw-end binding proves that the block was attached to one captured draw but "
             "an RSX vertex binding assigns raw attribute formats and memory extents, and "
             "supported numeric arrays may prove an exact decode/re-encode round trip without "
-            "assigning position, normal, UV, joint, or weight semantics; "
+            "assigning position, normal, UV, joint, or weight semantics; a unique stream-zero "
+            "byte binding proves one XPP-to-RSX record layout but still assigns no semantics; "
             "cmp32 remains unsupported; "
             "byte-order/index-delta/winding candidates are reported separately and do not "
             "prove ownership; absence does not prove the character was not visible, and "
