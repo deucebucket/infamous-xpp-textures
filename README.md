@@ -608,7 +608,7 @@ Looking like Zeke is a clue, not identity proof; XPP correlation, UVs, textures,
 bones, and injection remain separate gates. Progress pieces can render quickly
 at normal resolution, while 4K is reserved for the assembled full character.
 
-Version 2.9 accepts the stricter texture-bound capture format as a separate
+Version 2.10 accepts the stricter texture-bound capture format as a separate
 mode. The exact allowlist used by the private runtime capture is required again
 at validation time:
 

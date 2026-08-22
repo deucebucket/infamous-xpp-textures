@@ -1,6 +1,6 @@
 # Changelog
 
-## 2.9.0 - 2026-08-22
+## 2.10.0 - 2026-08-22
 
 - Added explicit validation/export support for `if1-texture-bound-topology-v1` bundles without weakening the 2.8.0 census format.
 - Required the exact external target-texture allowlist, slot/hash reconciliation, capture-key reconstruction, enabled-address binding scope, and an honest `shader_reference_proven=0` claim.

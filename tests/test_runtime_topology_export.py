@@ -221,7 +221,7 @@ def test_exports_texture_bound_event_with_exact_correlation(tmp_path):
     assert report["gates"]["draw_ownership"] is False
     document = _glb_document(output.read_bytes())
     evidence = document["asset"]["extras"]["infamousRuntimeDiagnostic"]
-    assert document["asset"]["generator"].startswith("xpp-tool 2.9.0")
+    assert document["asset"]["generator"].startswith("xpp-tool 2.10.0")
     assert evidence["textureIdentityCorrelationProved"] is True
     assert evidence["shaderReferenceProved"] is False
 

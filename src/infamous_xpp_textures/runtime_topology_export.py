@@ -812,7 +812,7 @@ def export_runtime_topology_glb(
             "generator": (
                 "xpp-tool 2.10.0 texture-bound runtime topology diagnostic exporter"
                 if texture_bound
-                else "xpp-tool 2.10.0 runtime topology diagnostic exporter"
+                else "xpp-tool 2.8.0 runtime topology diagnostic exporter"
             ),
             "extras": {"infamousRuntimeDiagnostic": evidence},
         },
