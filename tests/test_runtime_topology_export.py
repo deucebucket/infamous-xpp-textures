@@ -342,6 +342,20 @@ def test_texture_bound_bundle_rejects_malformed_allowlist(tmp_path, payload):
         )
 
 
+def test_texture_bound_bundle_rejects_oversized_allowlist(tmp_path):
+    bundle = _write_bundle(tmp_path)
+    allowlist = _make_texture_bound(bundle, tmp_path)
+    allowlist.write_bytes(b"#" + b"x" * (16 * 1024))
+    with pytest.raises(RuntimeTopologyExportError, match="16 KiB"):
+        export_runtime_topology_glb(
+            bundle,
+            1,
+            tmp_path / "bad.glb",
+            position_hypothesis_attribute=0,
+            texture_allowlist=allowlist,
+        )
+
+
 def test_texture_bound_export_refuses_overwrite(tmp_path):
     bundle = _write_bundle(tmp_path)
     allowlist = _make_texture_bound(bundle, tmp_path)

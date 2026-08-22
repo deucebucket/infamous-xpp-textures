@@ -61,6 +61,7 @@ _PAYLOAD_NAME = re.compile(r"topology-(\d+)-(?:index|block-(\d+))-[0-9a-f]{16}\.
 _MAX_TARGETS = 16
 _MAX_TEXTURE_HASHES = 64
 _MAX_BOUND_ADDRESSES = 256
+_MAX_TEXTURE_ALLOWLIST_BYTES = 16 * 1024
 _MAX_BUNDLE_FILES = 1 + _MAX_TARGETS + _MAX_TARGETS * 17
 _MAX_INDEX_BYTES = 4 * 1024 * 1024
 _MAX_BLOCK_BYTES = 8 * 1024 * 1024
@@ -161,6 +162,10 @@ def _parse_texture_allowlist(path: Path) -> tuple[set[str], str]:
     if path.is_symlink() or not path.is_file():
         raise RuntimeTopologyExportError(
             "texture allowlist is missing or is not a regular file"
+        )
+    if path.stat().st_size > _MAX_TEXTURE_ALLOWLIST_BYTES:
+        raise RuntimeTopologyExportError(
+            "texture allowlist exceeds the 16 KiB input bound"
         )
     payload = path.read_bytes()
     try:
