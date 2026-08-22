@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.14.0 - 2026-08-22
+
+- Added a bounded `runtime-position-replay-export` that symbolically replays straight-line fixed-constant RSX vertex arithmetic and accepts output zero only when it is a finite affine function of attribute zero alone.
+- Validated a caller-selected projection candidate against multiple exact program decompositions, bounded its inverse residual, and exported selected events in one shared pre-projection frame.
+- Preserved topology, relative draw placement, deterministic neutral per-event materials, and exact payload identities while keeping attribute meaning, shader texture sampling, component ownership, full-character assembly, skinning, rigging, and retail materials false.
+
 ## 2.13.0 - 2026-08-22
 
 - Added a strict, offline `runtime-vertex-transform-census` for complete `if1-texture-bound-topology-v2` bundles.
