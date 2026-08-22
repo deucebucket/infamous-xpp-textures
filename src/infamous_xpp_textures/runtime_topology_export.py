@@ -59,9 +59,9 @@ _SHA256 = re.compile(r"[0-9a-f]{64}")
 _BINDING_NAME = re.compile(r"topology-(\d+)-binding\.tsv")
 _PAYLOAD_NAME = re.compile(r"topology-(\d+)-(?:index|block-(\d+))-[0-9a-f]{16}\.bin")
 _MAX_TARGETS = 16
-_MAX_TEXTURE_HASHES = 64
+_MAX_TEXTURE_HASHES = 512
 _MAX_BOUND_ADDRESSES = 256
-_MAX_TEXTURE_ALLOWLIST_BYTES = 16 * 1024
+_MAX_TEXTURE_ALLOWLIST_BYTES = 40 * 1024
 _MAX_BUNDLE_FILES = 1 + _MAX_TARGETS + _MAX_TARGETS * 17
 _MAX_INDEX_BYTES = 4 * 1024 * 1024
 _MAX_BLOCK_BYTES = 8 * 1024 * 1024
@@ -165,7 +165,7 @@ def _parse_texture_allowlist(path: Path) -> tuple[set[str], str]:
         )
     if path.stat().st_size > _MAX_TEXTURE_ALLOWLIST_BYTES:
         raise RuntimeTopologyExportError(
-            "texture allowlist exceeds the 16 KiB input bound"
+            "texture allowlist exceeds the 40 KiB input bound"
         )
     payload = path.read_bytes()
     try:
@@ -184,7 +184,7 @@ def _parse_texture_allowlist(path: Path) -> tuple[set[str], str]:
         hashes.add(value)
         if len(hashes) > _MAX_TEXTURE_HASHES:
             raise RuntimeTopologyExportError(
-                "texture allowlist exceeds the 64-hash bound"
+                "texture allowlist exceeds the 512-hash bound"
             )
     if not hashes:
         raise RuntimeTopologyExportError("texture allowlist is empty")
@@ -818,7 +818,7 @@ def export_runtime_topology_glb(
         "asset": {
             "version": "2.0",
             "generator": (
-                "xpp-tool 2.10.0 texture-bound runtime topology diagnostic exporter"
+                "xpp-tool 2.11.0 texture-bound runtime topology diagnostic exporter"
                 if texture_bound
                 else "xpp-tool 2.8.0 runtime topology diagnostic exporter"
             ),

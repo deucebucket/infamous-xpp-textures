@@ -10,6 +10,7 @@ from infamous_xpp_textures.runtime_topology_export import (
     RuntimeTopologyExportError,
     _BINDING_FIELDS,
     _TEXTURE_BINDING_FIELDS,
+    _parse_texture_allowlist,
     export_runtime_topology_glb,
 )
 
@@ -259,7 +260,7 @@ def test_exports_texture_bound_event_with_exact_correlation(tmp_path):
     assert report["gates"]["draw_ownership"] is False
     document = _glb_document(output.read_bytes())
     evidence = document["asset"]["extras"]["infamousRuntimeDiagnostic"]
-    assert document["asset"]["generator"].startswith("xpp-tool 2.10.0")
+    assert document["asset"]["generator"].startswith("xpp-tool 2.11.0")
     assert evidence["textureIdentityCorrelationProved"] is True
     assert evidence["shaderReferenceProved"] is False
 
@@ -383,8 +384,8 @@ def test_texture_bound_bundle_rejects_malformed_allowlist(tmp_path, payload):
 def test_texture_bound_bundle_rejects_oversized_allowlist(tmp_path):
     bundle = _write_bundle(tmp_path)
     allowlist = _make_texture_bound(bundle, tmp_path)
-    allowlist.write_bytes(b"#" + b"x" * (16 * 1024))
-    with pytest.raises(RuntimeTopologyExportError, match="16 KiB"):
+    allowlist.write_bytes(b"#" + b"x" * (40 * 1024))
+    with pytest.raises(RuntimeTopologyExportError, match="40 KiB"):
         export_runtime_topology_glb(
             bundle,
             1,
@@ -392,6 +393,24 @@ def test_texture_bound_bundle_rejects_oversized_allowlist(tmp_path):
             position_hypothesis_attribute=0,
             texture_allowlist=allowlist,
         )
+
+
+def test_texture_allowlist_accepts_exact_512_hash_bound(tmp_path):
+    allowlist = tmp_path / "full-identities.sha256"
+    payload = "".join(f"{value:064x}\n" for value in range(512)).encode("ascii")
+    allowlist.write_bytes(payload)
+    hashes, payload_sha256 = _parse_texture_allowlist(allowlist)
+    assert len(hashes) == 512
+    assert payload_sha256 == _sha(payload)
+
+
+def test_texture_allowlist_rejects_513th_unique_hash(tmp_path):
+    allowlist = tmp_path / "too-many-identities.sha256"
+    allowlist.write_text(
+        "".join(f"{value:064x}\n" for value in range(513)), encoding="ascii"
+    )
+    with pytest.raises(RuntimeTopologyExportError, match="512-hash"):
+        _parse_texture_allowlist(allowlist)
 
 
 def test_texture_bound_export_refuses_overwrite(tmp_path):
