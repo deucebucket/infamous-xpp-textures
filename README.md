@@ -550,6 +550,34 @@ render proves the export is usable for inspection. It does not prove the full
 character, textures, animation, or a safe replacement pack. Those remain the
 next gates.
 
+Version 2.8 adds a separate bridge for complete runtime topology bundles that
+have not yet been mapped back to one XPP record:
+
+```bash
+xpp-tool runtime-topology-diagnostic-export \
+  --bundle /path/to/owned/topology-census-output \
+  --event 1 \
+  --position-hypothesis-attribute 0 \
+  --output ./runtime-draw-candidate.glb \
+  --json-out ./runtime-draw-candidate.json
+```
+
+The command validates the complete bundle as one immutable set: the completion
+totals, all event binding files, reconstructed descriptor hashes, exact index
+and vertex payload hashes and sizes, and absence of missing, extra, or symlinked
+files. The selected event must contain one bounded big-endian u16 triangle list
+and one unambiguous zero-frequency `float32x3` attribute beginning at vertex
+zero. Coordinates must be finite and produce at least one nondegenerate
+triangle. Output is refused inside the input bundle.
+
+RR — Really Readable rundown: this lets us quickly put a GPU draw on Blender's
+workbench before we know which XPP record produced it. That is useful for
+sorting nearby draws into likely hair, face, clothes, hands, or unrelated
+scene objects. The tool still labels every result “runtime-only and unowned.”
+Looking like Zeke is a clue, not identity proof; XPP correlation, UVs, textures,
+bones, and injection remain separate gates. Progress pieces can render quickly
+at normal resolution, while 4K is reserved for the assembled full character.
+
 ## Typical HD texture pass
 
 1. `profile-extract` the protected retail install pair.

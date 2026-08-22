@@ -284,7 +284,7 @@ def export_character_diagnostic_glb(
     document = {
         "asset": {
             "version": "2.0",
-            "generator": "xpp-tool 2.7.0 diagnostic character exporter",
+            "generator": "xpp-tool 2.8.0 diagnostic character exporter",
             "extras": {"infamousDiagnostic": evidence},
         },
         "extensionsUsed": ["KHR_materials_unlit"],
