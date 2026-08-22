@@ -270,9 +270,9 @@ def analyze_vertex_program_payload(program: bytes, constants: bytes) -> dict:
                 explicit_inputs.add(_field(d1, 8, 4))
             elif register_type == 3:
                 constant_id = _field(d1, 12, 10)
-                if constant_id >= 512:
+                if constant_id >= 468:
                     raise VertexTransformCensusError(
-                        "reachable fixed constant is outside captured bank"
+                        "reachable fixed constant is outside RPCS3's usable bank"
                     )
                 fixed_constants.add(constant_id)
                 indexed_constants |= bool(_field(d3, 1, 1))

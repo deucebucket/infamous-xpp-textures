@@ -125,3 +125,11 @@ def test_rejects_used_invalid_register_type():
     program = _payload({0: _instruction(vec=1, src0=_source(0), end=True)})
     with pytest.raises(VertexTransformCensusError, match="invalid register type"):
         analyze_vertex_program_payload(program, bytes(8192))
+
+
+def test_rejects_fixed_constant_outside_usable_468_vectors():
+    program = _payload(
+        {0: _instruction(vec=1, src0=_source(3), constant_id=468, end=True)}
+    )
+    with pytest.raises(VertexTransformCensusError, match="usable bank"):
+        analyze_vertex_program_payload(program, bytes(8192))
