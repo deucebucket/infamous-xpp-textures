@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.8.0 - 2026-08-22
+
+- Added a deterministic runtime-topology diagnostic GLB exporter for complete, caller-owned topology census bundles.
+- Validated the completion marker, every binding row, descriptor reconstruction, exact payload set and identity, u16 triangle bounds, and one explicit finite `float32x3` position hypothesis before export.
+- Kept runtime draw ownership, XPP correlation, position meaning, UVs, materials, rigging, and injection false so rapid visual triage cannot become a false character claim.
+
 ## 2.7.0 - 2026-08-22
 
 - Added a deterministic diagnostic GLB export for one exact character topology and one caller-selected, hash-bound `float32x3` position hypothesis.

@@ -29,6 +29,10 @@ from .pngio import read_png
 from .psarc import extract_entry, rebuild_archive
 from .rebase import RebaseError, rebase_texture_edits
 from .runtime import build_replacement_bundle, build_runtime_index, write_allowlist
+from .runtime_topology_export import (
+    RuntimeTopologyExportError,
+    export_runtime_topology_glb,
+)
 from .validation import ValidationError, compare_xpp, validate_xpp
 from .xpp import parse_xpp
 
@@ -585,6 +589,42 @@ def cmd_character_diagnostic_export(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_runtime_topology_diagnostic_export(args: argparse.Namespace) -> int:
+    try:
+        bundle = args.bundle.resolve()
+        destination_paths = [args.output]
+        if args.json_out is not None:
+            destination_paths.append(args.json_out)
+        if len({path.resolve() for path in destination_paths}) != len(
+            destination_paths
+        ):
+            raise RuntimeTopologyExportError(
+                "--output and --json-out must be different paths"
+            )
+        if any(
+            destination.resolve() == bundle or bundle in destination.resolve().parents
+            for destination in destination_paths
+        ):
+            raise RuntimeTopologyExportError(
+                "diagnostic outputs must remain outside the immutable input bundle"
+            )
+        result = export_runtime_topology_glb(
+            args.bundle,
+            args.event,
+            args.output,
+            position_hypothesis_attribute=args.position_hypothesis_attribute,
+        )
+    except (OSError, RuntimeTopologyExportError, ValueError) as exc:
+        print(f"runtime-topology-diagnostic-export: {exc}", file=sys.stderr)
+        return 1
+    rendered = render_report(result)
+    if args.json_out:
+        args.json_out.parent.mkdir(parents=True, exist_ok=True)
+        args.json_out.write_text(rendered, encoding="utf-8")
+    print(rendered, end="")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         prog=Path(sys.argv[0]).name,
@@ -883,6 +923,31 @@ def main(argv: list[str] | None = None) -> int:
         "--json-out", type=Path, help="also write the deterministic export report"
     )
     p_character_export.set_defaults(func=cmd_character_diagnostic_export)
+
+    p_runtime_topology_export = sub.add_parser(
+        "runtime-topology-diagnostic-export",
+        help="export one exact runtime topology event for unowned visual triage",
+    )
+    p_runtime_topology_export.add_argument(
+        "--bundle",
+        type=Path,
+        required=True,
+        help="complete local if1-topology-census-v1 output directory",
+    )
+    p_runtime_topology_export.add_argument(
+        "--event", type=int, required=True, help="captured topology event to export"
+    )
+    p_runtime_topology_export.add_argument(
+        "--position-hypothesis-attribute",
+        type=int,
+        required=True,
+        help="float32x3 runtime attribute to place in GLB POSITION; remains unproved",
+    )
+    p_runtime_topology_export.add_argument("--output", type=Path, required=True)
+    p_runtime_topology_export.add_argument(
+        "--json-out", type=Path, help="also write the deterministic export report"
+    )
+    p_runtime_topology_export.set_defaults(func=cmd_runtime_topology_diagnostic_export)
 
     args = ap.parse_args(argv)
     return args.func(args)
