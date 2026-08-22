@@ -48,10 +48,19 @@ _BINDING_FIELDS = (
     "fragment_program_register_sha256",
     "transform_constants_sha256",
 )
+_TEXTURE_BINDING_FIELDS = _BINDING_FIELDS + (
+    "target_texture_slots",
+    "target_texture_sha256s",
+    "binding_scope",
+    "shader_reference_proven",
+    "capture_key",
+)
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 _BINDING_NAME = re.compile(r"topology-(\d+)-binding\.tsv")
 _PAYLOAD_NAME = re.compile(r"topology-(\d+)-(?:index|block-(\d+))-[0-9a-f]{16}\.bin")
 _MAX_TARGETS = 16
+_MAX_TEXTURE_HASHES = 64
+_MAX_BOUND_ADDRESSES = 256
 _MAX_BUNDLE_FILES = 1 + _MAX_TARGETS + _MAX_TARGETS * 17
 _MAX_INDEX_BYTES = 4 * 1024 * 1024
 _MAX_BLOCK_BYTES = 8 * 1024 * 1024
@@ -85,6 +94,11 @@ class _Event:
     vertex_program_sha256: str
     fragment_program_register_sha256: str
     transform_constants_sha256: str
+    target_texture_slots: tuple[int, ...] = ()
+    target_texture_sha256s: tuple[str, ...] = ()
+    binding_scope: str | None = None
+    shader_reference_proven: bool = False
+    capture_key: str | None = None
 
 
 def _sha256(payload: bytes) -> str:
@@ -143,6 +157,35 @@ def _read_payload(
     return payload
 
 
+def _parse_texture_allowlist(path: Path) -> tuple[set[str], str]:
+    if path.is_symlink() or not path.is_file():
+        raise RuntimeTopologyExportError(
+            "texture allowlist is missing or is not a regular file"
+        )
+    payload = path.read_bytes()
+    try:
+        lines = payload.decode("ascii").splitlines()
+    except UnicodeDecodeError as exc:
+        raise RuntimeTopologyExportError("texture allowlist must be ASCII") from exc
+    hashes: set[str] = set()
+    for line in lines:
+        value = line.partition("#")[0].strip()
+        if not value:
+            continue
+        if _SHA256.fullmatch(value) is None or value in hashes:
+            raise RuntimeTopologyExportError(
+                "texture allowlist has an invalid or duplicate SHA-256 row"
+            )
+        hashes.add(value)
+        if len(hashes) > _MAX_TEXTURE_HASHES:
+            raise RuntimeTopologyExportError(
+                "texture allowlist exceeds the 64-hash bound"
+            )
+    if not hashes:
+        raise RuntimeTopologyExportError("texture allowlist is empty")
+    return hashes, _sha256(payload)
+
+
 def _parse_completion(path: Path) -> dict[str, int | str]:
     if path.is_symlink() or not path.is_file():
         raise RuntimeTopologyExportError(
@@ -156,7 +199,7 @@ def _parse_completion(path: Path) -> dict[str, int | str]:
                 "capture.complete has a malformed or duplicate row"
             )
         rows[fields[0]] = fields[1]
-    expected = {
+    census_fields = {
         "format",
         "expected_targets",
         "captured_targets",
@@ -164,31 +207,99 @@ def _parse_completion(path: Path) -> dict[str, int | str]:
         "payload_bytes",
         "guest_memory_untouched",
     }
-    if set(rows) != expected or rows["format"] != "if1-topology-census-v1":
+    texture_fields = {
+        "format",
+        "target_texture_hashes",
+        "captured_draws",
+        "capture_limit",
+        "capture_limit_reached",
+        "payload_files",
+        "payload_bytes",
+        "binding_scope",
+        "shader_reference_proven",
+        "observed_uploads",
+        "target_uploads",
+        "address_replacements",
+        "bound_addresses",
+        "guest_memory_untouched",
+    }
+    capture_format = rows.get("format")
+    if capture_format == "if1-topology-census-v1":
+        if set(rows) != census_fields:
+            raise RuntimeTopologyExportError(
+                "capture.complete schema or format is invalid"
+            )
+        result: dict[str, int | str] = {"format": capture_format}
+        for name in census_fields - {"format"}:
+            result[name] = _integer(rows[name], name, allow_zero=False)
+        if result["guest_memory_untouched"] != 1:
+            raise RuntimeTopologyExportError(
+                "capture does not prove guest memory remained untouched"
+            )
+        if result["captured_targets"] > result["expected_targets"]:
+            raise RuntimeTopologyExportError(
+                "captured target count exceeds the expected target count"
+            )
+        if (
+            result["expected_targets"] > _MAX_TARGETS
+            or result["payload_files"] > _MAX_TARGETS * 17
+            or result["payload_bytes"] > _MAX_PAYLOAD_BYTES
+        ):
+            raise RuntimeTopologyExportError(
+                "completion totals exceed the bounded capture contract"
+            )
+        return result
+
+    if capture_format != "if1-texture-bound-topology-v1" or set(rows) != texture_fields:
         raise RuntimeTopologyExportError("capture.complete schema or format is invalid")
-    result: dict[str, int | str] = {"format": rows["format"]}
-    for name in expected - {"format"}:
-        result[name] = _integer(rows[name], name, allow_zero=False)
-    if result["guest_memory_untouched"] != 1:
-        raise RuntimeTopologyExportError(
-            "capture does not prove guest memory remained untouched"
-        )
-    if result["captured_targets"] > result["expected_targets"]:
-        raise RuntimeTopologyExportError(
-            "captured target count exceeds the expected target count"
-        )
+    result = {"format": capture_format, "binding_scope": rows["binding_scope"]}
+    nonzero_names = {"target_texture_hashes", "capture_limit"}
+    numeric_names = texture_fields - {"format", "binding_scope"}
+    for name in numeric_names:
+        result[name] = _integer(rows[name], name, allow_zero=name not in nonzero_names)
     if (
-        result["expected_targets"] > _MAX_TARGETS
-        or result["payload_files"] > _MAX_TARGETS * 17
-        or result["payload_bytes"] > _MAX_PAYLOAD_BYTES
+        result["guest_memory_untouched"] != 1
+        or result["shader_reference_proven"] != 0
+        or result["binding_scope"] != "enabled-fragment-texture-address"
     ):
         raise RuntimeTopologyExportError(
-            "completion totals exceed the bounded capture contract"
+            "texture-bound capture has an unsupported binding or mutation claim"
+        )
+    if (
+        result["target_texture_hashes"] > _MAX_TEXTURE_HASHES
+        or result["captured_draws"] > _MAX_TARGETS
+        or result["capture_limit"] != _MAX_TARGETS
+        or result["capture_limit_reached"] not in (0, 1)
+        or (
+            result["capture_limit_reached"] == 1
+            and result["captured_draws"] != _MAX_TARGETS
+        )
+        or result["payload_files"] > _MAX_TARGETS * 17
+        or result["payload_bytes"] > _MAX_PAYLOAD_BYTES
+        or result["bound_addresses"] > _MAX_BOUND_ADDRESSES
+        or result["target_uploads"] > result["observed_uploads"]
+        or result["address_replacements"] > result["observed_uploads"]
+    ):
+        raise RuntimeTopologyExportError(
+            "texture-bound completion totals exceed the bounded contract"
+        )
+    if (
+        (result["captured_draws"] == 0)
+        != (result["payload_files"] == 0 and result["payload_bytes"] == 0)
+        or (result["captured_draws"] > 0 and result["target_uploads"] == 0)
+    ):
+        raise RuntimeTopologyExportError(
+            "texture-bound capture counters do not reconcile"
         )
     return result
 
 
-def _parse_binding(path: Path) -> _Event:
+def _parse_binding(
+    path: Path,
+    *,
+    capture_format: str,
+    allowed_texture_hashes: set[str] | None,
+) -> _Event:
     match = _BINDING_NAME.fullmatch(path.name)
     if path.is_symlink() or not path.is_file() or match is None:
         raise RuntimeTopologyExportError(
@@ -196,7 +307,9 @@ def _parse_binding(path: Path) -> _Event:
         )
     with path.open("r", encoding="ascii", newline="") as handle:
         reader = csv.DictReader(handle, delimiter="\t")
-        if tuple(reader.fieldnames or ()) != _BINDING_FIELDS:
+        texture_bound = capture_format == "if1-texture-bound-topology-v1"
+        expected_fields = _TEXTURE_BINDING_FIELDS if texture_bound else _BINDING_FIELDS
+        if tuple(reader.fieldnames or ()) != expected_fields:
             raise RuntimeTopologyExportError(
                 f"{path.name} has an invalid binding schema"
             )
@@ -223,6 +336,14 @@ def _parse_binding(path: Path) -> _Event:
         "fragment_program_register_sha256",
         "transform_constants_sha256",
     )
+    if texture_bound:
+        common_names += (
+            "target_texture_slots",
+            "target_texture_sha256s",
+            "binding_scope",
+            "shader_reference_proven",
+            "capture_key",
+        )
     common = {name: rows[0][name] for name in common_names}
     if any(row[name] != value for row in rows for name, value in common.items()):
         raise RuntimeTopologyExportError(
@@ -249,6 +370,51 @@ def _parse_binding(path: Path) -> _Event:
     ):
         raise RuntimeTopologyExportError(
             "index extent is not one bounded u16 triangle list"
+        )
+
+    target_texture_slots: tuple[int, ...] = ()
+    target_texture_sha256s: tuple[str, ...] = ()
+    binding_scope: str | None = None
+    capture_key: str | None = None
+    if texture_bound:
+        if allowed_texture_hashes is None:
+            raise RuntimeTopologyExportError(
+                "texture-bound bundle requires an explicit texture allowlist"
+            )
+        slot_fields = common["target_texture_slots"].split(",")
+        hash_fields = common["target_texture_sha256s"].split(",")
+        target_texture_slots = tuple(
+            _integer(value, "target texture slot") for value in slot_fields
+        )
+        target_texture_sha256s = tuple(
+            _sha(value, "target texture SHA-256") for value in hash_fields
+        )
+        binding_scope = common["binding_scope"]
+        capture_key = _sha(common["capture_key"], "capture key")
+        if (
+            not 1 <= len(target_texture_slots) <= 16
+            or len(target_texture_slots) != len(target_texture_sha256s)
+            or any(slot > 15 for slot in target_texture_slots)
+            or tuple(sorted(set(target_texture_slots))) != target_texture_slots
+            or any(value not in allowed_texture_hashes for value in target_texture_sha256s)
+            or binding_scope != "enabled-fragment-texture-address"
+            or _integer(common["shader_reference_proven"], "shader reference proof")
+            != 0
+        ):
+            raise RuntimeTopologyExportError(
+                "texture-bound event has an invalid slot/hash/binding claim"
+            )
+        capture_material = index_sha256 + "".join(
+            f":{slot}:{value}"
+            for slot, value in zip(target_texture_slots, target_texture_sha256s)
+        )
+        if _sha256(capture_material.encode("ascii")) != capture_key:
+            raise RuntimeTopologyExportError(
+                "texture-bound event capture key does not reconcile"
+            )
+    elif allowed_texture_hashes is not None:
+        raise RuntimeTopologyExportError(
+            "texture allowlist was supplied for a census-only bundle"
         )
 
     grouped: dict[int, list[dict[str, str]]] = {}
@@ -380,10 +546,17 @@ def _parse_binding(path: Path) -> _Event:
         transform_constants_sha256=_sha(
             common["transform_constants_sha256"], "transform constants SHA-256"
         ),
+        target_texture_slots=target_texture_slots,
+        target_texture_sha256s=target_texture_sha256s,
+        binding_scope=binding_scope,
+        shader_reference_proven=False,
+        capture_key=capture_key,
     )
 
 
-def _load_bundle(bundle: Path) -> tuple[dict[str, int | str], dict[int, _Event]]:
+def _load_bundle(
+    bundle: Path, texture_allowlist: Path | None
+) -> tuple[dict[str, int | str], dict[int, _Event], str | None]:
     if bundle.is_symlink() or not bundle.is_dir():
         raise RuntimeTopologyExportError(
             "bundle must be an existing non-symlink directory"
@@ -396,12 +569,45 @@ def _load_bundle(bundle: Path) -> tuple[dict[str, int | str], dict[int, _Event]]
             "bundle entries must be regular non-symlink files"
         )
     completion = _parse_completion(bundle / "capture.complete")
+    texture_bound = completion["format"] == "if1-texture-bound-topology-v1"
+    allowed_texture_hashes: set[str] | None = None
+    allowlist_sha256: str | None = None
+    if texture_bound:
+        if texture_allowlist is None:
+            raise RuntimeTopologyExportError(
+                "texture-bound bundle requires --texture-allowlist"
+            )
+        allowed_texture_hashes, allowlist_sha256 = _parse_texture_allowlist(
+            texture_allowlist
+        )
+        if len(allowed_texture_hashes) != completion["target_texture_hashes"]:
+            raise RuntimeTopologyExportError(
+                "texture allowlist count does not match capture.complete"
+            )
+    elif texture_allowlist is not None:
+        raise RuntimeTopologyExportError(
+            "--texture-allowlist is only valid for a texture-bound bundle"
+        )
     binding_paths = sorted(
         entry for entry in entries if _BINDING_NAME.fullmatch(entry.name)
     )
-    events = [_parse_binding(path) for path in binding_paths]
+    events = [
+        _parse_binding(
+            path,
+            capture_format=str(completion["format"]),
+            allowed_texture_hashes=allowed_texture_hashes,
+        )
+        for path in binding_paths
+    ]
     if len({event.number for event in events}) != len(events):
         raise RuntimeTopologyExportError("bundle has duplicate event numbers")
+    if texture_bound and (
+        [event.number for event in events] != list(range(1, len(events) + 1))
+        or len({event.capture_key for event in events}) != len(events)
+    ):
+        raise RuntimeTopologyExportError(
+            "texture-bound events must be contiguous with unique capture keys"
+        )
     by_event = {event.number: event for event in events}
     referenced = {"capture.complete", *(path.name for path in binding_paths)}
     payload_sizes: dict[str, int] = {}
@@ -429,15 +635,16 @@ def _load_bundle(bundle: Path) -> tuple[dict[str, int | str], dict[int, _Event]]
         raise RuntimeTopologyExportError(
             "bundle has missing or unreferenced extra files"
         )
+    captured_name = "captured_draws" if texture_bound else "captured_targets"
     if (
-        completion["captured_targets"] != len(events)
+        completion[captured_name] != len(events)
         or completion["payload_files"] != len(payload_sizes)
         or completion["payload_bytes"] != sum(payload_sizes.values())
     ):
         raise RuntimeTopologyExportError(
             "completion totals do not reconcile with the bundle"
         )
-    return completion, by_event
+    return completion, by_event, allowlist_sha256
 
 
 def export_runtime_topology_glb(
@@ -446,6 +653,7 @@ def export_runtime_topology_glb(
     output: Path,
     *,
     position_hypothesis_attribute: int,
+    texture_allowlist: Path | None = None,
 ) -> dict:
     """Validate one complete runtime bundle and export one selected event for inspection."""
 
@@ -454,6 +662,10 @@ def export_runtime_topology_glb(
     if output_resolved == bundle_resolved or bundle_resolved in output_resolved.parents:
         raise RuntimeTopologyExportError(
             "diagnostic output must remain outside the immutable input bundle"
+        )
+    if output.is_symlink() or output.exists():
+        raise RuntimeTopologyExportError(
+            "diagnostic output already exists; refusing to overwrite it"
         )
     if (
         not isinstance(event_number, int)
@@ -469,7 +681,7 @@ def export_runtime_topology_glb(
         raise RuntimeTopologyExportError(
             "position hypothesis attribute must be from 0 through 15"
         )
-    completion, events = _load_bundle(bundle)
+    completion, events, allowlist_sha256 = _load_bundle(bundle, texture_allowlist)
     if event_number not in events:
         raise RuntimeTopologyExportError(
             f"event {event_number} is not present in the bundle"
@@ -560,6 +772,7 @@ def export_runtime_topology_glb(
     index_accessor = builder.add_accessor(
         struct.pack(f"<{len(indices)}H", *indices), 5123, len(indices), "SCALAR", 34963
     )
+    texture_bound = completion["format"] == "if1-texture-bound-topology-v1"
     evidence = {
         "diagnosticOnly": True,
         "runtimeOnly": True,
@@ -575,10 +788,27 @@ def export_runtime_topology_glb(
         "indexSha256": event.index_sha256,
         "positionPayloadSha256": block.payload_sha256,
     }
+    if texture_bound:
+        evidence.update(
+            {
+                "textureBoundCorrelation": True,
+                "textureIdentityCorrelationProved": True,
+                "targetTextureSlots": list(event.target_texture_slots),
+                "targetTextureSha256s": list(event.target_texture_sha256s),
+                "bindingScope": event.binding_scope,
+                "shaderReferenceProved": False,
+                "captureKey": event.capture_key,
+                "textureAllowlistSha256": allowlist_sha256,
+            }
+        )
     document = {
         "asset": {
             "version": "2.0",
-            "generator": "xpp-tool 2.9.0 runtime topology diagnostic exporter",
+            "generator": (
+                "xpp-tool 2.10.0 texture-bound runtime topology diagnostic exporter"
+                if texture_bound
+                else "xpp-tool 2.10.0 runtime topology diagnostic exporter"
+            ),
             "extras": {"infamousRuntimeDiagnostic": evidence},
         },
         "extensionsUsed": ["KHR_materials_unlit"],
@@ -621,9 +851,9 @@ def export_runtime_topology_glb(
     }
     glb = _pack_glb(document, builder.binary)
     _write_atomic(output, glb)
-    return {
+    report = {
         "format": "infamous-runtime-topology-diagnostic-export",
-        "version": 1,
+        "version": 2 if texture_bound else 1,
         "status": "diagnostic-glb-written",
         "event": event.number,
         "vertices": len(positions),
@@ -638,7 +868,6 @@ def export_runtime_topology_glb(
         "source_bounds_max": source_max,
         "source_bounds_center": center,
         "recentered_for_inspection": True,
-        "bundle_captured_targets": completion["captured_targets"],
         "output_size": len(glb),
         "output_sha256": _sha256(glb),
         "gates": {
@@ -656,3 +885,22 @@ def export_runtime_topology_glb(
             "injection": False,
         },
     }
+    if texture_bound:
+        report.update(
+            {
+                "bundle_format": completion["format"],
+                "bundle_captured_draws": completion["captured_draws"],
+                "texture_bound_correlation": True,
+                "texture_identity_correlation_proved": True,
+                "target_texture_slots": list(event.target_texture_slots),
+                "target_texture_sha256s": list(event.target_texture_sha256s),
+                "binding_scope": event.binding_scope,
+                "shader_reference_proved": False,
+                "capture_key": event.capture_key,
+                "texture_allowlist_sha256": allowlist_sha256,
+            }
+        )
+        report["gates"]["texture_identity_correlation"] = True
+    else:
+        report["bundle_captured_targets"] = completion["captured_targets"]
+    return report

@@ -647,11 +647,19 @@ def cmd_runtime_topology_diagnostic_export(args: argparse.Namespace) -> int:
             raise RuntimeTopologyExportError(
                 "diagnostic outputs must remain outside the immutable input bundle"
             )
+        if any(
+            destination.is_symlink() or destination.exists()
+            for destination in destination_paths
+        ):
+            raise RuntimeTopologyExportError(
+                "diagnostic output already exists; refusing to overwrite it"
+            )
         result = export_runtime_topology_glb(
             args.bundle,
             args.event,
             args.output,
             position_hypothesis_attribute=args.position_hypothesis_attribute,
+            texture_allowlist=args.texture_allowlist,
         )
     except (OSError, RuntimeTopologyExportError, ValueError) as exc:
         print(f"runtime-topology-diagnostic-export: {exc}", file=sys.stderr)
@@ -986,7 +994,12 @@ def main(argv: list[str] | None = None) -> int:
         "--bundle",
         type=Path,
         required=True,
-        help="complete local if1-topology-census-v1 output directory",
+        help="complete local topology-census or texture-bound-topology output directory",
+    )
+    p_runtime_topology_export.add_argument(
+        "--texture-allowlist",
+        type=Path,
+        help="required exact target SHA-256 allowlist for a texture-bound bundle",
     )
     p_runtime_topology_export.add_argument(
         "--event", type=int, required=True, help="captured topology event to export"

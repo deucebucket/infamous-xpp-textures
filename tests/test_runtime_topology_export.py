@@ -9,6 +9,7 @@ from infamous_xpp_textures.cli import main
 from infamous_xpp_textures.runtime_topology_export import (
     RuntimeTopologyExportError,
     _BINDING_FIELDS,
+    _TEXTURE_BINDING_FIELDS,
     export_runtime_topology_glb,
 )
 
@@ -113,6 +114,52 @@ def _write_bundle(tmp_path):
     return bundle
 
 
+def _make_texture_bound(bundle, tmp_path):
+    target_hash = "d" * 64
+    allowlist = tmp_path / "zeke-targets.sha256"
+    allowlist.write_text(f"# exact target\n{target_hash}\n", encoding="ascii")
+    binding = bundle / "topology-01-binding.tsv"
+    with binding.open(encoding="ascii", newline="") as handle:
+        rows = list(csv.DictReader(handle, delimiter="\t"))
+    capture_material = f"{rows[0]['index_sha256']}:3:{target_hash}"
+    capture_key = _sha(capture_material.encode("ascii"))
+    for row in rows:
+        row.update(
+            {
+                "target_texture_slots": "3",
+                "target_texture_sha256s": target_hash,
+                "binding_scope": "enabled-fragment-texture-address",
+                "shader_reference_proven": "0",
+                "capture_key": capture_key,
+            }
+        )
+    with binding.open("w", encoding="ascii", newline="") as handle:
+        writer = csv.DictWriter(
+            handle, fieldnames=_TEXTURE_BINDING_FIELDS, delimiter="\t"
+        )
+        writer.writeheader()
+        writer.writerows(rows)
+    payloads = list(bundle.glob("*.bin"))
+    (bundle / "capture.complete").write_text(
+        "format\tif1-texture-bound-topology-v1\n"
+        "target_texture_hashes\t1\n"
+        "captured_draws\t1\n"
+        "capture_limit\t16\n"
+        "capture_limit_reached\t0\n"
+        f"payload_files\t{len(payloads)}\n"
+        f"payload_bytes\t{sum(path.stat().st_size for path in payloads)}\n"
+        "binding_scope\tenabled-fragment-texture-address\n"
+        "shader_reference_proven\t0\n"
+        "observed_uploads\t5\n"
+        "target_uploads\t1\n"
+        "address_replacements\t0\n"
+        "bound_addresses\t1\n"
+        "guest_memory_untouched\t1\n",
+        encoding="ascii",
+    )
+    return allowlist
+
+
 def _glb_document(data: bytes) -> dict:
     magic, version, total = struct.unpack_from("<III", data)
     assert (magic, version, total) == (0x46546C67, 2, len(data))
@@ -141,6 +188,9 @@ def test_exports_complete_runtime_event_deterministically(tmp_path):
     assert evidence["drawOwnershipProved"] is False
     assert evidence["positionSemanticProved"] is False
     assert "skins" not in document
+    assert document["asset"]["generator"].startswith("xpp-tool 2.8.0")
+    assert report["version"] == 1
+    assert "texture_bound_correlation" not in report
 
     second = tmp_path / "runtime-second.glb"
     second_report = export_runtime_topology_glb(
@@ -148,6 +198,164 @@ def test_exports_complete_runtime_event_deterministically(tmp_path):
     )
     assert second.read_bytes() == output.read_bytes()
     assert second_report == report
+
+
+def test_exports_texture_bound_event_with_exact_correlation(tmp_path):
+    bundle = _write_bundle(tmp_path)
+    allowlist = _make_texture_bound(bundle, tmp_path)
+    output = tmp_path / "texture-bound.glb"
+    report = export_runtime_topology_glb(
+        bundle,
+        1,
+        output,
+        position_hypothesis_attribute=0,
+        texture_allowlist=allowlist,
+    )
+    assert report["version"] == 2
+    assert report["bundle_format"] == "if1-texture-bound-topology-v1"
+    assert report["bundle_captured_draws"] == 1
+    assert report["texture_identity_correlation_proved"] is True
+    assert report["target_texture_slots"] == [3]
+    assert report["target_texture_sha256s"] == ["d" * 64]
+    assert report["shader_reference_proved"] is False
+    assert report["gates"]["draw_ownership"] is False
+    document = _glb_document(output.read_bytes())
+    evidence = document["asset"]["extras"]["infamousRuntimeDiagnostic"]
+    assert document["asset"]["generator"].startswith("xpp-tool 2.9.0")
+    assert evidence["textureIdentityCorrelationProved"] is True
+    assert evidence["shaderReferenceProved"] is False
+
+    second = tmp_path / "texture-bound-second.glb"
+    second_report = export_runtime_topology_glb(
+        bundle,
+        1,
+        second,
+        position_hypothesis_attribute=0,
+        texture_allowlist=allowlist,
+    )
+    assert second.read_bytes() == output.read_bytes()
+    assert second_report == report
+
+
+def test_texture_bound_bundle_requires_matching_allowlist(tmp_path):
+    bundle = _write_bundle(tmp_path)
+    _make_texture_bound(bundle, tmp_path)
+    with pytest.raises(RuntimeTopologyExportError, match="requires --texture-allowlist"):
+        export_runtime_topology_glb(
+            bundle, 1, tmp_path / "bad.glb", position_hypothesis_attribute=0
+        )
+    wrong = tmp_path / "wrong.sha256"
+    wrong.write_text("e" * 64 + "\n", encoding="ascii")
+    with pytest.raises(RuntimeTopologyExportError, match="invalid slot/hash/binding"):
+        export_runtime_topology_glb(
+            bundle,
+            1,
+            tmp_path / "bad.glb",
+            position_hypothesis_attribute=0,
+            texture_allowlist=wrong,
+        )
+
+
+def test_texture_bound_bundle_rejects_capture_key_or_claim_drift(tmp_path):
+    bundle = _write_bundle(tmp_path)
+    allowlist = _make_texture_bound(bundle, tmp_path)
+    binding = bundle / "topology-01-binding.tsv"
+    with binding.open(encoding="ascii", newline="") as handle:
+        rows = list(csv.DictReader(handle, delimiter="\t"))
+    for row in rows:
+        row["capture_key"] = "e" * 64
+    with binding.open("w", encoding="ascii", newline="") as handle:
+        writer = csv.DictWriter(
+            handle, fieldnames=_TEXTURE_BINDING_FIELDS, delimiter="\t"
+        )
+        writer.writeheader()
+        writer.writerows(rows)
+    with pytest.raises(RuntimeTopologyExportError, match="capture key"):
+        export_runtime_topology_glb(
+            bundle,
+            1,
+            tmp_path / "bad.glb",
+            position_hypothesis_attribute=0,
+            texture_allowlist=allowlist,
+        )
+
+
+def test_texture_bound_completion_rejects_false_shader_reference_claim(tmp_path):
+    bundle = _write_bundle(tmp_path)
+    allowlist = _make_texture_bound(bundle, tmp_path)
+    completion = bundle / "capture.complete"
+    completion.write_text(
+        completion.read_text(encoding="ascii").replace(
+            "shader_reference_proven\t0", "shader_reference_proven\t1"
+        ),
+        encoding="ascii",
+    )
+    with pytest.raises(RuntimeTopologyExportError, match="unsupported binding"):
+        export_runtime_topology_glb(
+            bundle,
+            1,
+            tmp_path / "bad.glb",
+            position_hypothesis_attribute=0,
+            texture_allowlist=allowlist,
+        )
+
+
+def test_texture_bound_completion_rejects_false_limit_claim(tmp_path):
+    bundle = _write_bundle(tmp_path)
+    allowlist = _make_texture_bound(bundle, tmp_path)
+    completion = bundle / "capture.complete"
+    completion.write_text(
+        completion.read_text(encoding="ascii").replace(
+            "capture_limit_reached\t0", "capture_limit_reached\t1"
+        ),
+        encoding="ascii",
+    )
+    with pytest.raises(RuntimeTopologyExportError, match="bounded contract"):
+        export_runtime_topology_glb(
+            bundle,
+            1,
+            tmp_path / "bad.glb",
+            position_hypothesis_attribute=0,
+            texture_allowlist=allowlist,
+        )
+
+
+@pytest.mark.parametrize(
+    "payload",
+    (
+        "D" * 64 + "\n",
+        "d" * 64 + "\n" + "d" * 64 + "\n",
+        "# no hashes\n",
+    ),
+)
+def test_texture_bound_bundle_rejects_malformed_allowlist(tmp_path, payload):
+    bundle = _write_bundle(tmp_path)
+    allowlist = _make_texture_bound(bundle, tmp_path)
+    allowlist.write_text(payload, encoding="ascii")
+    with pytest.raises(RuntimeTopologyExportError, match="allowlist"):
+        export_runtime_topology_glb(
+            bundle,
+            1,
+            tmp_path / "bad.glb",
+            position_hypothesis_attribute=0,
+            texture_allowlist=allowlist,
+        )
+
+
+def test_texture_bound_export_refuses_overwrite(tmp_path):
+    bundle = _write_bundle(tmp_path)
+    allowlist = _make_texture_bound(bundle, tmp_path)
+    output = tmp_path / "existing.glb"
+    output.write_bytes(b"keep")
+    with pytest.raises(RuntimeTopologyExportError, match="refusing to overwrite"):
+        export_runtime_topology_glb(
+            bundle,
+            1,
+            output,
+            position_hypothesis_attribute=0,
+            texture_allowlist=allowlist,
+        )
+    assert output.read_bytes() == b"keep"
 
 
 def test_rejects_tampered_payload(tmp_path):
@@ -232,3 +440,64 @@ def test_cli_refuses_output_inside_input_bundle(tmp_path, capsys):
     assert result == 1
     assert "outside the immutable input bundle" in capsys.readouterr().err
     assert not (bundle / "bad.glb").exists()
+
+
+def test_cli_exports_texture_bound_bundle(tmp_path, capsys):
+    bundle = _write_bundle(tmp_path)
+    allowlist = _make_texture_bound(bundle, tmp_path)
+    output = tmp_path / "texture-bound.glb"
+    report = tmp_path / "texture-bound.json"
+    result = main(
+        [
+            "runtime-topology-diagnostic-export",
+            "--bundle",
+            str(bundle),
+            "--texture-allowlist",
+            str(allowlist),
+            "--event",
+            "1",
+            "--position-hypothesis-attribute",
+            "0",
+            "--output",
+            str(output),
+            "--json-out",
+            str(report),
+        ]
+    )
+    assert result == 0
+    assert output.is_file()
+    parsed = json.loads(report.read_text(encoding="utf-8"))
+    assert parsed["texture_identity_correlation_proved"] is True
+    assert parsed["gates"]["draw_ownership"] is False
+    assert json.loads(capsys.readouterr().out) == parsed
+
+
+def test_cli_refuses_existing_texture_bound_report_before_glb_write(
+    tmp_path, capsys
+):
+    bundle = _write_bundle(tmp_path)
+    allowlist = _make_texture_bound(bundle, tmp_path)
+    output = tmp_path / "not-written.glb"
+    report = tmp_path / "existing.json"
+    report.write_text("keep", encoding="ascii")
+    result = main(
+        [
+            "runtime-topology-diagnostic-export",
+            "--bundle",
+            str(bundle),
+            "--texture-allowlist",
+            str(allowlist),
+            "--event",
+            "1",
+            "--position-hypothesis-attribute",
+            "0",
+            "--output",
+            str(output),
+            "--json-out",
+            str(report),
+        ]
+    )
+    assert result == 1
+    assert "refusing to overwrite" in capsys.readouterr().err
+    assert report.read_text(encoding="ascii") == "keep"
+    assert not output.exists()
