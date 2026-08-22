@@ -673,6 +673,29 @@ instead of forcing it to guess. A completed full Zeke render remains the gate
 for the first 3840×2160 image; partial progress can still publish immediately
 at quick resolution.
 
+Version 2.13 decodes that v2 transform input without running the game again:
+
+```console
+xpp-tool runtime-vertex-transform-census \
+  --bundle /path/to/owned/texture-bound-topology-v2 \
+  --texture-allowlist /path/to/exact-targets.sha256 \
+  --json-out /path/outside-the-bundle/vertex-transform-census.json
+```
+
+The command revalidates the entire bundle, walks only reachable RSX vertex
+instructions from the captured entry point, reconstructs all three encoded
+sources, and reports referenced vertex inputs, fixed constants, indexed
+constants, opcodes, output registers, and stable-versus-varying constant
+identities across shared programs. It refuses incomplete bundles and existing
+outputs. Raw program bytes, constant values, game paths, and game assets are
+not copied into the report.
+
+RR — Really Readable rundown: this answers whether a draw uses a fixed stack of
+GPU values or an address-indexed array that could be compatible with a bone
+palette. It still does not name any value a matrix or bone. The next gate must
+replay the actual shader arithmetic and prove which output places vertices on
+screen before those pieces can be assembled honestly.
+
 ## Typical HD texture pass
 
 1. `profile-extract` the protected retail install pair.

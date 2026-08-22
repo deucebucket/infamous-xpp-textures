@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.13.0 - 2026-08-22
+
+- Added a strict, offline `runtime-vertex-transform-census` for complete `if1-texture-bound-topology-v2` bundles.
+- Reproduced RPCS3's bounded reachable-instruction walk and RSX source-field decoding to report exact input attributes, fixed constant IDs, indexed-constant use, opcodes, output registers, and payload-free constant identities.
+- Grouped identical vertex programs across draws and separated stable from varying referenced constants without persisting game payloads or raw values.
+- Kept position, matrix, bone-palette, skinning, ownership, assembled-character, rigging, and render gates explicitly false.
+
 ## 2.12.0 - 2026-08-22
 
 - Added strict validation for `if1-texture-bound-topology-v2` bundles carrying the exact 8,708-byte RSX vertex-program image/entry point and 8,192-byte transform-constant bank used by each bounded draw.

@@ -35,6 +35,10 @@ from .runtime_topology_export import (
     export_runtime_topology_glb,
 )
 from .validation import ValidationError, compare_xpp, validate_xpp
+from .vertex_transform import (
+    VertexTransformCensusError,
+    analyze_vertex_transform_bundle,
+)
 from .xpp import parse_xpp
 
 
@@ -672,6 +676,32 @@ def cmd_runtime_topology_diagnostic_export(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_runtime_vertex_transform_census(args: argparse.Namespace) -> int:
+    try:
+        bundle = args.bundle.resolve()
+        output = args.json_out.resolve()
+        if output == bundle or bundle in output.parents:
+            raise VertexTransformCensusError(
+                "census output must remain outside the immutable input bundle"
+            )
+        if args.json_out.is_symlink() or args.json_out.exists():
+            raise VertexTransformCensusError(
+                "census output already exists; refusing to overwrite it"
+            )
+        result = analyze_vertex_transform_bundle(args.bundle, args.texture_allowlist)
+        rendered = render_report(result)
+        args.json_out.parent.mkdir(parents=True, exist_ok=True)
+        with args.json_out.open("x", encoding="utf-8") as handle:
+            handle.write(rendered)
+            handle.flush()
+            os.fsync(handle.fileno())
+    except (OSError, VertexTransformCensusError, ValueError) as exc:
+        print(f"runtime-vertex-transform-census: {exc}", file=sys.stderr)
+        return 1
+    print(rendered, end="")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         prog=Path(sys.argv[0]).name,
@@ -1015,6 +1045,25 @@ def main(argv: list[str] | None = None) -> int:
         "--json-out", type=Path, help="also write the deterministic export report"
     )
     p_runtime_topology_export.set_defaults(func=cmd_runtime_topology_diagnostic_export)
+
+    p_vertex_transform = sub.add_parser(
+        "runtime-vertex-transform-census",
+        help="decode exact RSX vertex inputs/constants from a complete v2 bundle",
+    )
+    p_vertex_transform.add_argument(
+        "--bundle",
+        type=Path,
+        required=True,
+        help="complete local if1-texture-bound-topology-v2 output directory",
+    )
+    p_vertex_transform.add_argument(
+        "--texture-allowlist",
+        type=Path,
+        required=True,
+        help="exact target texture SHA-256 allowlist used by the capture",
+    )
+    p_vertex_transform.add_argument("--json-out", type=Path, required=True)
+    p_vertex_transform.set_defaults(func=cmd_runtime_vertex_transform_census)
 
     args = ap.parse_args(argv)
     return args.func(args)
