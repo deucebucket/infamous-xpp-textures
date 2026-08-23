@@ -104,7 +104,7 @@ output where applicable, an operator card, and a maintained source location.
   Nine focused tests cover deterministic aggregates, input-hash drift, report
   count drift, current and unknown primitive roles, wrong accessor shape,
   symlink input, atomic no-overwrite CLI, and full-coverage rejection. The
-  complete suite passes **291 tests**.
+  complete suite passes **293 tests**.
 - Operator card: [README — Version 2.38](README.md#version-238--strict-material-gap-spatial-and-uv-locator).
 - Inputs: one canonical strict observed-union GLB plus its exact export report;
   both require explicit SHA-256 pins and regular non-symlink files.

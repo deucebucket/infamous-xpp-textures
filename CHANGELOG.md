@@ -43,9 +43,8 @@
   the two tiny hair regions and leave every other gap visible.
 - Added deterministic assembly, input-order, path/page/record/hash/frame,
   transform, primitive-role, selective-preview, occupied-output, and CLI
-  coverage. All **293
-  tests** pass; changed-file Ruff format/check, Python compilation, and diff
-  validation pass.
+  coverage. All **293 tests** pass; changed-file Ruff format/check, Python
+  compilation, and diff validation pass.
 - Full character/component completeness, original coordinate semantics,
   retail normals/tangents, rigging, 4× maps, authored PBR, RPCS3 mod round
   trip, and native-decomp import remain false.
