@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.17.0 - 2026-08-22
+
+- Added strict `if1-texture-bound-topology-v4` validation for later capture pages bound to an exact external capture-key exclusion manifest, including manifest identity/count, observed-exclusion bounds, nonoverlapping captured keys, and the complete payload/file contract.
+- Added `runtime-capture-key-exclusion` to deterministically write the cumulative prior-page key set from a complete v3/v4 bundle, with a 256-key/16,705-byte bound, immutable inputs, and no overwrite.
+- Added `runtime-screen-position-page-merge` to validate one base v3 page plus an exact chain of v4 pages and place selected draws in one unchanged screenshot-space frame with deterministic globally unique diagnostic materials and per-page provenance.
+- Preserved v1/v2/v3 behavior and kept component labels, world space, a full character, UV/material meaning, skinning, skeleton, PBR, and mod readiness explicitly unproved.
+
 ## 2.16.0 - 2026-08-22
 
 - Added bounded screenshot-aligned replay of exact captured RSX output-zero clip coordinates with a checked homogeneous divide and deterministic per-event GLB export.

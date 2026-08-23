@@ -12,9 +12,11 @@ from infamous_xpp_textures.runtime_topology_export import (
     _TEXTURE_BINDING_FIELDS,
     _TEXTURE_FRAGMENT_BINDING_FIELDS,
     _TEXTURE_TRANSFORM_BINDING_FIELDS,
+    _parse_capture_key_exclusion,
     _parse_texture_allowlist,
     census_runtime_fragment_samplers,
     export_runtime_topology_glb,
+    write_capture_key_exclusion,
 )
 
 
@@ -278,6 +280,24 @@ def _make_fragment_bound_v3(bundle, tmp_path):
     return allowlist
 
 
+def _make_paged_fragment_bound_v4(bundle, tmp_path, *, excluded_key="e" * 64):
+    allowlist = _make_fragment_bound_v3(bundle, tmp_path)
+    exclusion = tmp_path / "prior-capture-keys.tsv"
+    exclusion.write_text(f"capture_key\n{excluded_key}\n", encoding="ascii")
+    completion = bundle / "capture.complete"
+    completion.write_text(
+        completion.read_text(encoding="ascii").replace(
+            "format\tif1-texture-bound-topology-v3",
+            "format\tif1-texture-bound-topology-v4",
+        )
+        + "excluded_capture_keys\t1\n"
+        + f"exclusion_manifest_sha256\t{_sha(exclusion.read_bytes())}\n"
+        + "observed_excluded_capture_keys\t1\n",
+        encoding="ascii",
+    )
+    return allowlist, exclusion
+
+
 def _glb_document(data: bytes) -> dict:
     magic, version, total = struct.unpack_from("<III", data)
     assert (magic, version, total) == (0x46546C67, 2, len(data))
@@ -342,9 +362,7 @@ def test_exports_nonzero_vertex_range_with_bounded_index_rebase(tmp_path):
     ),
 )
 def test_rejects_indices_outside_nonzero_vertex_range(tmp_path, index_values):
-    bundle = _write_bundle(
-        tmp_path, range_first=7, index_values=index_values
-    )
+    bundle = _write_bundle(tmp_path, range_first=7, index_values=index_values)
     with pytest.raises(
         RuntimeTopologyExportError,
         match="indices and selected position block do not reconcile",
@@ -453,6 +471,151 @@ def test_exports_v3_fragment_referenced_event_with_independent_sampler_proof(
     assert evidence["runtimeBranchExecutionProved"] is False
 
 
+def test_v4_page_requires_and_reconciles_exact_exclusion(tmp_path):
+    bundle = _write_bundle(tmp_path)
+    allowlist, exclusion = _make_paged_fragment_bound_v4(bundle, tmp_path)
+    output = tmp_path / "paged.glb"
+    report = export_runtime_topology_glb(
+        bundle,
+        1,
+        output,
+        position_hypothesis_attribute=0,
+        texture_allowlist=allowlist,
+        capture_key_exclusion=exclusion,
+    )
+    assert report["bundle_format"] == "if1-texture-bound-topology-v4"
+    assert report["shader_reference_proved"] is True
+    assert report["paging"] == {
+        "excluded_capture_keys": 1,
+        "exclusion_manifest_sha256": _sha(exclusion.read_bytes()),
+        "observed_excluded_capture_keys": 1,
+    }
+    census = census_runtime_fragment_samplers(bundle, allowlist, exclusion)
+    assert census["paging"] == report["paging"]
+    with pytest.raises(RuntimeTopologyExportError, match="requires --capture-key"):
+        export_runtime_topology_glb(
+            bundle,
+            1,
+            tmp_path / "missing.glb",
+            position_hypothesis_attribute=0,
+            texture_allowlist=allowlist,
+        )
+
+
+def test_v4_page_rejects_mismatched_or_overlapping_exclusion(tmp_path):
+    bundle = _write_bundle(tmp_path)
+    allowlist, exclusion = _make_paged_fragment_bound_v4(bundle, tmp_path)
+    exclusion.write_text(f"capture_key\n{'f' * 64}\n", encoding="ascii")
+    with pytest.raises(RuntimeTopologyExportError, match="does not match"):
+        census_runtime_fragment_samplers(bundle, allowlist, exclusion)
+
+    binding = bundle / "topology-01-binding.tsv"
+    with binding.open(encoding="ascii", newline="") as handle:
+        capture_key = next(csv.DictReader(handle, delimiter="\t"))["capture_key"]
+    exclusion.write_text(f"capture_key\n{capture_key}\n", encoding="ascii")
+    completion = bundle / "capture.complete"
+    rows = completion.read_text(encoding="ascii").splitlines()
+    rows = [
+        (
+            f"exclusion_manifest_sha256\t{_sha(exclusion.read_bytes())}"
+            if row.startswith("exclusion_manifest_sha256\t")
+            else row
+        )
+        for row in rows
+    ]
+    completion.write_text("\n".join(rows) + "\n", encoding="ascii")
+    with pytest.raises(RuntimeTopologyExportError, match="unique capture keys"):
+        census_runtime_fragment_samplers(bundle, allowlist, exclusion)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    (
+        "bad_header\n" + "e" * 64 + "\n",
+        "capture_key\n" + "E" * 64 + "\n",
+        "capture_key\n" + "e" * 64 + "\n" + "e" * 64 + "\n",
+        "capture_key\n",
+    ),
+)
+def test_capture_key_exclusion_rejects_malformed_input(tmp_path, payload):
+    path = tmp_path / "bad.tsv"
+    path.write_text(payload, encoding="ascii")
+    with pytest.raises(RuntimeTopologyExportError, match="capture-key exclusion"):
+        _parse_capture_key_exclusion(path)
+
+
+def test_capture_key_exclusion_rejects_symlink_and_257th_key(tmp_path):
+    target = tmp_path / "target.tsv"
+    target.write_text(f"capture_key\n{'e' * 64}\n", encoding="ascii")
+    symlink = tmp_path / "link.tsv"
+    symlink.symlink_to(target)
+    with pytest.raises(RuntimeTopologyExportError, match="regular file"):
+        _parse_capture_key_exclusion(symlink)
+
+    oversized = tmp_path / "too-many.tsv"
+    oversized.write_text(
+        "capture_key\n" + "".join(f"{value:064x}\n" for value in range(257)),
+        encoding="ascii",
+    )
+    with pytest.raises(RuntimeTopologyExportError, match="bounded input contract"):
+        _parse_capture_key_exclusion(oversized)
+
+
+def test_writes_deterministic_next_page_exclusion_without_overwrite(tmp_path):
+    bundle = _write_bundle(tmp_path)
+    allowlist = _make_fragment_bound_v3(bundle, tmp_path)
+    first = tmp_path / "first-keys.tsv"
+    second = tmp_path / "second-keys.tsv"
+    first_report = write_capture_key_exclusion(bundle, allowlist, first)
+    second_report = write_capture_key_exclusion(bundle, allowlist, second)
+    assert first.read_bytes() == second.read_bytes()
+    assert first_report == second_report
+    assert first_report["new_capture_keys"] == 1
+    assert first_report["excluded_capture_keys"] == 1
+    assert first_report["output_sha256"] == _sha(first.read_bytes())
+    with pytest.raises(RuntimeTopologyExportError, match="refusing to overwrite"):
+        write_capture_key_exclusion(bundle, allowlist, first)
+    with pytest.raises(RuntimeTopologyExportError, match="outside the immutable"):
+        write_capture_key_exclusion(bundle, allowlist, bundle / "inside.tsv")
+
+
+def test_writes_cumulative_exclusion_from_valid_v4_page(tmp_path):
+    bundle = _write_bundle(tmp_path)
+    allowlist, prior = _make_paged_fragment_bound_v4(bundle, tmp_path)
+    output = tmp_path / "cumulative.tsv"
+    report = write_capture_key_exclusion(bundle, allowlist, output, prior)
+    keys, output_sha256 = _parse_capture_key_exclusion(output)
+    assert len(keys) == 2
+    assert report["prior_excluded_capture_keys"] == 1
+    assert report["new_capture_keys"] == 1
+    assert report["excluded_capture_keys"] == 2
+    assert report["output_sha256"] == output_sha256
+
+
+def test_cli_writes_capture_key_exclusion_and_report_once(tmp_path, capsys):
+    bundle = _write_bundle(tmp_path)
+    allowlist = _make_fragment_bound_v3(bundle, tmp_path)
+    output = tmp_path / "next-page.tsv"
+    report_path = tmp_path / "next-page.json"
+    args = [
+        "runtime-capture-key-exclusion",
+        "--bundle",
+        str(bundle),
+        "--texture-allowlist",
+        str(allowlist),
+        "--output",
+        str(output),
+        "--json-out",
+        str(report_path),
+    ]
+    assert main(args) == 0
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["excluded_capture_keys"] == 1
+    assert json.loads(capsys.readouterr().out) == report
+    assert main(args) == 1
+    assert "refusing to overwrite" in capsys.readouterr().err
+
+
 @pytest.mark.parametrize(
     ("field", "value", "message"),
     (
@@ -490,9 +653,9 @@ def test_v3_rejects_fragment_program_mask_mismatch(tmp_path):
     allowlist = _make_fragment_bound_v3(bundle, tmp_path)
     path = next(bundle.glob("topology-01-fragment-program-*.bin"))
     original = path.read_bytes()
-    replacement = _fragment_instruction(
-        opcode=0x17, sampler=4
-    ) + _fragment_instruction(end=True)
+    replacement = _fragment_instruction(opcode=0x17, sampler=4) + _fragment_instruction(
+        end=True
+    )
     assert len(replacement) == len(original)
     path.write_bytes(replacement)
     binding = bundle / "topology-01-binding.tsv"
@@ -505,8 +668,7 @@ def test_v3_rejects_fragment_program_mask_mismatch(tmp_path):
         row["fragment_program_sha256"] = replacement_sha
         row["fragment_program_file"] = replacement_name
         capture_material = (
-            f"{row['index_sha256']}:3:{row['target_texture_sha256s']}"
-            f":{replacement_sha}"
+            f"{row['index_sha256']}:3:{row['target_texture_sha256s']}:{replacement_sha}"
         )
         row["capture_key"] = _sha(capture_material.encode("ascii"))
     with binding.open("w", encoding="ascii", newline="") as handle:
@@ -631,7 +793,9 @@ def test_v2_rejects_missing_transform_payload(tmp_path):
 def test_texture_bound_bundle_requires_matching_allowlist(tmp_path):
     bundle = _write_bundle(tmp_path)
     _make_texture_bound(bundle, tmp_path)
-    with pytest.raises(RuntimeTopologyExportError, match="requires --texture-allowlist"):
+    with pytest.raises(
+        RuntimeTopologyExportError, match="requires --texture-allowlist"
+    ):
         export_runtime_topology_glb(
             bundle, 1, tmp_path / "bad.glb", position_hypothesis_attribute=0
         )
@@ -895,9 +1059,7 @@ def test_cli_exports_texture_bound_bundle(tmp_path, capsys):
     assert json.loads(capsys.readouterr().out) == parsed
 
 
-def test_cli_refuses_existing_texture_bound_report_before_glb_write(
-    tmp_path, capsys
-):
+def test_cli_refuses_existing_texture_bound_report_before_glb_write(tmp_path, capsys):
     bundle = _write_bundle(tmp_path)
     allowlist = _make_texture_bound(bundle, tmp_path)
     output = tmp_path / "not-written.glb"

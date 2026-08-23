@@ -30,18 +30,31 @@ def _glb_document(payload: bytes) -> dict:
     return json.loads(payload[20 : 20 + json_size].decode("ascii"))
 
 
-def _wire(monkeypatch, *, bundle_format="if1-texture-bound-topology-v3", positions=None):
+def _wire(
+    monkeypatch, *, bundle_format="if1-texture-bound-topology-v3", positions=None
+):
     event = SimpleNamespace()
+    completion = {"format": bundle_format}
+    if bundle_format == "if1-texture-bound-topology-v4":
+        completion.update(
+            {
+                "excluded_capture_keys": 16,
+                "exclusion_manifest_sha256": "b" * 64,
+                "observed_excluded_capture_keys": 12,
+            }
+        )
     monkeypatch.setattr(
         screen_replay,
         "_load_bundle",
-        lambda _bundle, _allowlist: (
-            {"format": bundle_format},
+        lambda _bundle, _allowlist, _exclusion=None: (
+            completion,
             {1: event},
             "a" * 64,
         ),
     )
-    monkeypatch.setattr(screen_replay, "_event_payloads", lambda _bundle, _event: (b"p", b"c"))
+    monkeypatch.setattr(
+        screen_replay, "_event_payloads", lambda _bundle, _event: (b"p", b"c")
+    )
     monkeypatch.setattr(
         screen_replay,
         "extract_output_affine",
@@ -110,6 +123,24 @@ def test_preserves_v2_without_fragment_reference_claim(monkeypatch, tmp_path: Pa
         Path("bundle"), Path("allow"), (1,), tmp_path / "v2.glb"
     )
     assert report["gates"]["static_shader_reference"] is False
+
+
+def test_v4_preserves_exact_page_provenance(monkeypatch, tmp_path: Path):
+    _wire(monkeypatch, bundle_format="if1-texture-bound-topology-v4")
+    output = tmp_path / "v4.glb"
+    report = export_screen_replay_glb(
+        Path("bundle"), Path("allow"), (1,), output, Path("exclusion")
+    )
+    assert report["paging"] == {
+        "excluded_capture_keys": 16,
+        "exclusion_manifest_sha256": "b" * 64,
+        "observed_excluded_capture_keys": 12,
+    }
+    evidence = _glb_document(output.read_bytes())["asset"]["extras"][
+        "infamousScreenReplay"
+    ]
+    assert evidence["excludedCaptureKeys"] == 16
+    assert evidence["exclusionManifestSha256"] == "b" * 64
 
 
 def test_rejects_invalid_event_selections(monkeypatch, tmp_path: Path):

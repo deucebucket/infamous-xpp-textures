@@ -74,9 +74,7 @@ _TEXTURE_FRAGMENT_BINDING_FIELDS = _TEXTURE_TRANSFORM_BINDING_FIELDS + (
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 _BINDING_NAME = re.compile(r"topology-(\d+)-binding\.tsv")
 _PAYLOAD_NAME = re.compile(r"topology-(\d+)-(?:index|block-(\d+))-[0-9a-f]{16}\.bin")
-_VERTEX_PROGRAM_NAME = re.compile(
-    r"topology-(\d+)-vertex-program-([0-9a-f]{16})\.bin"
-)
+_VERTEX_PROGRAM_NAME = re.compile(r"topology-(\d+)-vertex-program-([0-9a-f]{16})\.bin")
 _TRANSFORM_CONSTANTS_NAME = re.compile(
     r"topology-(\d+)-transform-constants-([0-9a-f]{16})\.bin"
 )
@@ -87,6 +85,8 @@ _MAX_TARGETS = 16
 _MAX_TEXTURE_HASHES = 512
 _MAX_BOUND_ADDRESSES = 256
 _MAX_TEXTURE_ALLOWLIST_BYTES = 40 * 1024
+_MAX_EXCLUDED_CAPTURE_KEYS = 256
+_MAX_CAPTURE_KEY_EXCLUSION_BYTES = (_MAX_EXCLUDED_CAPTURE_KEYS + 1) * 65
 _MAX_BUNDLE_FILES = 1 + _MAX_TARGETS + _MAX_TARGETS * 20
 _MAX_INDEX_BYTES = 4 * 1024 * 1024
 _MAX_BLOCK_BYTES = 8 * 1024 * 1024
@@ -259,6 +259,38 @@ def _parse_texture_allowlist(path: Path) -> tuple[set[str], str]:
     return hashes, _sha256(payload)
 
 
+def _parse_capture_key_exclusion(path: Path) -> tuple[set[str], str]:
+    if path.is_symlink() or not path.is_file():
+        raise RuntimeTopologyExportError(
+            "capture-key exclusion is missing or is not a regular file"
+        )
+    if path.stat().st_size > _MAX_CAPTURE_KEY_EXCLUSION_BYTES:
+        raise RuntimeTopologyExportError(
+            "capture-key exclusion exceeds the bounded input contract"
+        )
+    payload = path.read_bytes()
+    try:
+        lines = payload.decode("ascii").splitlines()
+    except UnicodeDecodeError as exc:
+        raise RuntimeTopologyExportError("capture-key exclusion must be ASCII") from exc
+    if not lines or lines[0] != "capture_key":
+        raise RuntimeTopologyExportError("capture-key exclusion header is invalid")
+    keys: set[str] = set()
+    for value in lines[1:]:
+        if _SHA256.fullmatch(value) is None or value in keys:
+            raise RuntimeTopologyExportError(
+                "capture-key exclusion has an invalid or duplicate row"
+            )
+        keys.add(value)
+        if len(keys) > _MAX_EXCLUDED_CAPTURE_KEYS:
+            raise RuntimeTopologyExportError(
+                "capture-key exclusion exceeds the 256-key bound"
+            )
+    if not keys:
+        raise RuntimeTopologyExportError("capture-key exclusion is empty")
+    return keys, _sha256(payload)
+
+
 def _parse_completion(path: Path) -> dict[str, int | str]:
     if path.is_symlink() or not path.is_file():
         raise RuntimeTopologyExportError(
@@ -296,6 +328,11 @@ def _parse_completion(path: Path) -> dict[str, int | str]:
         "bound_addresses",
         "guest_memory_untouched",
     }
+    paged_texture_fields = texture_fields | {
+        "excluded_capture_keys",
+        "exclusion_manifest_sha256",
+        "observed_excluded_capture_keys",
+    }
     capture_format = rows.get("format")
     if capture_format == "if1-topology-census-v1":
         if set(rows) != census_fields:
@@ -327,14 +364,30 @@ def _parse_completion(path: Path) -> dict[str, int | str]:
         "if1-texture-bound-topology-v1",
         "if1-texture-bound-topology-v2",
         "if1-texture-bound-topology-v3",
-    ) or set(rows) != texture_fields:
+        "if1-texture-bound-topology-v4",
+    ) or set(rows) != (
+        paged_texture_fields
+        if capture_format == "if1-texture-bound-topology-v4"
+        else texture_fields
+    ):
         raise RuntimeTopologyExportError("capture.complete schema or format is invalid")
     result = {"format": capture_format, "binding_scope": rows["binding_scope"]}
+    if capture_format == "if1-texture-bound-topology-v4":
+        result["exclusion_manifest_sha256"] = _sha(
+            rows["exclusion_manifest_sha256"], "exclusion manifest SHA-256"
+        )
     nonzero_names = {"target_texture_hashes", "capture_limit"}
-    numeric_names = texture_fields - {"format", "binding_scope"}
+    numeric_names = (
+        paged_texture_fields
+        if capture_format == "if1-texture-bound-topology-v4"
+        else texture_fields
+    ) - {"format", "binding_scope", "exclusion_manifest_sha256"}
     for name in numeric_names:
         result[name] = _integer(rows[name], name, allow_zero=name not in nonzero_names)
-    fragment_bound = capture_format == "if1-texture-bound-topology-v3"
+    fragment_bound = capture_format in (
+        "if1-texture-bound-topology-v3",
+        "if1-texture-bound-topology-v4",
+    )
     expected_scope = (
         "fragment-program-static-texture-reference"
         if fragment_bound
@@ -363,19 +416,35 @@ def _parse_completion(path: Path) -> dict[str, int | str]:
         or result["bound_addresses"] > _MAX_BOUND_ADDRESSES
         or result["target_uploads"] > result["observed_uploads"]
         or result["address_replacements"] > result["observed_uploads"]
+        or (
+            capture_format == "if1-texture-bound-topology-v4"
+            and (
+                not 1 <= result["excluded_capture_keys"] <= _MAX_EXCLUDED_CAPTURE_KEYS
+                or result["observed_excluded_capture_keys"]
+                > result["excluded_capture_keys"]
+            )
+        )
     ):
         raise RuntimeTopologyExportError(
             "texture-bound completion totals exceed the bounded contract"
         )
-    if (
-        (result["captured_draws"] == 0)
-        != (result["payload_files"] == 0 and result["payload_bytes"] == 0)
-        or (result["captured_draws"] > 0 and result["target_uploads"] == 0)
-    ):
+    if (result["captured_draws"] == 0) != (
+        result["payload_files"] == 0 and result["payload_bytes"] == 0
+    ) or (result["captured_draws"] > 0 and result["target_uploads"] == 0):
         raise RuntimeTopologyExportError(
             "texture-bound capture counters do not reconcile"
         )
     return result
+
+
+def _paged_capture_metadata(completion: dict[str, int | str]) -> dict | None:
+    if completion["format"] != "if1-texture-bound-topology-v4":
+        return None
+    return {
+        "excluded_capture_keys": completion["excluded_capture_keys"],
+        "exclusion_manifest_sha256": completion["exclusion_manifest_sha256"],
+        "observed_excluded_capture_keys": completion["observed_excluded_capture_keys"],
+    }
 
 
 def _parse_binding(
@@ -395,12 +464,17 @@ def _parse_binding(
             "if1-texture-bound-topology-v1",
             "if1-texture-bound-topology-v2",
             "if1-texture-bound-topology-v3",
+            "if1-texture-bound-topology-v4",
         )
         transform_bound = capture_format in (
             "if1-texture-bound-topology-v2",
             "if1-texture-bound-topology-v3",
+            "if1-texture-bound-topology-v4",
         )
-        fragment_bound = capture_format == "if1-texture-bound-topology-v3"
+        fragment_bound = capture_format in (
+            "if1-texture-bound-topology-v3",
+            "if1-texture-bound-topology-v4",
+        )
         expected_fields = (
             _TEXTURE_FRAGMENT_BINDING_FIELDS
             if fragment_bound
@@ -517,7 +591,9 @@ def _parse_binding(
             or len(target_texture_slots) != len(target_texture_sha256s)
             or any(slot > 15 for slot in target_texture_slots)
             or tuple(sorted(set(target_texture_slots))) != target_texture_slots
-            or any(value not in allowed_texture_hashes for value in target_texture_sha256s)
+            or any(
+                value not in allowed_texture_hashes for value in target_texture_sha256s
+            )
             or binding_scope
             != (
                 "fragment-program-static-texture-reference"
@@ -747,7 +823,9 @@ def _parse_binding(
 
 
 def _load_bundle(
-    bundle: Path, texture_allowlist: Path | None
+    bundle: Path,
+    texture_allowlist: Path | None,
+    capture_key_exclusion: Path | None = None,
 ) -> tuple[dict[str, int | str], dict[int, _Event], str | None]:
     if bundle.is_symlink() or not bundle.is_dir():
         raise RuntimeTopologyExportError(
@@ -765,12 +843,17 @@ def _load_bundle(
         "if1-texture-bound-topology-v1",
         "if1-texture-bound-topology-v2",
         "if1-texture-bound-topology-v3",
+        "if1-texture-bound-topology-v4",
     )
     transform_bound = completion["format"] in (
         "if1-texture-bound-topology-v2",
         "if1-texture-bound-topology-v3",
+        "if1-texture-bound-topology-v4",
     )
-    fragment_bound = completion["format"] == "if1-texture-bound-topology-v3"
+    fragment_bound = completion["format"] in (
+        "if1-texture-bound-topology-v3",
+        "if1-texture-bound-topology-v4",
+    )
     allowed_texture_hashes: set[str] | None = None
     allowlist_sha256: str | None = None
     if texture_bound:
@@ -789,6 +872,26 @@ def _load_bundle(
         raise RuntimeTopologyExportError(
             "--texture-allowlist is only valid for a texture-bound bundle"
         )
+    excluded_capture_keys: set[str] = set()
+    if completion["format"] == "if1-texture-bound-topology-v4":
+        if capture_key_exclusion is None:
+            raise RuntimeTopologyExportError(
+                "paged v4 bundle requires --capture-key-exclusion"
+            )
+        excluded_capture_keys, exclusion_sha256 = _parse_capture_key_exclusion(
+            capture_key_exclusion
+        )
+        if (
+            len(excluded_capture_keys) != completion["excluded_capture_keys"]
+            or exclusion_sha256 != completion["exclusion_manifest_sha256"]
+        ):
+            raise RuntimeTopologyExportError(
+                "capture-key exclusion does not match capture.complete"
+            )
+    elif capture_key_exclusion is not None:
+        raise RuntimeTopologyExportError(
+            "--capture-key-exclusion is only valid for a paged v4 bundle"
+        )
     binding_paths = sorted(
         entry for entry in entries if _BINDING_NAME.fullmatch(entry.name)
     )
@@ -805,6 +908,7 @@ def _load_bundle(
     if texture_bound and (
         [event.number for event in events] != list(range(1, len(events) + 1))
         or len({event.capture_key for event in events}) != len(events)
+        or any(event.capture_key in excluded_capture_keys for event in events)
     ):
         raise RuntimeTopologyExportError(
             "texture-bound events must be contiguous with unique capture keys"
@@ -877,13 +981,11 @@ def _load_bundle(
                 fragment_report = analyze_fragment_program_payload(fragment_payload)
             except FragmentSamplerCensusError as exc:
                 raise RuntimeTopologyExportError(str(exc)) from exc
-            if (
-                fragment_report["referenced_textures_mask"]
-                != event.fragment_referenced_textures_mask
-                or any(
-                    slot not in fragment_report["sampler_slots"]
-                    for slot in event.target_texture_slots
-                )
+            if fragment_report[
+                "referenced_textures_mask"
+            ] != event.fragment_referenced_textures_mask or any(
+                slot not in fragment_report["sampler_slots"]
+                for slot in event.target_texture_slots
             ):
                 raise RuntimeTopologyExportError(
                     "fragment sampler decode does not reconcile with captured metadata"
@@ -922,15 +1024,104 @@ def _load_bundle(
     return completion, {event.number: event for event in events}, allowlist_sha256
 
 
-def census_runtime_fragment_samplers(
-    bundle: Path, texture_allowlist: Path
+def write_capture_key_exclusion(
+    bundle: Path,
+    texture_allowlist: Path,
+    output: Path,
+    prior_capture_key_exclusion: Path | None = None,
 ) -> dict:
-    """Validate a complete v3 bundle and emit a payload-free sampler census."""
+    """Write the exact cumulative capture-key set needed by the next page."""
 
-    completion, events, allowlist_sha256 = _load_bundle(bundle, texture_allowlist)
-    if completion["format"] != "if1-texture-bound-topology-v3":
+    bundle_resolved = bundle.resolve()
+    output_resolved = output.resolve()
+    if output_resolved == bundle_resolved or bundle_resolved in output_resolved.parents:
         raise RuntimeTopologyExportError(
-            "fragment sampler census requires if1-texture-bound-topology-v3"
+            "capture-key exclusion output must remain outside the immutable input bundle"
+        )
+    if output.is_symlink() or output.exists():
+        raise RuntimeTopologyExportError(
+            "capture-key exclusion output already exists; refusing to overwrite it"
+        )
+    completion, events, allowlist_sha256 = _load_bundle(
+        bundle, texture_allowlist, prior_capture_key_exclusion
+    )
+    if completion["format"] not in (
+        "if1-texture-bound-topology-v3",
+        "if1-texture-bound-topology-v4",
+    ):
+        raise RuntimeTopologyExportError(
+            "capture-key exclusion export requires a complete v3/v4 bundle"
+        )
+    if not events:
+        raise RuntimeTopologyExportError(
+            "capture-key exclusion export requires at least one captured draw"
+        )
+    prior_keys: set[str] = set()
+    if prior_capture_key_exclusion is not None:
+        prior_keys, _prior_sha256 = _parse_capture_key_exclusion(
+            prior_capture_key_exclusion
+        )
+    captured_keys = {
+        event.capture_key for event in events.values() if event.capture_key is not None
+    }
+    if len(captured_keys) != len(events):
+        raise RuntimeTopologyExportError(
+            "captured events do not provide one unique capture key each"
+        )
+    combined = prior_keys | captured_keys
+    if len(combined) > _MAX_EXCLUDED_CAPTURE_KEYS:
+        raise RuntimeTopologyExportError(
+            "cumulative capture-key exclusion exceeds the 256-key bound"
+        )
+    payload = (
+        "capture_key\n" + "".join(f"{value}\n" for value in sorted(combined))
+    ).encode("ascii")
+    _write_atomic(output, payload)
+    return {
+        "schema_version": 1,
+        "kind": "if1-rsx-capture-key-exclusion",
+        "status": "capture-key-exclusion-written",
+        "source_bundle_format": completion["format"],
+        "source_capture_complete_sha256": _sha256(
+            (bundle / "capture.complete").read_bytes()
+        ),
+        "texture_allowlist_sha256": allowlist_sha256,
+        "prior_excluded_capture_keys": len(prior_keys),
+        "new_capture_keys": len(captured_keys),
+        "excluded_capture_keys": len(combined),
+        "output_size": len(payload),
+        "output_sha256": _sha256(payload),
+        "bounds": {
+            "maximum_capture_keys": _MAX_EXCLUDED_CAPTURE_KEYS,
+            "maximum_input_bytes": _MAX_CAPTURE_KEY_EXCLUSION_BYTES,
+            "network": False,
+            "input_bundle_mutated": False,
+            "overwrite": False,
+        },
+        "verdict": "exact-cumulative-capture-key-exclusion-written",
+        "next_gate": (
+            "use this manifest as the private observer exclusion and validate the "
+            "resulting v4 bundle with the same exact file"
+        ),
+    }
+
+
+def census_runtime_fragment_samplers(
+    bundle: Path,
+    texture_allowlist: Path,
+    capture_key_exclusion: Path | None = None,
+) -> dict:
+    """Validate a complete v3/v4 bundle and emit a payload-free sampler census."""
+
+    completion, events, allowlist_sha256 = _load_bundle(
+        bundle, texture_allowlist, capture_key_exclusion
+    )
+    if completion["format"] not in (
+        "if1-texture-bound-topology-v3",
+        "if1-texture-bound-topology-v4",
+    ):
+        raise RuntimeTopologyExportError(
+            "fragment sampler census requires if1-texture-bound-topology-v3/v4"
         )
     rows = []
     for event in events.values():
@@ -953,7 +1144,7 @@ def census_runtime_fragment_samplers(
                 "material_semantic_proved": False,
             }
         )
-    return {
+    result = {
         "format": "infamous-runtime-fragment-sampler-census",
         "version": 1,
         "status": "fragment-sampler-census-complete",
@@ -983,6 +1174,10 @@ def census_runtime_fragment_samplers(
             "full_character": False,
         },
     }
+    paging = _paged_capture_metadata(completion)
+    if paging is not None:
+        result["paging"] = paging
+    return result
 
 
 def export_runtime_topology_glb(
@@ -992,6 +1187,7 @@ def export_runtime_topology_glb(
     *,
     position_hypothesis_attribute: int,
     texture_allowlist: Path | None = None,
+    capture_key_exclusion: Path | None = None,
 ) -> dict:
     """Validate one complete runtime bundle and export one selected event for inspection."""
 
@@ -1019,7 +1215,9 @@ def export_runtime_topology_glb(
         raise RuntimeTopologyExportError(
             "position hypothesis attribute must be from 0 through 15"
         )
-    completion, events, allowlist_sha256 = _load_bundle(bundle, texture_allowlist)
+    completion, events, allowlist_sha256 = _load_bundle(
+        bundle, texture_allowlist, capture_key_exclusion
+    )
     if event_number not in events:
         raise RuntimeTopologyExportError(
             f"event {event_number} is not present in the bundle"
@@ -1120,12 +1318,17 @@ def export_runtime_topology_glb(
         "if1-texture-bound-topology-v1",
         "if1-texture-bound-topology-v2",
         "if1-texture-bound-topology-v3",
+        "if1-texture-bound-topology-v4",
     )
     transform_bound = completion["format"] in (
         "if1-texture-bound-topology-v2",
         "if1-texture-bound-topology-v3",
+        "if1-texture-bound-topology-v4",
     )
-    fragment_bound = completion["format"] == "if1-texture-bound-topology-v3"
+    fragment_bound = completion["format"] in (
+        "if1-texture-bound-topology-v3",
+        "if1-texture-bound-topology-v4",
+    )
     evidence = {
         "diagnosticOnly": True,
         "runtimeOnly": True,
@@ -1161,6 +1364,17 @@ def export_runtime_topology_glb(
                 "runtimeBranchExecutionProved": False,
             }
         )
+        paging = _paged_capture_metadata(completion)
+        if paging is not None:
+            evidence.update(
+                {
+                    "excludedCaptureKeys": paging["excluded_capture_keys"],
+                    "exclusionManifestSha256": paging["exclusion_manifest_sha256"],
+                    "observedExcludedCaptureKeys": paging[
+                        "observed_excluded_capture_keys"
+                    ],
+                }
+            )
     document = {
         "asset": {
             "version": "2.0",
@@ -1217,7 +1431,13 @@ def export_runtime_topology_glb(
     _write_atomic(output, glb)
     report = {
         "format": "infamous-runtime-topology-diagnostic-export",
-        "version": 4 if fragment_bound else 3 if transform_bound else 2 if texture_bound else 1,
+        "version": 4
+        if fragment_bound
+        else 3
+        if transform_bound
+        else 2
+        if texture_bound
+        else 1,
         "status": "diagnostic-glb-written",
         "event": event.number,
         "vertices": len(positions),
@@ -1277,6 +1497,9 @@ def export_runtime_topology_glb(
         report["gates"]["vertex_transform_payload_identity"] = transform_bound
         report["gates"]["fragment_program_payload_identity"] = fragment_bound
         report["gates"]["static_shader_reference"] = fragment_bound
+        paging = _paged_capture_metadata(completion)
+        if paging is not None:
+            report["paging"] = paging
     else:
         report["bundle_captured_targets"] = completion["captured_targets"]
     return report
