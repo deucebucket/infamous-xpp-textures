@@ -69,7 +69,7 @@ def _vertex_stream_identity(event) -> tuple:
     )
 
 
-def _surface_program_identity(event) -> tuple:
+def _target_texture_vertex_program_identity(event) -> tuple:
     return (
         event.target_texture_slots,
         event.target_texture_sha256s,
@@ -99,7 +99,9 @@ def _relationship(left, right) -> tuple[str | None, tuple[int, ...]]:
     same_streams = same_layout and _vertex_stream_identity(
         left
     ) == _vertex_stream_identity(right)
-    same_surface = _surface_program_identity(left) == _surface_program_identity(right)
+    same_target_program = _target_texture_vertex_program_identity(
+        left
+    ) == _target_texture_vertex_program_identity(right)
     if (
         same_streams
         and left.index_sha256 == right.index_sha256
@@ -109,10 +111,10 @@ def _relationship(left, right) -> tuple[str | None, tuple[int, ...]]:
         return "exact_geometry_bytes", exact_blocks
     if same_streams:
         return "exact_vertex_stream_bytes", exact_blocks
-    if same_layout and same_surface and exact_blocks:
+    if same_layout and same_target_program and exact_blocks:
         return "stable_layout_partial_stream", exact_blocks
-    if same_surface:
-        return "weak_surface_program", exact_blocks
+    if same_target_program:
+        return "weak_target_texture_vertex_program", exact_blocks
     return None, exact_blocks
 
 
@@ -282,7 +284,7 @@ def correlate_paged_draw_families(
                         current = best_prior_tier[right_node]
                         if current is None or _TIER_RANK[tier] < _TIER_RANK[current]:
                             best_prior_tier[right_node] = tier
-                    elif tier == "weak_surface_program":
+                    elif tier == "weak_target_texture_vertex_program":
                         weak_prior_matches[right_node] += 1
                         weak_surface_pairs += 1
                     else:
@@ -327,8 +329,8 @@ def correlate_paged_draw_families(
         classifications = {
             "baseline_event": 0,
             "strong_persistent_family_candidate": 0,
-            "weak_surface_program_only": 0,
-            "novel_observed_surface_program_signature": 0,
+            "weak_target_texture_vertex_program_only": 0,
+            "novel_observed_target_texture_vertex_program_signature": 0,
         }
         for event_number in sorted(events):
             node = (page_number, event_number)
@@ -337,9 +339,11 @@ def correlate_paged_draw_families(
             elif strong_prior_matches[node]:
                 classification = "strong_persistent_family_candidate"
             elif weak_prior_matches[node]:
-                classification = "weak_surface_program_only"
+                classification = "weak_target_texture_vertex_program_only"
             else:
-                classification = "novel_observed_surface_program_signature"
+                classification = (
+                    "novel_observed_target_texture_vertex_program_signature"
+                )
             classifications[classification] += 1
             events_report.append(
                 {
@@ -349,7 +353,9 @@ def correlate_paged_draw_families(
                     "strong_family": family_by_node.get(node),
                     "strong_prior_matches": strong_prior_matches[node],
                     "best_strong_evidence": best_prior_tier[node],
-                    "weak_surface_program_prior_matches": weak_prior_matches[node],
+                    "weak_target_texture_vertex_program_prior_matches": (
+                        weak_prior_matches[node]
+                    ),
                     "same_source_component_proved": False,
                     "new_geometry_proved": False,
                 }
@@ -387,7 +393,7 @@ def correlate_paged_draw_families(
         "exact_geometry_pairs": exact_geometry_pairs,
         "exact_vertex_stream_pairs": exact_vertex_stream_pairs,
         "stable_layout_partial_stream_pairs": stable_partial_pairs,
-        "weak_surface_program_pairs": weak_surface_pairs,
+        "weak_target_texture_vertex_program_pairs": weak_surface_pairs,
         "unrelated_pairs": unrelated_pairs,
         "bounds": {
             "maximum_pages": _MAX_PAGES,

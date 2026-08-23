@@ -838,7 +838,8 @@ mean the index and ordered vertex-stream bytes repeat. Exact vertex-stream
 bytes allow the index selection to change. A stable-layout partial-stream
 candidate requires the same ordered layout, target texture/vertex-program
 identity, and at least one exact stream while another stream changes. A weak
-surface/program match is counted but never promoted to a component family.
+target-texture/vertex-program match is counted but never promoted to a component
+family.
 Many-to-one and one-to-many strong groups remain explicitly ambiguous.
 
 RR — Really Readable rundown: a new capture key is a new ticket at the GPU

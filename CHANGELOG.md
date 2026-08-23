@@ -2,8 +2,8 @@
 
 ## 2.18.0 - 2026-08-22
 
-- Added `runtime-page-family-census` to distinguish exact geometry reuse, exact ordered vertex-stream reuse, stable-layout partial-stream candidates, weak target-surface/program compatibility, and novel observed signatures across a strict v3/v4 page chain.
-- Kept family evidence conservative and payload-free: ambiguous many-to-one groups remain explicit, weak surface/program matches never become component identities, and same-source ownership/new-geometry claims remain false.
+- Added `runtime-page-family-census` to distinguish exact geometry reuse, exact ordered vertex-stream reuse, stable-layout partial-stream candidates, weak target-texture/vertex-program compatibility, and novel observed signatures across a strict v3/v4 page chain.
+- Kept family evidence conservative and payload-free: ambiguous many-to-one groups remain explicit, weak target-texture/vertex-program matches never become component identities, and same-source ownership/new-geometry claims remain false.
 - Reused the exact cumulative exclusion, allowlist, completion, capture-key nonoverlap, immutable-input, no-overwrite, page/event/pair, and 256 KiB report bounds.
 - Added deterministic real-chain proof so a changed capture key is no longer mistaken for a new character part when only animation, index selection, or render state changed.
 

@@ -155,11 +155,11 @@ def test_classifies_strong_weak_and_novel_page_events(monkeypatch, tmp_path: Pat
     assert first["exact_geometry_pairs"] == 1
     assert first["exact_vertex_stream_pairs"] == 1
     assert first["stable_layout_partial_stream_pairs"] == 1
-    assert first["weak_surface_program_pairs"] == 1
+    assert first["weak_target_texture_vertex_program_pairs"] == 1
     latest = first["page_summaries"][1]
     assert latest["strong_persistent_family_candidate"] == 3
-    assert latest["weak_surface_program_only"] == 1
-    assert latest["novel_observed_surface_program_signature"] == 1
+    assert latest["weak_target_texture_vertex_program_only"] == 1
+    assert latest["novel_observed_target_texture_vertex_program_signature"] == 1
     assert first["gates"]["same_source_component"] is False
     assert first["gates"]["new_geometry"] is False
     rendered = json.dumps(first, sort_keys=True)
