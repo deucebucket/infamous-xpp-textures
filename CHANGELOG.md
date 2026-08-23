@@ -27,8 +27,8 @@
 - Added deterministic, input-order, container-hash compatibility, malformed
   assignment, count-drift, reassignment, missing-anchor, and conflicting-extra
   rejection coverage. All **279 tests** pass.
-- Two pinned-epoch builds produced the identical 254,616-byte 2.39.0 wheel,
-  SHA-256 `d47052127ea9215ada421952a9ff048284a7d5a1276ce05a2ac9fce41c6d8c10`;
+- Two pinned-epoch builds produced the identical 254,618-byte 2.39.0 wheel,
+  SHA-256 `c503da8d5e12741b271aa90f2ca286f501de022f18a95c22c8e6f17214a0c0b5`;
   a fresh isolated environment installed it and
   reproduced the full-range compatibility behavior.
 

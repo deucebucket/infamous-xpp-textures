@@ -472,7 +472,7 @@ Operator card: this extends stable IDs
 `xpp-tool.character-material-coverage-union.v1` and
 `xpp-tool.character-material-coverage-export.v1`; it does not create a new
 one-off command. Existing input, bundle, process, report, GLB, atomic
-publication, and no-overwrite bounds remain. This proves four additional
+publication, and no-overwrite bounds remain. This proves two additional
 material assignments only when the runtime supplies them. It does not prove
 the final four faces, original normals/tangents, a complete head/body, rigging,
 4x textures, authored PBR, an RPCS3 repack round trip, or native-decomp import.

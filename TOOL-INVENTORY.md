@@ -226,8 +226,8 @@ output where applicable, an operator card, and a maintained source location.
   produced the identical 238,586-byte 2.36.0 wheel, SHA-256
   `10096f105406b83260591b12d1b60ecda63ce1196f7f06d78671c92a761463d7`.
 - Current build proof: two builds with pinned `SOURCE_DATE_EPOCH=1787498400`
-  produced the identical 254,616-byte 2.39.0 wheel, SHA-256
-  `d47052127ea9215ada421952a9ff048284a7d5a1276ce05a2ac9fce41c6d8c10`;
+  produced the identical 254,618-byte 2.39.0 wheel, SHA-256
+  `c503da8d5e12741b271aa90f2ca286f501de022f18a95c22c8e6f17214a0c0b5`;
   a fresh isolated environment reproduced the 290/294 GLB/report A/B.
 - Limitations: this does not close the four remaining hair assignments,
   identify every hair/head/body piece, recover retail normals/tangents or
@@ -288,8 +288,8 @@ output where applicable, an operator card, and a maintained source location.
   produced the identical 238,586-byte 2.36.0 wheel, SHA-256
   `10096f105406b83260591b12d1b60ecda63ce1196f7f06d78671c92a761463d7`.
 - Current build proof: two builds with pinned `SOURCE_DATE_EPOCH=1787498400`
-  produced the identical 254,616-byte 2.39.0 wheel, SHA-256
-  `d47052127ea9215ada421952a9ff048284a7d5a1276ce05a2ac9fce41c6d8c10`;
+  produced the identical 254,618-byte 2.39.0 wheel, SHA-256
+  `c503da8d5e12741b271aa90f2ca286f501de022f18a95c22c8e6f17214a0c0b5`;
   a fresh isolated environment reproduced the exact 290/294 report and GLB.
 - Limitations: an exact triangle union does not identify assembly placement,
   recover original normals/tangents, create bones/weights, upscale textures,
