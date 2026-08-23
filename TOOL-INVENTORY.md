@@ -5,6 +5,57 @@ modding or reverse-engineering goal. A command enters this file only after it
 has a callable contract, rejection tests, no-overwrite behavior, deterministic
 output where applicable, an operator card, and a maintained source location.
 
+## `xpp-tool.character-material-gap-locator.v1`
+
+- Status: maintained; introduced and callable in xpp-tool 2.38.0.
+- Parent goal: finish every character/item once as a correctly textured,
+  editable Blender asset for near-term RPCS3 mods and later native-decomp
+  import, while choosing runtime captures from evidence rather than guesses.
+- Binary question: are the faces left unresolved by one strict material union a
+  detached mesh chunk, or bounded patches embedded in the already recovered
+  component, and where do they sit in diagnostic mesh and proved UV space?
+- First answer: Zeke hair's six unresolved faces are two edge-disconnected
+  three-triangle patches. They use 10 unique vertices, all 10 are also used by
+  observed hair, every gap face shares an edge with observed hair, and the gap
+  occupies 1.2627171% of diagnostic surface area and 0.9167829% of UV triangle
+  area. This rejects a missing detachable hair chunk.
+- Entry point: `xpp-tool character-material-gap-locator` (also exposed by the
+  compatible `if1-tex` alias).
+- Implementation:
+  `src/infamous_xpp_textures/material_gap_locator.py`, SHA-256
+  `781443afdb83438970ff0e7a54dd44733b56841e6f4b3c5dd268a994f75c4249`;
+  CLI wiring `src/infamous_xpp_textures/cli.py`, SHA-256
+  `3354f83acd2a629c386edf6072aa64dd63fa17017f9c035b00a4828d0e74837a`.
+- Tests: `tests/test_material_gap_locator.py`, SHA-256
+  `3678e4f4e8bcb569eddd574fe6a12e8873405284eb199ddb685eee4937ab67a1`.
+  Seven focused tests cover deterministic aggregates, input-hash drift, report
+  count drift, unknown primitive roles, symlink input, atomic no-overwrite CLI,
+  and full-coverage rejection. The complete suite passes **273 tests**.
+- Operator card: [README — Version 2.38](README.md#version-238--strict-material-gap-spatial-and-uv-locator).
+- Inputs: one canonical strict observed-union GLB plus its exact export report;
+  both require explicit SHA-256 pins and regular non-symlink files.
+- Output: deterministic payload-free JSON at a new path with connectivity,
+  adjacency, aggregate diagnostic position/UV bounds and normalized centroids,
+  area fractions, and dominant diagnostic orientation counts.
+- Bounds: 64 MiB GLB; 256 KiB input report/output; 1,048,576 vertices and
+  triangles; one process; no runtime, network, input mutation, symlink output,
+  or overwrite.
+- First evidence: source A/B and isolated installed-wheel output are
+  byte-identical at **5,020 bytes**, SHA-256
+  `1af28fdb445b9c6f8b75f801f92f9f7023ecadfb787b8120bb9cf0e337d0acab`.
+- Build proof: two pinned-epoch **252,287-byte** wheels are byte-identical,
+  SHA-256 `870c6fe97bb9251906a2a50cf3cf8b1fd6c056d9d4410c4f82e1dbad856b504c`;
+  a fresh isolated environment installed 2.38.0, exposed the command, and
+  reproduced the exact owned report.
+- Limitations: diagnostic positions are not proved object/world space;
+  dominant directions are not camera directions; UV location does not assign
+  a material. The tool does not close the six faces, recover retail normals/
+  tangents or rigging, create 4x/PBR textures, repack an RPCS3 mod, or import
+  into the native decomp.
+- Return status: `returned-with-capability-and-evidence`. Use exact runtime pass
+  history to seek a different material pass, state, or LOD. A camera rotation
+  alone does not prove that the game will issue a different index/material draw.
+
 ## `xpp-tool.runtime-xpp-source-census.v1`
 
 - Status: maintained since 2.19.0; extended with callable retail index-coverage

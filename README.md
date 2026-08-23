@@ -418,6 +418,50 @@ a universal lookup map. It does not yet tell Blender which packed numbers are
 positions, UVs, bones, or weights; that still needs one complete decoded retail
 vertex-stream proof.
 
+### Version 2.38 — strict material-gap spatial and UV locator
+
+Locate unresolved faces inside one canonical strict material GLB without
+serializing the mesh or guessing a camera direction:
+
+```console
+timeout 60s xpp-tool character-material-gap-locator \
+  --material-glb /path/to/strict-material.glb \
+  --material-glb-sha256 GLB_SHA256 \
+  --material-report /path/to/strict-material.json \
+  --material-report-sha256 REPORT_SHA256 \
+  --output /new/path/material-gap-location.json
+```
+
+The command revalidates the exact GLB and report identities, strict observed-
+union schema, one observed and one unresolved triangle primitive, shared
+position/UV accessors, and every vertex/index bound. It emits only aggregate
+counts and measurements: connected-component sizes, adjacency to proved
+faces, diagnostic position/UV bounds and normalized centroids, area fractions,
+and dominant diagnostic triangle orientations. Raw indices, vertices, UV rows,
+textures, paths, and other payload lists stay private.
+
+RR — Really Readable rundown: orange audit faces can mean two very different
+things. They could be a missing detachable chunk, or they could be tiny holes
+inside a mesh we already have. The first real run proves Zeke's six unresolved
+hair faces are **two patches of three triangles**. Their **10 vertices are all
+already used by surrounding proved hair**, every unresolved face shares an
+edge with proved hair, and the six faces total about **1.263%** of the
+diagnostic surface area and **0.917%** of the UV triangle area. This is not a
+missing hair clump or another dimension. It is a material/pass gap embedded in
+the existing complete topology. A different camera may help us inspect it, but
+the next capture must seek a different game material pass, animation state, or
+LOD; camera rotation alone does not make the game issue another index draw.
+
+Operator card: stable ID `xpp-tool.character-material-gap-locator.v1`. The
+command is offline and single-process. GLB input is capped at 64 MiB; material
+report and output are capped at 256 KiB; vertices and triangles are each capped
+at 1,048,576. Inputs must be regular non-symlink files with explicit SHA-256
+pins. Output must be a new path and is atomically published without overwrite.
+Diagnostic coordinates are not proved object/world space, dominant directions
+are not camera directions, and UV location does not assign a material. The
+command does not close the gap, recover retail normals/tangents or rigging,
+make 4x/PBR maps, repack an RPCS3 mod, or import into the native decomp.
+
 ### Version 2.37 — cross-build material-gap oracle
 
 Map one already checked material-coverage union onto the matching character
