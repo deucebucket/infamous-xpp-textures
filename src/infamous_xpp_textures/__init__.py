@@ -14,4 +14,4 @@ __all__ = [
     "validate_xpp",
     "verify_layout",
 ]
-__version__ = "2.39.0"
+__version__ = "2.40.0"

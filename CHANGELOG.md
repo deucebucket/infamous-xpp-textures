@@ -1,5 +1,38 @@
 # Changelog
 
+## 2.40.0 - 2026-08-23
+
+- Repaired permanent `character-material-coverage-export` validation for a
+  four-map anchor whose component summary deliberately lists only its `C/N`
+  display textures while `compatible_full_range_texture_names` preserves the
+  complete sorted `A/C/N/S` shader-bound set.
+- The exporter still fails closed when the compatible list is missing,
+  incomplete, duplicated, unsorted, unbounded, or does not include every
+  display and anchor texture. `A/S` remain embedded evidence and explicitly
+  unassigned; the tool does not guess PBR roles or change the approved matte
+  display material.
+- The first repaired real export combines five exact observations of Zeke head
+  record 536280. It assigns **212 / 404** retail triangle occurrences and keeps
+  **192** in the orange unresolved primitive. Two runs are byte-identical: GLB
+  493,956 bytes / SHA-256
+  `59d7e3b477bc5f2c28fc935874d52d39b33e2d182cd1af90544aaa73bb05131f`;
+  report 6,574 bytes / SHA-256
+  `2bf265a8e9684c39a09afc035725029aa33cb50465ff62c92c76e6bf4f080978`.
+- Blender 5.2.0 produced and immediately published the unlit -58-degree
+  component audit: 1,671,003 bytes / SHA-256
+  `66c2092628b912972adbfda2cae6271871a138e230988f920b0f9daf6028d68f`.
+  It is a three-dimensional head/neck component, not complete Zeke: hair,
+  eyes, teeth, glasses, body, rigging, and the unresolved assignments remain
+  separate gates.
+- Added positive and fail-closed tests for the display/full-range identity
+  split. All **284 tests** pass; changed-file Ruff format/check, Python
+  compilation, and diff validation pass.
+- Two builds with pinned `SOURCE_DATE_EPOCH=1787504400` produced the identical
+  255,656-byte 2.40.0 wheel, SHA-256
+  `98713fd06510f095321be72ae6acc100cc565a1e9fa605ce254e02afec1d5306`.
+  A fresh isolated environment installed that wheel and reproduced the exact
+  five-observation GLB and report byte-for-byte.
+
 ## 2.39.0 - 2026-08-23
 
 - Extended permanent `character-material-coverage-union` support so a strict
