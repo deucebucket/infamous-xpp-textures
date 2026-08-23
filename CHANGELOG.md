@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.30.0 - 2026-08-23
+
+- Added permanent `character-component-ledger` reconciliation for repeatable checksum-pinned material-export reports and an optional payload-free visual-baseline receipt manifest.
+- Canonicalized each multipart character component by title, build, candidate, runtime page, and source record offset while preserving event/lineage observations, exact topology and material-coverage counts, GLB and retail-texture identities, and explicit open delivery gates.
+- Added duplicate-path/content/observation rejection, immutable-geometry conflict detection, texture-family/name reconciliation, triangle-coverage validation, bounded deterministic output, and atomic no-overwrite publication.
+- The first real Zeke run records five distinct proved components—hair, jacket detail, jacket, head, and packs—plus five published render receipts. Only the user-approved matte/unlit hair view is an accepted visual baseline.
+- The ledger truthfully retains one fully material-covered component and four components with unresolved material faces; full character, rig/skin, 4×, authored PBR, RPCS3 round trip, and native import all remain false.
+- Three final-code runs produced byte-identical 28,843-byte ledgers with SHA-256 `755fb441c735671697953141074e92bce357049addb1bb831388cfccb76e6046`; an occupied-output retry exited 1 without changing the original hash.
+- Built the 209,114-byte 2.30.0 wheel with SHA-256 `685e5f2fe633f0c53419727e8b980d0d154b692b93a03cd72fde34c15b17b215`.
+- All **230 tests** pass; changed-file Ruff and format checks plus Python compilation pass.
+
 ## 2.29.0 - 2026-08-23
 
 - Added permanent `character-material-candidate-census` selection and classification for every unexcluded full-source-range candidate on one exact runtime page.

@@ -39,6 +39,11 @@ from .character_material_census import (
     build_character_material_candidate_census,
     write_new_character_material_candidate_census,
 )
+from .component_ledger import (
+    CharacterComponentLedgerError,
+    build_character_component_ledger,
+    write_new_character_component_ledger,
+)
 from .character_source_export import (
     NUMERIC_FAMILIES,
     CharacterSourceExportError,
@@ -1118,6 +1123,60 @@ def cmd_character_material_candidate_census(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_character_component_ledger(args: argparse.Namespace) -> int:
+    material_paths = args.material_report or []
+    material_hashes = args.material_report_sha256 or []
+    if len(material_paths) != len(material_hashes):
+        print(
+            "character-component-ledger: each material report requires one SHA-256 pin",
+            file=sys.stderr,
+        )
+        return 1
+    try:
+        inputs = {path.resolve() for path in material_paths}
+        if len(inputs) != len(material_paths):
+            raise CharacterComponentLedgerError("material report path is duplicated")
+        visual_receipts = None
+        if (args.visual_receipts is None) != (args.visual_receipts_sha256 is None):
+            raise CharacterComponentLedgerError(
+                "visual receipts and their SHA-256 pin must be supplied together"
+            )
+        if args.visual_receipts is not None:
+            if args.visual_receipts.resolve() in inputs:
+                raise CharacterComponentLedgerError(
+                    "visual receipt path duplicates a material report"
+                )
+            inputs.add(args.visual_receipts.resolve())
+            visual_receipts = (
+                args.visual_receipts,
+                args.visual_receipts_sha256,
+            )
+        if args.output.resolve() in inputs:
+            raise CharacterComponentLedgerError(
+                "component ledger output must be new and outside every input"
+            )
+        report = build_character_component_ledger(
+            tuple(zip(material_paths, material_hashes, strict=True)),
+            title_id=args.title_id,
+            build_id=args.build_id,
+            candidate_id=args.candidate_id,
+            visual_receipts=visual_receipts,
+        )
+        write_new_character_component_ledger(args.output, report)
+    except (OSError, CharacterComponentLedgerError, ValueError) as exc:
+        print(f"character-component-ledger: {exc}", file=sys.stderr)
+        return 1
+    counts = report["counts"]
+    print(
+        "character component ledger: "
+        f"{counts['components']} components / "
+        f"{counts['material_observations']} material observations / "
+        f"{counts['accepted_visual_baselines']} accepted visual baselines"
+    )
+    print(f"wrote {args.output}")
+    return 0
+
+
 def cmd_character_material_export(args: argparse.Namespace) -> int:
     try:
         bundle = args.bundle.resolve()
@@ -2096,6 +2155,47 @@ def main(argv: list[str] | None = None) -> int:
         "--output", type=Path, required=True, help="new payload-free JSON census"
     )
     p_material_candidates.set_defaults(func=cmd_character_material_candidate_census)
+
+    p_component_ledger = sub.add_parser(
+        "character-component-ledger",
+        help="reconcile checksum-pinned character material and visual progress",
+    )
+    p_component_ledger.add_argument(
+        "--title-id",
+        required=True,
+        help="canonical title token, for example infamous-1",
+    )
+    p_component_ledger.add_argument(
+        "--build-id",
+        required=True,
+        help="canonical build token, for example bcus98119-v0100",
+    )
+    p_component_ledger.add_argument(
+        "--candidate-id", required=True, help="canonical character/item token"
+    )
+    p_component_ledger.add_argument(
+        "--material-report",
+        type=Path,
+        action="append",
+        required=True,
+        help="exact character-material-export JSON; repeat for each observation",
+    )
+    p_component_ledger.add_argument(
+        "--material-report-sha256",
+        action="append",
+        required=True,
+        help="matching SHA-256 pin; repeat in material-report order",
+    )
+    p_component_ledger.add_argument(
+        "--visual-receipts",
+        type=Path,
+        help="optional payload-free visual-baseline receipt manifest",
+    )
+    p_component_ledger.add_argument("--visual-receipts-sha256")
+    p_component_ledger.add_argument(
+        "--output", type=Path, required=True, help="new payload-free JSON ledger"
+    )
+    p_component_ledger.set_defaults(func=cmd_character_component_ledger)
 
     p_material_export = sub.add_parser(
         "character-material-export",
