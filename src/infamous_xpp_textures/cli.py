@@ -74,6 +74,11 @@ from .runtime_topology_export import (
 )
 from .screen_page_merge import export_screen_replay_pages_glb
 from .screen_replay import ScreenReplayError, export_screen_replay_glb
+from .shader_lineage import (
+    ShaderLineageError,
+    build_character_uv_texture_binding,
+    write_new_character_uv_texture_binding,
+)
 from .source_correlation import (
     MAX_SOURCE_CORRELATION_REPORT_BYTES,
     MAX_XPP_SOURCE_BYTES,
@@ -1000,6 +1005,49 @@ def cmd_runtime_fragment_sampler_census(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_character_uv_texture_binding(args: argparse.Namespace) -> int:
+    try:
+        bundle = args.bundle.resolve()
+        inputs = {
+            args.texture_allowlist.resolve(),
+            args.source_census.resolve(),
+            args.character_census.resolve(),
+        }
+        if args.capture_key_exclusion is not None:
+            inputs.add(args.capture_key_exclusion.resolve())
+        output = args.output.resolve()
+        if output in inputs or output == bundle or bundle in output.parents:
+            raise ShaderLineageError(
+                "shader-lineage output must be new and outside every immutable input"
+            )
+        report = build_character_uv_texture_binding(
+            args.bundle,
+            args.texture_allowlist,
+            args.capture_key_exclusion,
+            args.source_census,
+            args.source_census_sha256,
+            args.character_census,
+            args.character_census_sha256,
+            event_number=args.event,
+            page_number=args.page,
+            record_offset=args.record_offset,
+            character_side=args.character_side,
+        )
+        write_new_character_uv_texture_binding(args.output, report)
+    except (OSError, ShaderLineageError, ValueError) as exc:
+        print(f"character-uv-texture-binding: {exc}", file=sys.stderr)
+        return 1
+    lineage = report["shader_lineage"]
+    print(
+        "character UV/texture binding: "
+        f"source record {report['selection']['record_offset']} attribute "
+        f"{lineage['vertex_input_attribute']} -> {lineage['fragment_input_name']} -> "
+        f"{len(report['texture_bindings'])} named textures"
+    )
+    print(f"wrote {args.output}")
+    return 0
+
+
 def cmd_runtime_capture_key_exclusion(args: argparse.Namespace) -> int:
     try:
         bundle = args.bundle.resolve()
@@ -1873,6 +1921,32 @@ def main(argv: list[str] | None = None) -> int:
     _add_capture_key_exclusion(p_fragment_sampler)
     p_fragment_sampler.add_argument("--json-out", type=Path, required=True)
     p_fragment_sampler.set_defaults(func=cmd_runtime_fragment_sampler_census)
+
+    p_shader_lineage = sub.add_parser(
+        "character-uv-texture-binding",
+        help="prove one packed character UV stream through both shaders to named textures",
+    )
+    p_shader_lineage.add_argument(
+        "--bundle", type=Path, required=True, help="complete immutable v3/v4 bundle"
+    )
+    p_shader_lineage.add_argument(
+        "--texture-allowlist", type=Path, required=True
+    )
+    _add_capture_key_exclusion(p_shader_lineage)
+    p_shader_lineage.add_argument("--page", type=int, required=True)
+    p_shader_lineage.add_argument("--event", type=int, required=True)
+    p_shader_lineage.add_argument("--record-offset", type=int, required=True)
+    p_shader_lineage.add_argument("--source-census", type=Path, required=True)
+    p_shader_lineage.add_argument("--source-census-sha256", required=True)
+    p_shader_lineage.add_argument("--character-census", type=Path, required=True)
+    p_shader_lineage.add_argument("--character-census-sha256", required=True)
+    p_shader_lineage.add_argument(
+        "--character-side", choices=("left", "right"), required=True
+    )
+    p_shader_lineage.add_argument(
+        "--output", type=Path, required=True, help="new payload-free JSON report"
+    )
+    p_shader_lineage.set_defaults(func=cmd_character_uv_texture_binding)
 
     p_capture_key_exclusion = sub.add_parser(
         "runtime-capture-key-exclusion",

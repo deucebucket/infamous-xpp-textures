@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.25.0 - 2026-08-23
+
+- Added permanent `character-uv-texture-binding` analysis for one checksum-pinned XPP source census, character census, and complete RSX v3/v4 shader bundle.
+- Extended the fragment sampler decoder with exact direct-input register, TEX coordinate name, and component-swizzle evidence while adding branch-free component-level vertex-input lineage.
+- Proved BCUS Zeke hair record 533752 uses vertex attribute 9 half-float XY through vertex output 7 / fragment TEX0 for the exact `Zeke_Hair_N.psd` and `Zeke_Hair_C.psd` runtime prefixes.
+- Reconstructed one valid complete packed layout from the exact 8-byte source-bound stream: attribute 3 at byte 0 and the two-component attribute 9 at byte 4, with explicit disclosure that the old capture did not directly serialize attribute byte offsets.
+- Preserved full-character, all-material, Blender-render, 4x/PBR, RPCS3 round-trip, and native-decomp import gates as false; this release creates no render and does not call one hair piece full Zeke.
+- Added strict authority pins, bundle/paging/payload reconciliation, unique descriptor matching, bounded deterministic payload-free output, no-overwrite publication, rejection tests, operator documentation, and durable tool registration.
+
 ## 2.24.0 - 2026-08-22
 
 - Added permanent `asset-completion-inventory` reconciliation for the checksum-pinned decomp tally, retail GLB manifest, gallery metadata, and first unfinished character/item census.

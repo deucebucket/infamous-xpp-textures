@@ -5,6 +5,56 @@ modding or reverse-engineering goal. A command enters this file only after it
 has a callable contract, rejection tests, no-overwrite behavior, deterministic
 output where applicable, an operator card, and a maintained source location.
 
+## `xpp-tool.character-uv-texture-binding.v1`
+
+- Status: maintained; source-defined and callable as xpp-tool 2.25.0.
+- Parent goal: turn every character/item into a complete, correctly textured,
+  editable Blender asset that can first round-trip through retail RPCS3 and
+  later import unchanged through the native decomp's asset API.
+- Binary question: for one exact source-bound draw, which packed input
+  components feed the fragment texture coordinates, and which unique named XPP
+  texture descriptors are sampled through that path?
+- First answer: Zeke record 533752 attribute 9 XY feeds vertex output 7 / TEX0;
+  samplers 0 and 2 select `Zeke_Hair_N.psd` and `Zeke_Hair_C.psd`. The 8-byte
+  stream has one valid complete layout: attribute 3 at byte 0, half2 attribute
+  9 at byte 4.
+- Entry point: `xpp-tool character-uv-texture-binding` (also exposed by the
+  compatible `if1-tex` alias).
+- Implementation: `src/infamous_xpp_textures/shader_lineage.py`; fragment
+  source decode in `src/infamous_xpp_textures/fragment_sampler.py`; CLI wiring
+  in `src/infamous_xpp_textures/cli.py`.
+- Tests: `tests/test_shader_lineage.py` and `tests/test_fragment_sampler.py`.
+- Maintained source pins at 2.25.0: implementation
+  `731507b900100dc3eab7ccfc0934d5dbae7625401383270d2867a5a75e8fbaf2`;
+  fragment decoder
+  `6db0ea37623a262299b50e1c071a6aa4846711b404d6bdce3c50a899b11443e3`;
+  CLI `f44c9ed0668c7e81d7dd9d82a79a4c469abe6ff2547cf0266b6e4be92faf9ebb`;
+  focused tests
+  `659bd90cf923f263f51e85c49b1555f0626bd5f24c456cdac677712b385d312b`
+  and
+  `afd10a8f77fed71a6895eb5ad1a1e592c9bd9be499437588347c524d927bde09`.
+- Operator card: [README — Version 2.25](README.md#version-225--permanent-character-uv-to-texture-shader-lineage).
+- Inputs: complete v3/v4 shader bundle; exact texture allowlist and prior-page
+  exclusion where required; source census and pin; character census and pin;
+  bounded page/event/source-record/character-side selection.
+- Output: deterministic payload-free JSON at a new path. The report records
+  only identities, counts, bounded float minima/maxima, descriptor names, and
+  lineage tokens.
+- Bounds: 16 draw events; 64 MiB inherited bundle payload; six attributes in
+  the selected layout permutation; 2 MiB per JSON authority; 256 KiB output;
+  regular immutable inputs; no overwrite, runtime, network, or concurrency.
+- Proven capability: exact source record/block bytes; target sampler coordinate
+  input; component-level branch-free vertex lineage; unique complete packed
+  layout; unique named texture-prefix identities; one geometry-to-UV-to-texture
+  binding.
+- Limitations: the old capture did not directly serialize attribute byte
+  offsets, so byte 4 is a unique finite complete-tiling reconstruction. Name
+  suffixes do not prove native PBR channel semantics. Full character, every
+  material, 4x/PBR, render, RPCS3 round trip, and native import remain false.
+- Return status: `returned-with-evidence`. Resume by exporting the proved UV
+  rows as `TEXCOORD_0`, binding retail color/normal maps, and immediately
+  publishing the first correctly textured hair progress render.
+
 ## `xpp-tool.asset-completion-inventory.v1`
 
 - Status: maintained; source-defined and callable as xpp-tool 2.24.0.

@@ -19,6 +19,30 @@ _TEXTURE_OPCODES = {
     0x34: "TXPBEM",
 }
 _MAX_FRAGMENT_PROGRAM_BYTES = 64 * 1024
+_FRAGMENT_INPUT_NAMES = (
+    "WPOS",
+    "COL0",
+    "COL1",
+    "FOGC",
+    "TEX0",
+    "TEX1",
+    "TEX2",
+    "TEX3",
+    "TEX4",
+    "TEX5",
+    "TEX6",
+    "TEX7",
+    "TEX8",
+    "TEX9",
+    "SSA",
+)
+
+
+def _decoded_fragment_word(payload: bytes, offset: int) -> int:
+    """Match RPCS3's big-endian load followed by its 16-bit word rotation."""
+
+    word = int.from_bytes(payload[offset : offset + 4], "big")
+    return ((word << 16) & 0xFFFFFFFF) | (word >> 16)
 
 
 def analyze_fragment_program_payload(payload: bytes) -> dict:
@@ -52,12 +76,32 @@ def analyze_fragment_program_payload(payload: bytes) -> dict:
         else:
             opcode = (word0 >> 16) & 0x3F
             if opcode in _TEXTURE_OPCODES:
+                decoded_dest = _decoded_fragment_word(payload, offset)
+                decoded_source0 = _decoded_fragment_word(payload, offset + 4)
+                source_type = decoded_source0 & 0x3
+                source_attribute = (decoded_dest >> 13) & 0xF
+                source_swizzle = [
+                    (decoded_source0 >> shift) & 0x3
+                    for shift in (9, 11, 13, 15)
+                ]
                 texture_instructions.append(
                     {
                         "instruction": instruction_count - 1,
                         "byte_offset": instruction_offset,
                         "opcode": _TEXTURE_OPCODES[opcode],
                         "sampler": (word0 >> 25) & 0xF,
+                        "coordinate_source_type": source_type,
+                        "coordinate_source_is_input": source_type == 1,
+                        "fragment_input_attribute": (
+                            source_attribute if source_type == 1 else None
+                        ),
+                        "fragment_input_name": (
+                            _FRAGMENT_INPUT_NAMES[source_attribute]
+                            if source_type == 1
+                            and source_attribute < len(_FRAGMENT_INPUT_NAMES)
+                            else None
+                        ),
+                        "coordinate_swizzle": source_swizzle,
                     }
                 )
             has_constant = any(
