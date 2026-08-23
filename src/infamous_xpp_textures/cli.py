@@ -14,6 +14,11 @@ from .character import (
     build_character_compatibility_report,
     render_report,
 )
+from .character_asset_census import (
+    CharacterAssetCensusError,
+    build_character_asset_census,
+    write_new_character_asset_census,
+)
 from .capture import RrcCaptureError, build_rrc_character_match_report
 from .character_export import (
     CharacterDiagnosticExportError,
@@ -792,6 +797,56 @@ def cmd_character_source_runtime_correlate(args: argparse.Namespace) -> int:
         print(f"character-source-runtime-correlate: {exc}", file=sys.stderr)
         return 1
     print(render_correlation_report(report).decode("utf-8"), end="")
+    return 0
+
+
+def cmd_character_asset_census(args: argparse.Namespace) -> int:
+    try:
+        inputs = (
+            args.left_profile.resolve(),
+            args.right_profile.resolve(),
+            args.left_oid_manifest.resolve(),
+            args.right_oid_manifest.resolve(),
+        )
+        output = args.output.resolve()
+        if any(output == source or source in output.parents for source in inputs):
+            raise CharacterAssetCensusError(
+                "census output must remain outside every input profile and manifest"
+            )
+        report = build_character_asset_census(
+            args.left_profile,
+            args.right_profile,
+            args.left_workspace_sha256,
+            args.right_workspace_sha256,
+            args.left_oid_manifest,
+            args.right_oid_manifest,
+            args.left_oid_manifest_sha256,
+            args.right_oid_manifest_sha256,
+            args.left_target,
+            args.right_target,
+            anchor=args.anchor,
+            name_token=args.name_token,
+            anchor_before=args.anchor_before,
+            anchor_after=args.anchor_after,
+        )
+        write_new_character_asset_census(args.output, report)
+    except (OSError, CharacterAssetCensusError, ValidationError, ValueError) as exc:
+        print(f"character-asset-census: {exc}", file=sys.stderr)
+        return 1
+    left = report["targets"]["left"]
+    right = report["targets"]["right"]
+    findings = report["findings"]
+    print(
+        "character asset census: "
+        f"{left['texture_descriptor_count']}/{right['texture_descriptor_count']} target textures, "
+        f"{left['geometry_contract_count']}/{right['geometry_contract_count']} geometry contracts"
+    )
+    print(
+        "multipart names: "
+        f"{str(findings['multipart_package_names_proved']).lower()}; "
+        "geometry/name and geometry/texture bindings remain unproved"
+    )
+    print(f"wrote {args.output}")
     return 0
 
 
@@ -1611,6 +1666,56 @@ def main(argv: list[str] | None = None) -> int:
     p_character_source_correlate.set_defaults(
         func=cmd_character_source_runtime_correlate
     )
+
+    p_character_asset_census = sub.add_parser(
+        "character-asset-census",
+        help="audit multipart names and texture sharing across two complete XPP profiles",
+    )
+    p_character_asset_census.add_argument(
+        "--left-profile", type=Path, required=True, help="first extracted profile root"
+    )
+    p_character_asset_census.add_argument(
+        "--right-profile",
+        type=Path,
+        required=True,
+        help="second extracted profile root",
+    )
+    p_character_asset_census.add_argument(
+        "--left-workspace-sha256", required=True, help="SHA-256 of left workspace.json"
+    )
+    p_character_asset_census.add_argument(
+        "--right-workspace-sha256",
+        required=True,
+        help="SHA-256 of right workspace.json",
+    )
+    p_character_asset_census.add_argument(
+        "--left-oid-manifest", type=Path, required=True
+    )
+    p_character_asset_census.add_argument(
+        "--right-oid-manifest", type=Path, required=True
+    )
+    p_character_asset_census.add_argument("--left-oid-manifest-sha256", required=True)
+    p_character_asset_census.add_argument("--right-oid-manifest-sha256", required=True)
+    p_character_asset_census.add_argument(
+        "--left-target",
+        required=True,
+        help="workspace-relative target XPP, for example xpp/install1/male_base_Zeke.xpp",
+    )
+    p_character_asset_census.add_argument(
+        "--right-target", required=True, help="workspace-relative comparison target XPP"
+    )
+    p_character_asset_census.add_argument(
+        "--anchor", required=True, help="unique exact manifest anchor name"
+    )
+    p_character_asset_census.add_argument(
+        "--name-token", required=True, help="case-insensitive character-name token"
+    )
+    p_character_asset_census.add_argument("--anchor-before", type=int, default=96)
+    p_character_asset_census.add_argument("--anchor-after", type=int, default=128)
+    p_character_asset_census.add_argument(
+        "--output", type=Path, required=True, help="new payload-free JSON report"
+    )
+    p_character_asset_census.set_defaults(func=cmd_character_asset_census)
 
     p_runtime_topology_export = sub.add_parser(
         "runtime-topology-diagnostic-export",

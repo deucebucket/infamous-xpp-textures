@@ -5,6 +5,49 @@ modding or reverse-engineering goal. A command enters this file only after it
 has a callable contract, rejection tests, no-overwrite behavior, deterministic
 output where applicable, an operator card, and a maintained source location.
 
+## `xpp-tool.character-asset-census.v1`
+
+- Status: maintained; source-defined and callable as xpp-tool 2.23.0.
+- Parent goal: produce complete, correctly oriented/aligned/textured Blender
+  assets for every character and item, then round-trip edits into RPCS3 while
+  preserving one canonical manifest for the native decomps.
+- Binary question: across two complete checksum-pinned profiles, which names,
+  texture descriptors, exact cross-package payloads, and packed geometry counts
+  belong to one target—and which proposed piece/material/state relations remain
+  unproved?
+- Answer for the first Zeke audit: both builds have 31 named textures and 16
+  packed geometry contracts. The 31 identities match uniquely but are reordered
+  31/31. No substantial exact or partial target texture is supplied by another
+  package; only one 8-byte 1×1 utility texture is shared outside the target.
+- Entry point: `xpp-tool character-asset-census` (also available through the
+  compatible `if1-tex` alias).
+- Implementation:
+  `src/infamous_xpp_textures/character_asset_census.py`, SHA-256
+  `152d51eaa5763ba207f35dd5341caf7b9a52a2a659f99784ccd8407b71f18c85`;
+  CLI wiring `src/infamous_xpp_textures/cli.py`, SHA-256
+  `d154cb71127ce3afacef92da88d86fdd97b6035feae8567ec000bf0ad9428fbb`.
+- Tests: `tests/test_character_asset_census.py`, SHA-256
+  `72836c608183330a217d5f878555438e322d6f5514a9b06af9ceb095cd193d27`.
+- Operator card: [README — Version 2.23](README.md#version-223--multipart-character-and-item-asset-census).
+- Inputs: two extracted profile roots; exact workspace-manifest SHA-256 pins;
+  two ordinal OID manifests and pins; workspace-relative target package per
+  build; one unique manifest anchor; one name token; bounded anchor windows.
+- Output: deterministic payload-free JSON to a new path. The command refuses an
+  existing/symlink output and uses same-directory no-overwrite publication.
+- Bounds: 4,096 packages / 8 GiB per profile; 256 MiB per package; 16 MiB per
+  workspace/OID manifest; 512-row anchor windows; 20,000 detailed matches;
+  2 MiB report; no network or runtime dependency.
+- Proven capability: complete profile integrity scan; descriptor OID names;
+  aligned package/chunk name references; topology-contract counts; exact
+  descriptor and significant mip/prefix sharing; cross-build reorder-safe
+  texture mapping; explicit completion and delivery gates.
+- Limitations: an aligned name reference is not a per-mesh owner. Geometry/name,
+  geometry/material/texture, UV, orientation, alignment, skeleton, LOD/state,
+  completeness, Blender, RPCS3 round-trip, and native-decomp gates remain false.
+- Return status: `returned-with-evidence`. Resume by proving the exact
+  geometry-owner/name/material chain, then consume a verified completion
+  inventory before corpus-wide batching so completed assets are not duplicated.
+
 ## `xpp-tool.character-source-runtime-correlate.v1`
 
 - Status: maintained; source-defined and callable as xpp-tool 2.22.0.

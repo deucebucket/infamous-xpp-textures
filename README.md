@@ -896,6 +896,71 @@ validator; the JSON is capped at 256 KiB. Inputs must be regular immutable
 files/directories, output must be a new path outside every bundle and different
 from the XPP, and no raw source or runtime payload bytes enter the report.
 
+### Version 2.23 — multipart character and item asset census
+
+`character-asset-census` is the permanent profile-wide discovery primitive for
+complete character/item extraction. It does not assume one filename is the
+whole asset and it does not hard-code Zeke. One invocation audits a target XPP
+across two complete extracted profiles and their exact ordinal OID manifests:
+
+```console
+xpp-tool character-asset-census \
+  --left-profile /path/to/bcus-profile \
+  --right-profile /path/to/npua-profile \
+  --left-workspace-sha256 LEFT_WORKSPACE_SHA256 \
+  --right-workspace-sha256 RIGHT_WORKSPACE_SHA256 \
+  --left-oid-manifest /path/to/bcus/oid_manifest.txt \
+  --right-oid-manifest /path/to/npua/oid_manifest.txt \
+  --left-oid-manifest-sha256 LEFT_OID_SHA256 \
+  --right-oid-manifest-sha256 RIGHT_OID_SHA256 \
+  --left-target xpp/install1/male_base_Zeke.xpp \
+  --right-target xpp/install1/male_base_Zeke.xpp \
+  --anchor male_base_Zeke.xml --name-token zeke \
+  --output /new/path/zeke-asset-census.json
+```
+
+The command verifies every workspace entry against its declared byte count and
+SHA-256 while streaming the complete package corpus. It records:
+
+- exact descriptor OID-to-name bindings and texture-family groupings;
+- aligned manifest-OID references separated by XPP chunk type;
+- proved packed character topology counts without inventing per-piece names;
+- exact descriptor sharing, substantial mip/prefix sharing, and tiny shared-mip
+  counts across both profiles;
+- location-independent cross-build descriptor mapping without trusting index;
+- separate false gates for piece completeness, orientation, alignment, UVs,
+  materials, LOD/state/flavor selection, Blender completion, RPCS3 mod round
+  trip, and native-decomp import.
+
+The first owned audit read **5,038 packages / 3,769,944,736 declared bytes** and
+**31,557 texture descriptors**. BCUS and NPUA each contain 31 target textures
+and 16 packed geometry contracts. All 31 texture identities match uniquely,
+but all 31 descriptor positions are reordered. No substantial target texture
+is shared by another package and no substantial partial mip/prefix match was
+found. The only exact external sharing is the same 8-byte, 1×1 utility texture
+in five other packages per build.
+
+RR — Really Readable rundown: Zeke really is built from many named parts and
+texture sheets. His XPP directly names jacket, pants, head, hair, packs, a
+combined hands/feet/collar/glasses family, an eye, glasses lookup strip, and
+comic-book texture. The package also references named objects such as head,
+jacket, hair, shoes, glasses, straps, clasps, firearm, and book. The full scan
+does **not** find another package supplying his substantial texture bytes. The
+remaining blocker is the hard one: assigning each of the 16 packed mesh records
+to the correct named object and then proving which material/UV binding selects
+which named texture family. Names prove the multipart inventory; they do not by
+themselves assemble or texture the Blender model.
+
+The command is a reusable per-asset primitive. Corpus batching must first
+consume a verified completion inventory so already finished assets are skipped.
+The short product goal is a validated Blender edit that round-trips into RPCS3;
+the same canonical asset manifest is retained for the later native decomp.
+
+Bounds: two profiles of at most 4,096 packages / 8 GiB each; individual package
+256 MiB; workspace and OID manifest 16 MiB each; manifest anchor window at most
+512 rows per side; detailed match count 20,000; JSON report 2 MiB; new output
+only. Inputs are regular non-symlink files and every package is hash checked.
+
 ### Version 2.22 — proper-similarity decoder discriminator
 
 The same permanent `character-source-runtime-correlate` command now reports two
