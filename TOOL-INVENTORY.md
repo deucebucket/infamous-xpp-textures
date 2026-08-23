@@ -39,8 +39,9 @@ output where applicable, an operator card, and a maintained source location.
   reconciliation; multiset union without duplicate inflation; deterministic
   A/B results; fail-closed duplicate, conflict, out-of-retail, and overwrite
   behavior.
-- Build proof: the 2.31.0 wheel is 214,881 bytes, SHA-256
-  `ebcd1fdaae0be0b28e44742d1f09893abc583f3410262c4d80bde1225f1e0892`.
+- Build proof: two builds with pinned `SOURCE_DATE_EPOCH=1787482208`
+  produced the identical 214,881-byte 2.31.0 wheel, SHA-256
+  `4ce849b9f0528ba7404d056de93a20ee11f24fa23d5f77f87e5ddf28e09d94a0`.
 - Limitations: an exact triangle union does not identify assembly placement,
   recover original normals/tangents, create bones/weights, upscale textures,
   author PBR, repack an RPCS3 mod, or import into the native decomp.
