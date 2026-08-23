@@ -24,6 +24,11 @@ from .decode import extract_package, load_xpp_bytes
 from .derive import derive_scaled
 from .mesh import MeshExportError, export_glb, find_mesh_sections
 from .oracle import build_profile_oracle
+from .page_correlation import (
+    MAX_PAGE_CORRELATION_REPORT_BYTES,
+    PageCorrelationError,
+    correlate_paged_draw_families,
+)
 from .pack import (
     PackError,
     pack_replacements,
@@ -985,6 +990,44 @@ def cmd_runtime_screen_position_page_merge(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_runtime_page_family_census(args: argparse.Namespace) -> int:
+    try:
+        if len(args.page_bundle) != len(args.page_capture_key_exclusion):
+            raise PageCorrelationError(
+                "--page-bundle and --page-capture-key-exclusion counts must match"
+            )
+        exclusions = tuple(
+            None if value == "-" else Path(value)
+            for value in args.page_capture_key_exclusion
+        )
+        bundle_roots = tuple(path.resolve() for path in args.page_bundle)
+        output = args.json_out.resolve()
+        if any(output == bundle or bundle in output.parents for bundle in bundle_roots):
+            raise PageCorrelationError(
+                "page-family output must remain outside every immutable input bundle"
+            )
+        if args.json_out.is_symlink() or args.json_out.exists():
+            raise PageCorrelationError(
+                "page-family output exists; refusing to overwrite it"
+            )
+        result = correlate_paged_draw_families(
+            tuple(args.page_bundle), args.texture_allowlist, exclusions
+        )
+        rendered = render_report(result)
+        if len(rendered.encode("utf-8")) > MAX_PAGE_CORRELATION_REPORT_BYTES:
+            raise PageCorrelationError("page-family report exceeds its byte bound")
+        args.json_out.parent.mkdir(parents=True, exist_ok=True)
+        with args.json_out.open("x", encoding="utf-8") as handle:
+            handle.write(rendered)
+            handle.flush()
+            os.fsync(handle.fileno())
+    except (OSError, PageCorrelationError, ValueError) as exc:
+        print(f"runtime-page-family-census: {exc}", file=sys.stderr)
+        return 1
+    print(rendered, end="")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         prog=Path(sys.argv[0]).name,
@@ -1457,6 +1500,23 @@ def main(argv: list[str] | None = None) -> int:
     p_screen_page_merge.add_argument("--output", type=Path, required=True)
     p_screen_page_merge.add_argument("--json-out", type=Path, required=True)
     p_screen_page_merge.set_defaults(func=cmd_runtime_screen_position_page_merge)
+
+    p_page_family_census = sub.add_parser(
+        "runtime-page-family-census",
+        help="classify persistent draw families across an exact v3/v4 page chain",
+    )
+    p_page_family_census.add_argument(
+        "--page-bundle", type=Path, action="append", required=True
+    )
+    p_page_family_census.add_argument(
+        "--page-capture-key-exclusion",
+        action="append",
+        required=True,
+        help="exact page exclusion path, or - for the base v3 page",
+    )
+    p_page_family_census.add_argument("--texture-allowlist", type=Path, required=True)
+    p_page_family_census.add_argument("--json-out", type=Path, required=True)
+    p_page_family_census.set_defaults(func=cmd_runtime_page_family_census)
 
     args = ap.parse_args(argv)
     return args.func(args)
