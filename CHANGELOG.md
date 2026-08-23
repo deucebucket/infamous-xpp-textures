@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.29.0 - 2026-08-23
+
+- Added permanent `character-material-candidate-census` selection and classification for every unexcluded full-source-range candidate on one exact runtime page.
+- Reused the exact checksum-pinned shader-lineage validator per candidate, preserving accepted and rejected outcomes instead of relying on a manually maintained page/event/record list.
+- Added exact `EVENT:RECORD_OFFSET` completion exclusions with duplicate, unknown, invalid, and empty-selection rejection so completed components are not silently redone.
+- The first final-code census found six eligible page-two candidates, excluded three completed hair/jacket-detail draws, and accepted all three remaining jacket/head/packs candidates with exact lineage-report identities.
+- Added bounded deterministic payload-free reporting, atomic no-overwrite publication, focused rejection/CLI tests, an operator card, and exact A/B output proof.
+- All **226 tests** pass; changed-file Ruff and format checks plus Python compilation pass.
+- Published clean multi-angle and strict observed/unresolved material renders for all three accepted components as soon as each image was created. These remain component evidence, not full Zeke, authored PBR/4×, rigging, RPCS3 round trip, or native import.
+
 ## 2.28.0 - 2026-08-23
 
 - Extended permanent `character-material-export` inputs from exactly two shader-bound textures to one bounded family of two through eight unique sampler/suffix bindings containing required `C` and `N` descriptors.
