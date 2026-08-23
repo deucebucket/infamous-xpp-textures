@@ -971,12 +971,17 @@ def build_character_component_ledger(
     candidate_id: str,
     visual_receipts: tuple[Path, str] | None = None,
     material_pass_censuses: Sequence[tuple[Path, str]] = (),
+    group_cross_page_source_records: bool = False,
 ) -> dict:
     """Reconcile exact component material reports into one canonical ledger."""
 
     title_id = _safe_token(title_id, "title ID")
     build_id = _safe_token(build_id, "build ID")
     candidate_id = _safe_token(candidate_id, "candidate ID")
+    if not isinstance(group_cross_page_source_records, bool):
+        raise CharacterComponentLedgerError(
+            "cross-page source-record grouping flag is not boolean"
+        )
     if not 1 <= len(material_reports) <= MAX_OBSERVATIONS:
         raise CharacterComponentLedgerError("material report count is invalid")
 
@@ -1072,7 +1077,7 @@ def build_character_component_ledger(
             }
         )
 
-    components: dict[tuple[int, int], dict] = {}
+    components: dict[tuple[int, ...], dict] = {}
     observation_ids: set[tuple[int, int, int, str]] = set()
     for observation in observations:
         observation_id = (
@@ -1086,39 +1091,75 @@ def build_character_component_ledger(
                 "material reports repeat one event/record/lineage observation"
             )
         observation_ids.add(observation_id)
-        key = (observation["page"], observation["record_offset"])
+        key = (
+            (observation["record_offset"],)
+            if group_cross_page_source_records
+            else (observation["page"], observation["record_offset"])
+        )
         component = components.get(key)
-        immutable = {
-            "xpp_bytes": observation["source"]["xpp_bytes"],
-            "xpp_sha256": observation["source"]["xpp_sha256"],
-            "position_payload_sha256": observation["source"]["position_payload_sha256"],
-            "vertices": observation["topology"]["vertices"],
-        }
+        if group_cross_page_source_records:
+            immutable = {
+                "xpp_bytes": observation["source"]["xpp_bytes"],
+                "xpp_sha256": observation["source"]["xpp_sha256"],
+                "vertices": observation["topology"]["vertices"],
+                "retail_triangles": observation["topology"]["triangles"],
+                "retail_index_sha256": observation["index_sha256"],
+                "uv_byte_offset": observation["uv"]["byte_offset"],
+                "uv_payload_sha256": observation["uv"]["payload_sha256"],
+            }
+        else:
+            immutable = {
+                "xpp_bytes": observation["source"]["xpp_bytes"],
+                "xpp_sha256": observation["source"]["xpp_sha256"],
+                "position_payload_sha256": observation["source"][
+                    "position_payload_sha256"
+                ],
+                "vertices": observation["topology"]["vertices"],
+            }
         if component is None:
             component = {
                 "component_id": (
-                    f"{title_id}:{build_id}:{candidate_id}:p{key[0]}:r{key[1]}"
+                    f"{title_id}:{build_id}:{candidate_id}:r{observation['record_offset']}"
+                    if group_cross_page_source_records
+                    else f"{title_id}:{build_id}:{candidate_id}:p{key[0]}:r{key[1]}"
                 ),
-                "page": key[0],
-                "record_offset": key[1],
+                "record_offset": observation["record_offset"],
                 "source": immutable,
                 "texture_families": set(),
                 "observations": [],
                 "renders": [],
                 "material_pass_census_receipts": [],
             }
+            if group_cross_page_source_records:
+                component["record_offset"] = key[0]
+                component["runtime_pages"] = set()
+                component["position_payload_sha256s"] = set()
+            else:
+                component["page"] = key[0]
             components[key] = component
         elif component["source"] != immutable:
             raise CharacterComponentLedgerError(
-                "material reports conflict on immutable component geometry"
+                "material reports conflict on immutable source-component geometry"
+            )
+        if group_cross_page_source_records:
+            component["runtime_pages"].add(observation["page"])
+            component["position_payload_sha256s"].add(
+                observation["source"]["position_payload_sha256"]
             )
         component["texture_families"].add(observation["texture_family"])
         component["observations"].append(observation)
 
-    unknown_render_components: list[tuple[int, int]] = []
+    unknown_render_components: list[tuple[int, ...]] = []
     for render in render_rows:
-        key = (render["page"], render["record_offset"])
-        if key not in components:
+        key = (
+            (render["record_offset"],)
+            if group_cross_page_source_records
+            else (render["page"], render["record_offset"])
+        )
+        if key not in components or (
+            group_cross_page_source_records
+            and render["page"] not in components[key]["runtime_pages"]
+        ):
             unknown_render_components.append(key)
             continue
         components[key]["renders"].append(render)
@@ -1137,7 +1178,7 @@ def build_character_component_ledger(
         matching_component_keys = [
             key
             for key, component in components.items()
-            if key[1] == census_component["record_offset"]
+            if component["record_offset"] == census_component["record_offset"]
             and component["source"]["xpp_sha256"] == census_authorities["xpp_sha256"]
             and component["source"]["xpp_bytes"] == census_authorities["xpp_bytes"]
             and component["source"]["vertices"] == census_component["vertices"]
@@ -1210,12 +1251,20 @@ def build_character_component_ledger(
             key=lambda row: (row["variant"], row["image"]["sha256"])
         )
         component["material_pass_census_receipts"].sort()
-        full_coverage = all(
+        full_coverage = (any if group_cross_page_source_records else all)(
             row["proof"]["full_material_coverage"] for row in component["observations"]
         )
         accepted_baseline = any(
             row["accepted_visual_baseline"] for row in component["renders"]
         )
+        if group_cross_page_source_records:
+            component["runtime_pages"] = sorted(component["runtime_pages"])
+            component["source"] = {
+                **component["source"],
+                "position_payload_sha256s": sorted(
+                    component.pop("position_payload_sha256s")
+                ),
+            }
         normalized_components.append(
             {
                 **component,
@@ -1251,8 +1300,12 @@ def build_character_component_ledger(
     )
     report = {
         "format": "infamous-character-component-progress-ledger",
-        "version": 1,
-        "tool_inventory_id": "xpp-tool.character-component-ledger.v1",
+        "version": 2 if group_cross_page_source_records else 1,
+        "tool_inventory_id": (
+            "xpp-tool.character-component-ledger.v2"
+            if group_cross_page_source_records
+            else "xpp-tool.character-component-ledger.v1"
+        ),
         "scope": {
             "title_id": title_id,
             "build_id": build_id,
@@ -1262,6 +1315,14 @@ def build_character_component_ledger(
             "partial_render_blocks_other_publication": False,
             "game_payload_serialized": False,
             "private_paths_serialized": False,
+            **(
+                {
+                    "cross_page_source_records_grouped": True,
+                    "runtime_pose_observations_preserved": True,
+                }
+                if group_cross_page_source_records
+                else {}
+            ),
         },
         "input_receipts": sorted(
             input_receipts, key=lambda row: (row["kind"], row["sha256"])

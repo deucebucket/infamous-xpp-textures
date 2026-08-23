@@ -418,6 +418,55 @@ a universal lookup map. It does not yet tell Blender which packed numbers are
 positions, UVs, bones, or weights; that still needs one complete decoded retail
 vertex-stream proof.
 
+### Version 2.41 — one source component across multiple runtime pages
+
+`character-component-ledger` now has an explicit v2 mode for the case where the
+same exact retail source record appears in more than one runtime page or pose:
+
+```console
+timeout 60s xpp-tool character-component-ledger \
+  --title-id infamous-1 \
+  --build-id bcus98119-v0100 \
+  --candidate-id zeke \
+  --group-cross-page-source-records \
+  --material-report ./page2-head.json PAGE2_HEAD_SHA256 \
+  --material-report ./page1-five-page-head-union.json HEAD_UNION_SHA256 \
+  --visual-receipts ./zeke-visual-receipts.json \
+  --visual-receipts-sha256 VISUAL_RECEIPTS_SHA256 \
+  --output ./zeke-source-component-ledger.json
+```
+
+The grouping key is not a name or a visual guess. XPP hash and size, record
+offset, vertex count, retail triangle/index identity, and exact UV identity must
+all match. Position payloads are allowed to differ because two runtime pages
+may contain different poses; every page, event, draw, and position hash remains
+in its own observation. A render attaches only if that exact page+record has
+admitted material evidence.
+
+RR — Really Readable rundown: page one and page two showed the same retail Zeke
+head in different poses. The old checklist used the page number in the part ID,
+so keeping both would make one head look like two separate inventory items.
+Version 2.41 gives the retail record one source-component ID and hangs both
+page-specific observations beneath it. Nothing is thrown away, and a different
+record cannot sneak into the group merely because its texture is also named
+Zeke.
+
+The first real v2 ledger contains **five source components / six material
+observations / eight published renders**. Hair is 290/294. Head record 536280
+retains both its page-two 174/404 pose and page-one 212/404 pose under one
+component. Jacket, packs, and the already-complete 24/24 jacket-detail record
+remain separate. Normal and reversed inputs are byte-identical at 38,655 bytes,
+SHA-256 `2f74d3e4db3d51256053c39626ceea1a1fb1c5f9375b7bbd63e6b17552cd1c40`.
+
+Operator card: the new stable inventory ID is
+`xpp-tool.character-component-ledger.v2`. The existing command without
+`--group-cross-page-source-records` keeps v1 output exactly; a real compatibility
+run reproduces the prior 30,923-byte ledger byte-for-byte. Existing file/count,
+hash-pin, payload-free, atomic-new-output, offline, and single-process bounds
+remain. This inventories components and poses; it does not align parts, fill
+unresolved faces, recover rigging, create 4x/PBR, repack RPCS3, or import into
+the native decomp.
+
 ### Version 2.40 — compatible four-map anchors export correctly
 
 `character-material-coverage-export` now accepts the exact representation that

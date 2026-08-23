@@ -322,6 +322,71 @@ output where applicable, an operator card, and a maintained source location.
   faces and deliberately different pose/state/occlusion draws for jacket,
   head, and packs.
 
+## `xpp-tool.character-component-ledger.v2`
+
+- Status: maintained; introduced and callable in xpp-tool 2.41.0 through the
+  explicit `--group-cross-page-source-records` mode. The default v1 mode stays
+  available and byte-compatible.
+- Parent goal: complete every character/item once as a correctly textured,
+  editable Blender asset for near-term RPCS3 mods and later native-decomp
+  import while retaining alternate runtime poses and material states.
+- Binary question: when the same exact retail XPP record is observed on
+  different runtime pages, can the ledger store one source component with all
+  page-specific evidence instead of duplicating the item or discarding a pose?
+- First answer: yes. The canonical Zeke ledger remains five source components
+  while admitting six material observations and eight render receipts. Head
+  record 536280 retains its page-one 212/404 and page-two 174/404 observations
+  under one ID. Hair is 290/294; jacket detail remains the only complete
+  component at 24/24.
+- Entry point: `xpp-tool character-component-ledger
+  --group-cross-page-source-records` (also exposed by compatible `if1-tex`).
+- Implementation: `src/infamous_xpp_textures/component_ledger.py`, SHA-256
+  `07e6590ed75cb9f7d01f8671d7f096f0e449bc4a61b4b5bf70ed8e32ab932de7`;
+  CLI wiring `src/infamous_xpp_textures/cli.py`, SHA-256
+  `ad5d622e55456b31c0d64b4960cebb1bdd9f347c9747913c22061007840cb24c`.
+- Tests: `tests/test_component_ledger.py`, SHA-256
+  `85915cc05fab538e1474256594fe4a89804e4d704e44e4114b8ce70a006ee59c`.
+  Eight focused tests cover v1 aliases, v2 cross-page grouping and input-order
+  independence, pose preservation, source/index/UV drift, unknown render pages,
+  malformed mode, pass-census linkage, hash drift, bounds, and no-overwrite.
+  The complete repository suite passes **286 tests**.
+- Operator card:
+  [README — Version 2.41](README.md#version-241--one-source-component-across-multiple-runtime-pages).
+- Inputs: one through 256 exact material-export JSON files with matching
+  SHA-256 pins; title/build/candidate tokens; optional exact visual receipt
+  manifest; zero through 128 exact material-pass censuses; explicit v2 mode.
+- Grouping contract: XPP size/hash, source record offset, vertex count, retail
+  triangle/index identity, and UV offset/payload must agree. Position payloads
+  may differ and remain a sorted component-level identity set plus exact
+  per-observation values. Visual page+record identities must be admitted by
+  material evidence.
+- Output: deterministic payload-free version-2 JSON with one source-record
+  component ID, sorted runtime pages, every exact observation/render, and the
+  same independent completion gates. Output is new-only and atomic.
+- Build proof: two builds with pinned `SOURCE_DATE_EPOCH=1787506200` produced
+  the identical 257,033-byte 2.41.0 wheel, SHA-256
+  `880a589aa9b67b165e3b16eccb8a671763fd89febb4023460e7e869c65cbb82d`.
+  A fresh isolated install reproduced the exact 38,655-byte v2 ledger and the
+  exact 30,923-byte v1 compatibility ledger.
+- Bounds: inherited 1 MiB material/report/output, 512 KiB pass census, 256 KiB
+  visual manifest, 256 observations/renders, 128 components/censuses, 32 pass
+  observations, one process, no runtime, network, symlink output, or overwrite.
+- First evidence: normal and reversed inputs produce the identical 38,655-byte
+  ledger, SHA-256
+  `2f74d3e4db3d51256053c39626ceea1a1fb1c5f9375b7bbd63e6b17552cd1c40`.
+  The 5,004-byte visual manifest is SHA-256
+  `bd3440b805679e32b0637a438e366b1cca8bccd3c59001946e1a08282eba2957`.
+- Compatibility proof: v1 mode reproduces the released 30,923-byte ledger
+  byte-for-byte, SHA-256
+  `e61a78fbdc80cecaa97984cbc0cca3bd9a53df075134b0afbd7b5bba79a9553c`.
+- Limitations: grouping is inventory identity, not assembly placement or proof
+  that two poses share identical deformed vertices. It does not fill unresolved
+  material faces, recover normals/tangents or rig/skin, create 4x/PBR, repack an
+  RPCS3 mod, or import into the native decomp.
+- Return status: `returned-with-capability-and-evidence`. Use v2 for the
+  canonical all-item ledger, preserve all page-specific observations, and do
+  not re-export the already-complete jacket-detail source component.
+
 ## `xpp-tool.character-component-ledger.v1`
 
 - Status: maintained; introduced in 2.30.0 and extended with exact material-pass
@@ -344,12 +409,12 @@ output where applicable, an operator card, and a maintained source location.
 - Entry point: `xpp-tool character-component-ledger` (also exposed by the
   compatible `if1-tex` alias).
 - Implementation: `src/infamous_xpp_textures/component_ledger.py`, SHA-256
-  `bbec0935e13eb3e13dccff670522740176628c0249f6a04e98fe4c1f60fe0a76`;
+  `07e6590ed75cb9f7d01f8671d7f096f0e449bc4a61b4b5bf70ed8e32ab932de7`;
   CLI wiring `src/infamous_xpp_textures/cli.py`, SHA-256
-  `342820d98f72e844697a8fb3f7c33bcaa7cc427805ca6c21c3760c65a2f8b003`.
+  `ad5d622e55456b31c0d64b4960cebb1bdd9f347c9747913c22061007840cb24c`.
 - Tests: `tests/test_component_ledger.py`, SHA-256
-  `9e90757be9d31463cc528eb5b40d81b2308ff2d0d71512e662512de407bccd57`.
-  The complete repository suite passes **252 tests**.
+  `85915cc05fab538e1474256594fe4a89804e4d704e44e4114b8ce70a006ee59c`.
+  The complete repository suite passes **286 tests**.
 - Operator card: [README — Version 2.34](README.md#version-234--preserve-material-passes-in-the-canonical-character-ledger).
 - Inputs: one through 256 exact material-export JSON files, each with a matching
   SHA-256 pin; canonical title/build/candidate tokens; optional exact visual-
