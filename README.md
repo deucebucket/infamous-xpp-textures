@@ -896,6 +896,51 @@ validator; the JSON is capped at 256 KiB. Inputs must be regular immutable
 files/directories, output must be a new path outside every bundle and different
 from the XPP, and no raw source or runtime payload bytes enter the report.
 
+### Version 2.33 — exact cross-material pass census
+
+One character piece can be drawn several times with different shaders and
+texture sets. Those passes may reveal new faces, or they may cover the exact
+same faces for a different material stage. Compare them before spending another
+foreground capture:
+
+```bash
+xpp-tool character-material-pass-census \
+  --xpp ./retail/male_base_Zeke.xpp \
+  --xpp-sha256 XPP_SHA256 \
+  --texture-allowlist ./surface-identities.sha256 \
+  --record-offset 533752 \
+  --observation ./page2-hair.json REPORT_SHA ./page2-bundle ./page1-keys.tsv \
+  --observation ./page3-hair-four-map.json REPORT_SHA ./page3-bundle ./page1-plus-page2-keys.tsv \
+  --observation ./page3-hair-two-map.json REPORT_SHA ./page3-bundle ./page1-plus-page2-keys.tsv \
+  --output ./zeke-hair-pass-census.json
+```
+
+Repeat `--observation REPORT REPORT_SHA256 BUNDLE EXCLUSION_OR_DASH` two
+through 32 times. `-` is accepted only when that bundle does not require a
+capture-key exclusion. Every report must be the strict `observed-only` result
+for one draw. The command reopens the exact runtime index payload and refuses
+authority drift, duplicate evidence, out-of-retail triangles, oversized output,
+symlink output, and overwrite.
+
+The report gives every exact pass signature, every pairwise triangle-multiset
+relationship, and one retail-ordered any-pass union. It serializes hashes and
+counts, not vertex, index, shader, or texture payload bytes.
+
+RR — Really Readable rundown: Zeke's hair is genuinely drawn in multiple ways.
+The page-three four-map `A/C/N/S` pass and its `C/N` pass use different fragment
+programs and texture bindings, but both touch the exact same 275 triangles. They
+are two coats of paint over the same boards, not extra boards. Page two and page
+three each contribute seven faces the other draw missed, so together we still
+have 282 of 294 proved hair triangles and the same 12 unknown faces. We must
+preserve all three material passes for eventual faithful reconstruction, but a
+new capture is worth doing only when it exposes a genuinely different draw,
+pose, or state. Repeating this four-map pass cannot close those twelve.
+
+This command does not decide that `A` means ambient/alpha, `S` means specular,
+or how the passes composite. It does not render, upscale, rig, assemble full
+Zeke, repack an RPCS3 mod, or import into the native decomp. The approved matte,
+even-brown hair render remains the locked appearance regression baseline.
+
 ### Version 2.32 — exact repeated-draw material union to Blender GLB
 
 `character-material-coverage-export` closes the gap between a payload-free
