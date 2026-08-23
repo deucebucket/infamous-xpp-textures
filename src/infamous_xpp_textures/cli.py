@@ -34,6 +34,11 @@ from .character_material_export import (
     build_character_material_export,
     write_new_character_material_export,
 )
+from .character_material_census import (
+    CharacterMaterialCensusError,
+    build_character_material_candidate_census,
+    write_new_character_material_candidate_census,
+)
 from .character_source_export import (
     NUMERIC_FAMILIES,
     CharacterSourceExportError,
@@ -111,6 +116,21 @@ def _add_capture_key_exclusion(p: argparse.ArgumentParser) -> None:
         type=Path,
         help="required exact prior capture-key manifest for a paged v4 bundle",
     )
+
+
+def _candidate_pair(value: str) -> tuple[int, int]:
+    parts = value.split(":")
+    if len(parts) != 2:
+        raise argparse.ArgumentTypeError("candidate must be EVENT:RECORD_OFFSET")
+    try:
+        event, record_offset = (int(part, 10) for part in parts)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(
+            "candidate must contain decimal integers"
+        ) from exc
+    if not 1 <= event <= 16 or record_offset < 0:
+        raise argparse.ArgumentTypeError("candidate event or record offset is invalid")
+    return event, record_offset
 
 
 def _load(args: argparse.Namespace) -> tuple[bytes, str]:
@@ -1053,6 +1073,51 @@ def cmd_character_uv_texture_binding(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_character_material_candidate_census(args: argparse.Namespace) -> int:
+    try:
+        bundle = args.bundle.resolve()
+        inputs = {
+            args.texture_allowlist.resolve(),
+            args.source_census.resolve(),
+            args.character_census.resolve(),
+        }
+        if args.capture_key_exclusion is not None:
+            inputs.add(args.capture_key_exclusion.resolve())
+        output = args.output.resolve()
+        if output in inputs or output == bundle or bundle in output.parents:
+            raise CharacterMaterialCensusError(
+                "candidate census output must be new and outside every immutable input"
+            )
+        report = build_character_material_candidate_census(
+            args.bundle,
+            args.texture_allowlist,
+            args.capture_key_exclusion,
+            args.source_census,
+            args.source_census_sha256,
+            args.character_census,
+            args.character_census_sha256,
+            page_number=args.page,
+            character_side=args.character_side,
+            excluded_candidates=tuple(args.exclude_candidate or ()),
+        )
+        write_new_character_material_candidate_census(args.output, report)
+    except (
+        OSError,
+        CharacterMaterialCensusError,
+        ShaderLineageError,
+        ValueError,
+    ) as exc:
+        print(f"character-material-candidate-census: {exc}", file=sys.stderr)
+        return 1
+    summary = report["summary"]
+    print(
+        "character material candidate census: "
+        f"{summary['accepted']} accepted / {summary['rejected']} rejected"
+    )
+    print(f"wrote {args.output}")
+    return 0
+
+
 def cmd_character_material_export(args: argparse.Namespace) -> int:
     try:
         bundle = args.bundle.resolve()
@@ -1987,9 +2052,7 @@ def main(argv: list[str] | None = None) -> int:
     p_shader_lineage.add_argument(
         "--bundle", type=Path, required=True, help="complete immutable v3/v4 bundle"
     )
-    p_shader_lineage.add_argument(
-        "--texture-allowlist", type=Path, required=True
-    )
+    p_shader_lineage.add_argument("--texture-allowlist", type=Path, required=True)
     _add_capture_key_exclusion(p_shader_lineage)
     p_shader_lineage.add_argument("--page", type=int, required=True)
     p_shader_lineage.add_argument("--event", type=int, required=True)
@@ -2006,6 +2069,34 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_shader_lineage.set_defaults(func=cmd_character_uv_texture_binding)
 
+    p_material_candidates = sub.add_parser(
+        "character-material-candidate-census",
+        help="classify every uncompleted full-record material candidate on one page",
+    )
+    p_material_candidates.add_argument(
+        "--bundle", type=Path, required=True, help="complete immutable v3/v4 bundle"
+    )
+    p_material_candidates.add_argument("--texture-allowlist", type=Path, required=True)
+    _add_capture_key_exclusion(p_material_candidates)
+    p_material_candidates.add_argument("--page", type=int, required=True)
+    p_material_candidates.add_argument("--source-census", type=Path, required=True)
+    p_material_candidates.add_argument("--source-census-sha256", required=True)
+    p_material_candidates.add_argument("--character-census", type=Path, required=True)
+    p_material_candidates.add_argument("--character-census-sha256", required=True)
+    p_material_candidates.add_argument(
+        "--character-side", choices=("left", "right"), required=True
+    )
+    p_material_candidates.add_argument(
+        "--exclude-candidate",
+        action="append",
+        type=_candidate_pair,
+        help="completed EVENT:RECORD_OFFSET to omit; repeat for each exact candidate",
+    )
+    p_material_candidates.add_argument(
+        "--output", type=Path, required=True, help="new payload-free JSON census"
+    )
+    p_material_candidates.set_defaults(func=cmd_character_material_candidate_census)
+
     p_material_export = sub.add_parser(
         "character-material-export",
         help="export one shader-proved character UV/material component to GLB",
@@ -2017,9 +2108,7 @@ def main(argv: list[str] | None = None) -> int:
     p_material_export.add_argument(
         "--bundle", type=Path, required=True, help="complete immutable v3/v4 bundle"
     )
-    p_material_export.add_argument(
-        "--texture-allowlist", type=Path, required=True
-    )
+    p_material_export.add_argument("--texture-allowlist", type=Path, required=True)
     _add_capture_key_exclusion(p_material_export)
     p_material_export.add_argument("--lineage", type=Path, required=True)
     p_material_export.add_argument("--lineage-sha256", required=True)

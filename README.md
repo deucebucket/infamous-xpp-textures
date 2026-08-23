@@ -896,6 +896,58 @@ validator; the JSON is capped at 256 KiB. Inputs must be regular immutable
 files/directories, output must be a new path outside every bundle and different
 from the XPP, and no raw source or runtime payload bytes enter the report.
 
+### Version 2.29 — full-range character material candidate census
+
+`character-material-candidate-census` replaces the repeated manual step of
+copying page/event/record triples into separate lineage commands. It reads one
+checksum-pinned source census, selects every full-source-range event on one
+exact runtime page, removes only explicit completed `EVENT:RECORD_OFFSET`
+identities, and runs the maintained shader-lineage proof against every remaining
+candidate.
+
+```console
+timeout 60s xpp-tool character-material-candidate-census \
+  --bundle /path/to/owned/page-2-v4 \
+  --texture-allowlist /path/to/zeke-surface-identities.sha256 \
+  --capture-key-exclusion /path/to/page-1-keys.tsv \
+  --page 2 \
+  --source-census /path/to/xpp-source-census.json \
+  --source-census-sha256 SOURCE_CENSUS_SHA256 \
+  --character-census /path/to/character-census.json \
+  --character-census-sha256 CHARACTER_CENSUS_SHA256 \
+  --character-side left \
+  --exclude-candidate 5:536488 \
+  --exclude-candidate 15:533752 \
+  --exclude-candidate 16:533752 \
+  --output /new/path/page2-material-candidates.json
+```
+
+The first final-code run sees **six** eligible page-two full-range events. Three
+are already completed and excluded by their exact event/record identities. The
+remaining three all pass: event 3 / record 534628 / `Zeke_Jacket`, event 11 /
+record 536280 / `Zeke_Head`, and event 13 / record 535048 / `Zeke_Packs`.
+Two final reports repeat byte-for-byte at **5,901 bytes**, SHA-256
+`6a5b5c88924aa81103ad3c87f259e75d4d43f94ce80150efaf9e1b719b87692b`.
+The report includes each accepted lineage-report SHA-256, UV input shape,
+fragment coordinate, family, and sampler/name identities; a failed candidate
+would remain present with its exact bounded rejection reason.
+
+RR — Really Readable rundown: the old process could accidentally skip a valid
+component or redo one we had already finished because the list lived in shell
+commands and notes. The permanent census asks the source evidence for the whole
+eligible page, subtracts only exact completed identities, and gives every new
+candidate a pass or fail receipt. A pass means “safe to write the full lineage
+and render this component next.” It does not mean the component is the whole
+character, fully material-covered, rigged, PBR, 4×, or ready to inject.
+
+Operator card: one page, at most 16 candidates, at most 272 source event rows,
+2 MiB per pinned JSON authority, inherited 64 MiB bundle/payload bounds, one
+process, no runtime or network, and a 512 KiB payload-free JSON output. Inputs
+must remain immutable; the output must be a new path outside the bundle and all
+authorities. Duplicate/unknown completion exclusions and an empty remaining set
+fail closed. Repeated identical inputs produce identical bytes; occupied output
+refuses overwrite.
+
 ### Version 2.28 — complete shader-bound texture-family GLB export
 
 `character-material-export` now preserves every texture selected by one exact

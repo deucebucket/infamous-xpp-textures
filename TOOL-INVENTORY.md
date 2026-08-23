@@ -5,9 +5,53 @@ modding or reverse-engineering goal. A command enters this file only after it
 has a callable contract, rejection tests, no-overwrite behavior, deterministic
 output where applicable, an operator card, and a maintained source location.
 
+## `xpp-tool.character-material-candidate-census.v1`
+
+- Status: maintained; introduced and callable in xpp-tool 2.29.0.
+- Parent goal: recover every unfinished character/item component once, render it
+  immediately, and preserve one canonical asset record for both RPCS3 package
+  mods and the later native-decomp importer.
+- Binary question: after exact completed draws are excluded, which full-source-
+  range candidates on one runtime page pass the complete geometry → packed UV →
+  shader → named retail texture lineage, and why do the others fail?
+- First answer: the page-two source census contains six eligible candidates.
+  Excluding completed event 5 / record 536488 and hair events 15–16 / record
+  533752 leaves three; all three pass as exact `Zeke_Jacket`, `Zeke_Head`, and
+  `Zeke_Packs` lineages.
+- Entry point: `xpp-tool character-material-candidate-census` (also exposed by
+  the compatible `if1-tex` alias).
+- Implementation: `src/infamous_xpp_textures/character_material_census.py`,
+  SHA-256 `6170a8370550a4f7af5ed64f63d4f2606682d448167e13d9fa99574b209f01c4`;
+  CLI wiring `src/infamous_xpp_textures/cli.py`, SHA-256
+  `c70667545fbdb142a0ec43a2d4ac734909cab927c395c8f4d4f2b5c7287de7c6`.
+- Tests: `tests/test_character_material_census.py`, SHA-256
+  `e00f04ef4e5aea3c133bc087b8660b8d2c28d2afbb35f0d4cdd907f5459a3b42`.
+  The complete repository suite passes **226 tests**.
+- Operator card: [README — Version 2.29](README.md#version-229--full-range-character-material-candidate-census).
+- Inputs: complete v3/v4 bundle; exact allowlist and required page exclusion;
+  checksum-pinned source and character censuses; page/side; repeatable exact
+  completed `EVENT:RECORD_OFFSET` exclusions.
+- Output: deterministic payload-free JSON at a new path. It records every
+  accepted lineage identity and every rejected candidate/reason without raw
+  model, shader, index, vertex, or texture bytes.
+- Bounds: 272 source event rows; 16 eligible candidates/exclusions; 2 MiB per
+  JSON authority; inherited bounded bundle payloads; 512 KiB output; one
+  process; no runtime, network, symlink output, or overwrite.
+- Proven capability: complete full-range selection from the source authority;
+  exact completed-candidate subtraction; per-candidate reuse of the maintained
+  lineage proof; deterministic accepted/rejected reconciliation; final A/B
+  5,901-byte report SHA-256 `6a5b5c88…87692b`.
+- Limitations: the census does not write the full per-candidate lineage or GLB,
+  assign unobserved faces, identify assembly placement, prove rigging/PBR/4×,
+  repack RPCS3 content, or import into the native decomp.
+- Return status: `returned-with-capability`. Use the three accepted identities
+  to retain their already published renders and reconcile them into the
+  canonical completion inventory; continue with the next page without repeating
+  completed work.
+
 ## `xpp-tool.character-material-export.v1`
 
-- Status: maintained; introduced in 2.26.0 and callable in xpp-tool 2.28.0.
+- Status: maintained; introduced in 2.26.0 and callable in xpp-tool 2.29.0.
 - Parent goal: complete editable character/item assets once, deliver them first
   through validated retail RPCS3 packages, then reuse the same canonical
   records through a native-decomp importer.
@@ -65,7 +109,7 @@ output where applicable, an operator card, and a maintained source location.
 
 ## `xpp-tool.character-uv-texture-binding.v1`
 
-- Status: maintained; introduced in 2.25.0 and callable in xpp-tool 2.28.0.
+- Status: maintained; introduced in 2.25.0 and callable in xpp-tool 2.29.0.
 - Parent goal: turn every character/item into a complete, correctly textured,
   editable Blender asset that can first round-trip through retail RPCS3 and
   later import unchanged through the native decomp's asset API.
