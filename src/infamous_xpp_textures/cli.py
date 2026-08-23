@@ -72,6 +72,12 @@ from .material_gap_locator import (
     read_bounded_regular as read_material_gap_locator_input,
     write_new_material_gap_location,
 )
+from .material_assembly import (
+    MaterialAssemblyError,
+    MaterialAssemblyInput,
+    build_character_material_assembly,
+    write_new_material_assembly,
+)
 from .material_pass_census import (
     MaterialPassCensusError,
     build_material_pass_census,
@@ -1313,6 +1319,54 @@ def cmd_character_component_ledger(args: argparse.Namespace) -> int:
         f"{counts['accepted_visual_baselines']} accepted visual baselines"
     )
     print(f"wrote {args.output}")
+    return 0
+
+
+def cmd_character_material_assembly_export(args: argparse.Namespace) -> int:
+    try:
+        components = []
+        inputs: set[Path] = set()
+        for report, report_sha256, glb, glb_sha256 in args.component:
+            report_path = Path(report)
+            glb_path = Path(glb)
+            resolved = (report_path.resolve(), glb_path.resolve())
+            if resolved[0] == resolved[1] or any(path in inputs for path in resolved):
+                raise MaterialAssemblyError("component input path is duplicated")
+            inputs.update(resolved)
+            components.append(
+                MaterialAssemblyInput(
+                    report=report_path,
+                    report_sha256=report_sha256,
+                    glb=glb_path,
+                    glb_sha256=glb_sha256,
+                )
+            )
+        output_paths = {args.output_glb.resolve(), args.output_report.resolve()}
+        if len(output_paths) != 2 or output_paths & inputs:
+            raise MaterialAssemblyError(
+                "assembly outputs must be distinct, new, and outside every input"
+            )
+        glb, report = build_character_material_assembly(
+            components,
+            title_id=args.title_id,
+            build_id=args.build_id,
+            candidate_id=args.candidate_id,
+            page=args.page,
+            preview_records=tuple(args.preview_record or ()),
+        )
+        write_new_material_assembly(args.output_glb, args.output_report, glb, report)
+    except (OSError, MaterialAssemblyError, ValueError) as exc:
+        print(f"character-material-assembly-export: {exc}", file=sys.stderr)
+        return 1
+    assembly = report["assembly"]
+    print(
+        "character material assembly export: "
+        f"{len(report['authorities']['components'])} components / "
+        f"{assembly['vertices']} vertices / "
+        f"{assembly['retail_triangle_occurrences']} triangles"
+    )
+    print(f"wrote {args.output_glb}")
+    print(f"wrote {args.output_report}")
     return 0
 
 
@@ -2652,6 +2706,46 @@ def main(argv: list[str] | None = None) -> int:
         "--output", type=Path, required=True, help="new payload-free JSON ledger"
     )
     p_component_ledger.set_defaults(func=cmd_character_component_ledger)
+
+    p_material_assembly = sub.add_parser(
+        "character-material-assembly-export",
+        help="restore strict same-page component translations into one editable GLB",
+    )
+    p_material_assembly.add_argument(
+        "--title-id", required=True, help="canonical title token"
+    )
+    p_material_assembly.add_argument(
+        "--build-id", required=True, help="canonical build token"
+    )
+    p_material_assembly.add_argument(
+        "--candidate-id", required=True, help="canonical character/item token"
+    )
+    p_material_assembly.add_argument(
+        "--page", type=int, required=True, help="one shared runtime page"
+    )
+    p_material_assembly.add_argument(
+        "--component",
+        action="append",
+        nargs=4,
+        metavar=("REPORT", "REPORT_SHA256", "GLB", "GLB_SHA256"),
+        required=True,
+        help=(
+            "exact material report and GLB with matching SHA-256 pins; repeat "
+            "for two through 32 unique same-page source records"
+        ),
+    )
+    p_material_assembly.add_argument(
+        "--preview-record",
+        type=int,
+        action="append",
+        help=(
+            "source record whose unresolved faces should use its one observed "
+            "material for a declared clean preview; repeat only as needed"
+        ),
+    )
+    p_material_assembly.add_argument("--output-glb", type=Path, required=True)
+    p_material_assembly.add_argument("--output-report", type=Path, required=True)
+    p_material_assembly.set_defaults(func=cmd_character_material_assembly_export)
 
     p_material_coverage = sub.add_parser(
         "character-material-coverage-union",

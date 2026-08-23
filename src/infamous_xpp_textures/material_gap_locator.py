@@ -25,6 +25,7 @@ _COMPONENTS = {"SCALAR": 1, "VEC2": 2, "VEC3": 3}
 _COMPONENT_FORMATS = {5123: ("H", 2), 5126: ("f", 4)}
 _OBSERVED_BINDINGS = {
     "exact runtime triangle subset",
+    "runtime-observed exact triangle subset",
     "multi-observation exact triangle union",
 }
 _UNOBSERVED_BINDING = "unobserved diagnostic topology only"
