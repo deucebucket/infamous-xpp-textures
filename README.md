@@ -820,6 +820,43 @@ The output is diagnostic NDC geometry only: it does not prove character
 ownership, feet, UVs, textures, world transforms, bones, weights, materials,
 PBR, or a reverse-import path.
 
+Version 2.18 classifies reuse across the complete page chain before another
+runtime capture is requested:
+
+```console
+xpp-tool runtime-page-family-census \
+  --page-bundle /path/to/owned/page-1-v3 \
+  --page-capture-key-exclusion - \
+  --page-bundle /path/to/owned/page-2-v4 \
+  --page-capture-key-exclusion /path/to/page-1-keys.tsv \
+  --texture-allowlist /path/to/exact-targets.sha256 \
+  --json-out /path/outside-the-bundles/page-families.json
+```
+
+The census compares four deliberately separate levels. Exact geometry bytes
+mean the index and ordered vertex-stream bytes repeat. Exact vertex-stream
+bytes allow the index selection to change. A stable-layout partial-stream
+candidate requires the same ordered layout, target texture/vertex-program
+identity, and at least one exact stream while another stream changes. A weak
+target-texture/vertex-program match is counted but never promoted to a component
+family.
+Many-to-one and one-to-many strong groups remain explicitly ambiguous.
+
+RR — Really Readable rundown: a new capture key is a new ticket at the GPU
+door, not automatically a new body part. Animation, a different triangle
+subset, or another render pass can issue a different ticket for geometry we
+already saw. This report sorts strong repeated-family evidence from weak
+lookalikes so the next capture can move to a view that actually shows missing
+geometry instead of filling another tray with the same seated pose.
+
+Operator card: this command is offline, payload-free, deterministic, and
+single-process. It accepts 2 through 17 distinct bundles, at most 16 events per
+page and 34,816 cross-page comparisons. The JSON is bounded to 256 KiB, must be
+written to a new path outside every immutable bundle, and contains no raw
+payload bytes. The tiers are correlation evidence only: same source component,
+new geometry, Zeke ownership, completeness, UVs, materials, bones, weights,
+PBR, and reverse import all remain unproved.
+
 ## Typical HD texture pass
 
 1. `profile-extract` the protected retail install pair.
