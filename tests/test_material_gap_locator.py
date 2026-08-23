@@ -205,6 +205,27 @@ def test_rejects_input_hash_drift():
         )
 
 
+def test_accepts_current_runtime_observed_subset_role():
+    glb, material_report = _fixture()
+    document_length = struct.unpack_from("<I", glb, 12)[0]
+    document = json.loads(glb[20 : 20 + document_length].rstrip(b" \x00"))
+    document["meshes"][0]["primitives"][0]["extras"]["materialBinding"] = (
+        "runtime-observed exact triangle subset"
+    )
+    binary_offset = 20 + document_length
+    binary_length, binary_kind = struct.unpack_from("<I4s", glb, binary_offset)
+    assert binary_kind == b"BIN\x00"
+    binary = glb[binary_offset + 8 : binary_offset + 8 + binary_length]
+    current_glb = _pack_glb(document, bytearray(binary))
+    report = json.loads(material_report)
+    report["glb"] = {"bytes": len(current_glb), "sha256": _sha(current_glb)}
+    current_report = (json.dumps(report, indent=2, sort_keys=True) + "\n").encode()
+
+    assert _locate(current_glb, current_report)["status"] == (
+        "unobserved-material-faces-located"
+    )
+
+
 def test_rejects_report_count_drift():
     glb, material_report = _fixture()
     report = json.loads(material_report)

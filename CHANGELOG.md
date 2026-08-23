@@ -1,5 +1,55 @@
 # Changelog
 
+## 2.42.0 - 2026-08-23
+
+- Added permanent `character-material-assembly-export` with stable inventory ID
+  `xpp-tool.character-material-assembly-export.v1`. It accepts two through 32
+  checksum-pinned strict material report/GLB pairs and combines only unique
+  source records from one requested runtime page.
+- Every input report, GLB, embedded buffer, scene, node, transform, accessor,
+  primitive, material, texture, image, topology count, and source-position
+  frame is revalidated. The output translation for each component is derived
+  only by reversing its recorded per-component recenter; hand alignment and
+  semantic coordinate guesses are not admitted.
+- The output keeps the source meshes, proved/unresolved primitive split,
+  materials, embedded images, and UVs in one deterministic editable GLB.
+  Normal and reversed real inputs are byte-identical at **2,081,256 bytes**,
+  SHA-256
+  `afb6eb3221367bc95275a812d6fa52cd6741f3efb78462a1a808c6151f248c1a`;
+  the payload-free receipt is SHA-256
+  `d143c366c62e97e06d3e3a45291c4a1bf1ecc33acfc12d36da3da9ba3d79a2ee`.
+- The first owned page-two result joins five current Zeke records into one
+  relative assembly: **1,434 vertices / 2,026 retail triangle occurrences**,
+  split into **1,147 material-proved / 879 unresolved** occurrences. This is a
+  recognizable partial pose, not complete Zeke or original object-space proof.
+- The first real run failed closed on the current exporter-owned
+  `runtime-observed exact triangle subset` primitive role. The assembler and
+  existing gap locator now admit that exact maintained role as well as the
+  historical/union roles; pre-extrapolated component inputs remain rejected.
+- Added opt-in, record-selective clean presentation through repeated
+  `--preview-record`. Only a requested component's unresolved primitive is
+  redirected to its exactly one observed material. Strict observed/unresolved
+  counts remain unchanged in the receipt, the selected records and triangle
+  counts are explicit, and runtime proof remains false. This removes the two
+  peach Zeke-hair spots (four triangles) without repainting unresolved head or
+  clothing faces. Normal/reversed inputs reproduce a **2,081,628-byte** GLB,
+  SHA-256
+  `abac165ee1d4f8e356964e91d22935cad67fe03b91f0aed3ec5c942dbea700d6`;
+  receipt SHA-256
+  `fd1232aa811aee2d9f744320e0d81f65cb9e35c0464fc66d0f59833f4c4425d5`.
+- Blender 5.2.0 and the maintained decomp review renderer produced and
+  immediately published strict and hair-clean unlit -58°, 35°, and 145° views.
+  The strict images expose all unresolved coverage; the clean images fill only
+  the two tiny hair regions and leave every other gap visible.
+- Added deterministic assembly, input-order, path/page/record/hash/frame,
+  transform, primitive-role, selective-preview, occupied-output, and CLI
+  coverage. All **293
+  tests** pass; changed-file Ruff format/check, Python compilation, and diff
+  validation pass.
+- Full character/component completeness, original coordinate semantics,
+  retail normals/tangents, rigging, 4× maps, authored PBR, RPCS3 mod round
+  trip, and native-decomp import remain false.
+
 ## 2.41.0 - 2026-08-23
 
 - Added explicit permanent `character-component-ledger`

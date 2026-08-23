@@ -5,6 +5,79 @@ modding or reverse-engineering goal. A command enters this file only after it
 has a callable contract, rejection tests, no-overwrite behavior, deterministic
 output where applicable, an operator card, and a maintained source location.
 
+## `xpp-tool.character-material-assembly-export.v1`
+
+- Status: maintained; introduced and callable in xpp-tool 2.42.0.
+- Parent goal: finish every inFAMOUS character/item once as a complete,
+  correctly aligned and textured Blender asset for near-term RPCS3 mods and
+  later native-decomp import without repeating already completed components.
+- Binary question: can separately recentered strict material components from
+  one exact runtime page recover their recorded relative placement in a single
+  editable GLB without hand alignment or a false coordinate-semantic claim?
+- First answer: yes for the exact five admitted page-two Zeke records. Hair,
+  main jacket, packs, head, and jacket detail produce one deterministic relative
+  assembly with 1,434 vertices and 2,026 triangle occurrences. The output keeps
+  the exact 1,147 proved / 879 unresolved material split visible.
+- Entry point: `xpp-tool character-material-assembly-export` (also exposed by
+  compatible `if1-tex`).
+- Implementation: `src/infamous_xpp_textures/material_assembly.py`, SHA-256
+  `bf2dbfbf53f1f5c143c53e84a68f515c42f4827fc3f8ef59b4743871a9c11eb7`;
+  CLI wiring `src/infamous_xpp_textures/cli.py`, SHA-256
+  `98c74e46c920bd8eae89acaee291d9f344e16d73e9eee8bdc3e87aa1ab6ffd90`.
+- Tests: `tests/test_material_assembly.py`, SHA-256
+  `d09e5dbbaeb1853731ffe65f5d70316c00394b17ed1c26376f9c490d5d453b15`;
+  compatibility coverage in `tests/test_material_gap_locator.py`, SHA-256
+  `c83368f796bbb22bdec90f433bf614a021a92346341dc03e982af12017ffe2ec`.
+  Fifteen focused tests cover deterministic strict and selective-preview
+  assembly, input order, exact node translation/index remapping,
+  page/record/frame/hash drift, preview selection/rejection, current primitive
+  roles, pre-transformed input, CLI behavior, and occupied-output preservation.
+  The complete suite passes **293 tests**.
+- Operator card: [README — Version 2.42](README.md#version-242--strict-same-page-material-component-assembly).
+- Inputs: two through 32 unique checksum-pinned strict material report/GLB
+  pairs, one canonical title/build/candidate token, one shared runtime page from
+  1 through 17, and optional repeated source records for selective preview.
+- Outputs: one deterministic editable GLB and one deterministic payload-free
+  JSON receipt at two distinct new paths outside every immutable input.
+- Bounds: 1 MiB per report; 64 MiB per component GLB; 128 MiB assembled GLB;
+  1 MiB output receipt; 32 components; 2,000,000 total vertices and triangles;
+  one process; no runtime, network, symlink input/output, mutation, or overwrite.
+- Proven capability: revalidates report/GLB identity, embedded buffers, one
+  origin node/mesh, accessors, vertex/index rows, exact material topology split,
+  texture/image identity, and actual GLB bounds against the recorded source
+  center. It remaps all buffer-view/accessor/image/texture/material/mesh indices
+  and restores only the deterministic `X,Z,-Y` recenter translation.
+- Selective presentation: `--preview-record RECORD_OFFSET` may be repeated. A
+  selected component must be admitted, have unresolved faces, and contain
+  exactly one observed material. Only its unresolved primitive assignment is
+  redirected; topology, UVs, images, material resources, strict counts, and
+  false proof gates remain. Unknown, duplicate, complete, or ambiguous records
+  reject.
+- First evidence: normal and reversed inputs produce the identical
+  **2,081,256-byte** GLB, SHA-256
+  `afb6eb3221367bc95275a812d6fa52cd6741f3efb78462a1a808c6151f248c1a`;
+  payload-free receipt SHA-256
+  `d143c366c62e97e06d3e3a45291c4a1bf1ecc33acfc12d36da3da9ba3d79a2ee`.
+  `assimp info` imports 2,026 faces, 10 embedded textures, zero bones, and zero
+  animations. Three 1600×1200 strict unlit Blender views were published
+  immediately.
+- Hair-clean evidence: normal and reversed inputs with only record 533752
+  selected produce the identical **2,081,628-byte** GLB, SHA-256
+  `abac165ee1d4f8e356964e91d22935cad67fe03b91f0aed3ec5c942dbea700d6`;
+  receipt SHA-256
+  `fd1232aa811aee2d9f744320e0d81f65cb9e35c0464fc66d0f59833f4c4425d5`.
+  The receipt retains 290/294 strict hair proof and declares exactly four
+  preview-filled occurrences. Three corrected angles were published
+  immediately; other unresolved faces remain visible.
+- Limitations: same-page recenter reversal is internally consistent placement,
+  not proof of original object/world coordinates. The result is missing other
+  components and material assignments, including four hair faces in two tiny
+  spots. It does not recover retail normals/tangents, rigging, 4×/PBR, RPCS3
+  repack/replacement, or native-decomp import.
+- Return status: `returned-with-capability-and-evidence`. Finish the tracked
+  issue/PR/release, then add only newly proved components and close material
+  gaps from different runtime passes/states without hiding diagnostic faces.
+
 ## `xpp-tool.character-material-gap-locator.v1`
 
 - Status: maintained; introduced and callable in xpp-tool 2.38.0.
@@ -23,15 +96,15 @@ output where applicable, an operator card, and a maintained source location.
   compatible `if1-tex` alias).
 - Implementation:
   `src/infamous_xpp_textures/material_gap_locator.py`, SHA-256
-  `3a998020f8e7195dc81072eadd29e850595c5c8fb5c14243f56dcf8fc74e1656`;
+  `41b02a4c0b59d1c0c6c4d3f046cca8c3946c06c322508a7da80221e311d83871`;
   CLI wiring `src/infamous_xpp_textures/cli.py`, SHA-256
-  `3354f83acd2a629c386edf6072aa64dd63fa17017f9c035b00a4828d0e74837a`.
+  `98c74e46c920bd8eae89acaee291d9f344e16d73e9eee8bdc3e87aa1ab6ffd90`.
 - Tests: `tests/test_material_gap_locator.py`, SHA-256
-  `0c667f46425bb167e5b3bf801eb087c9923e9a8a37fb9ded97fb3840744a5d2c`.
-  Eight focused tests cover deterministic aggregates, input-hash drift, report
-  count drift, unknown primitive roles, wrong accessor shape, symlink input,
-  atomic no-overwrite CLI, and full-coverage rejection. The complete suite
-  passes **274 tests**.
+  `c83368f796bbb22bdec90f433bf614a021a92346341dc03e982af12017ffe2ec`.
+  Nine focused tests cover deterministic aggregates, input-hash drift, report
+  count drift, current and unknown primitive roles, wrong accessor shape,
+  symlink input, atomic no-overwrite CLI, and full-coverage rejection. The
+  complete suite passes **291 tests**.
 - Operator card: [README — Version 2.38](README.md#version-238--strict-material-gap-spatial-and-uv-locator).
 - Inputs: one canonical strict observed-union GLB plus its exact export report;
   both require explicit SHA-256 pins and regular non-symlink files.

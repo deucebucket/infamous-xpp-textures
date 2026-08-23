@@ -418,6 +418,74 @@ a universal lookup map. It does not yet tell Blender which packed numbers are
 positions, UVs, bones, or weights; that still needs one complete decoded retail
 vertex-stream proof.
 
+### Version 2.42 — strict same-page material-component assembly
+
+`character-material-assembly-export` restores the relative translation between
+two through 32 separately centered strict material GLBs from one runtime page,
+then writes one editable GLB plus a payload-free receipt:
+
+```console
+timeout 60s xpp-tool character-material-assembly-export \
+  --title-id infamous-1 \
+  --build-id bcus98119-v0100 \
+  --candidate-id zeke \
+  --page 2 \
+  --component ./hair.json HAIR_REPORT_SHA256 ./hair.glb HAIR_GLB_SHA256 \
+  --component ./head.json HEAD_REPORT_SHA256 ./head.glb HEAD_GLB_SHA256 \
+  --component ./jacket.json JACKET_REPORT_SHA256 ./jacket.glb JACKET_GLB_SHA256 \
+  --output-glb ./zeke-page2-relative.glb \
+  --output-report ./zeke-page2-relative.json
+```
+
+The default above preserves every strict observed/unresolved material split.
+For a clean review image without corrupting that proof, repeat
+`--preview-record RECORD_OFFSET` only for a selected component whose unresolved
+faces should use its one observed material. The receipt keeps the strict counts,
+lists every selectively extrapolated record and triangle count, and sets
+`preview_is_runtime_material_proof=false`.
+
+The command does not eyeball pieces into place. Each material report records the
+source-position bounds used when its component was recentered. The assembler
+revalidates that the GLB's actual local position bounds are the exact `X,Z,-Y`
+conversion of that recorded frame, computes one aggregate center, and gives
+each output node only the corresponding translation. Inputs are sorted by
+source-record offset, so normal and reversed argument order produce identical
+bytes.
+
+RR — Really Readable rundown: the prior tools gave Blender good individual
+Zeke pieces, but each piece had been moved to its own origin for inspection.
+Version 2.42 puts those known offsets back and carries hair, head, jacket,
+packs, and jacket detail in one file. That creates a recognizable shared pose
+without hand alignment. Peach faces are not holes or accepted skin: they are
+the complete mesh faces whose runtime material ownership is still unproved.
+The two tiny peach spots in the strict hair are the final four unassigned hair
+triangles—one three-triangle patch and one single triangle. The first selective
+preview uses `--preview-record 533752` to make only those four faces brown. It
+removes the visual defect from all three published angles without claiming the
+game supplied four new assignments or hiding unresolved head/clothing faces.
+
+The first exact page-two A/B result is five components, 1,434 vertices, and
+2,026 retail triangle occurrences. The GLB is 2,081,256 bytes at SHA-256
+`afb6eb3221367bc95275a812d6fa52cd6741f3efb78462a1a808c6151f248c1a`;
+its receipt is SHA-256
+`d143c366c62e97e06d3e3a45291c4a1bf1ecc33acfc12d36da3da9ba3d79a2ee`.
+The material split is 1,147 proved / 879 unresolved occurrences. Blender 5.2.0
+unlit -58°, 35°, and 145° audits were published immediately.
+
+Operator card: stable ID
+`xpp-tool.character-material-assembly-export.v1`. Reports are capped at 1 MiB,
+component GLBs at 64 MiB, the assembled GLB at 128 MiB, output report at 1 MiB,
+components at 32, and total vertices/triangles at two million each. Inputs must
+be regular checksum-pinned files, source records must be unique, the page must
+be 1 through 17 and match, node transforms/skins/animations/cameras and unknown
+extensions or primitive roles reject, and the two outputs are atomically staged
+and never overwritten. The command is offline and single-process.
+
+This establishes consistent relative placement only. Original object/world
+space, complete character membership, complete material assignment, retail
+normals/tangents, bones/weights, 4×, authored PBR, RPCS3 repack/replacement,
+and native-decomp import remain separate false gates.
+
 ### Version 2.41 — one source component across multiple runtime pages
 
 `character-component-ledger` now has an explicit v2 mode for the case where the
