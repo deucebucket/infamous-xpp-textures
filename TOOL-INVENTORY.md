@@ -246,9 +246,9 @@ output where applicable, an operator card, and a maintained source location.
   `c503da8d5e12741b271aa90f2ca286f501de022f18a95c22c8e6f17214a0c0b5`;
   a fresh isolated environment reproduced the 290/294 GLB/report A/B.
 - Current 2.40.0 build proof: two builds with pinned
-  `SOURCE_DATE_EPOCH=1787504400` produced the identical 255,642-byte wheel,
+  `SOURCE_DATE_EPOCH=1787504400` produced the identical 255,656-byte wheel,
   SHA-256
-  `d19b4c3915bce5100efbc774f8608c6188364c1555852131e4213d5b2133f5d6`;
+  `98713fd06510f095321be72ae6acc100cc565a1e9fa605ce254e02afec1d5306`;
   a fresh isolated environment reproduced the exact 212/404 head GLB and
   report byte-for-byte.
 - Limitations: this does not close the four remaining hair assignments or the

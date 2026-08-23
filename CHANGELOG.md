@@ -28,8 +28,8 @@
   split. All **284 tests** pass; changed-file Ruff format/check, Python
   compilation, and diff validation pass.
 - Two builds with pinned `SOURCE_DATE_EPOCH=1787504400` produced the identical
-  255,642-byte 2.40.0 wheel, SHA-256
-  `d19b4c3915bce5100efbc774f8608c6188364c1555852131e4213d5b2133f5d6`.
+  255,656-byte 2.40.0 wheel, SHA-256
+  `98713fd06510f095321be72ae6acc100cc565a1e9fa605ce254e02afec1d5306`.
   A fresh isolated environment installed that wheel and reproduced the exact
   five-observation GLB and report byte-for-byte.
 
