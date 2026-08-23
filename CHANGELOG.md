@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.21.0 - 2026-08-22
+
+- Added permanent `character-source-runtime-correlate` analysis for one exact proved retail character record, hash-pinned runtime topology, and hash-pinned contiguous runtime `float32x3` array.
+- Compared every eligible packed three-component stream with the direct-order runtime rows using a full three-axis affine fit, source rank, R-squared, RMSE, normalized RMSE, and maximum point residual without serializing payload values.
+- Added an explicit recorded runtime-row window so a larger capture buffer is never silently trimmed to the topology vertex count.
+- Independently validated stream 1 as the top correlation for the 184-vertex hair record (`R² 0.9999999972`) and the 26-vertex visible fragment (`R² 0.9943533660`) while leaving numeric family, position meaning, ownership, UVs, rigging, materials, completeness, and injection false.
+- Enforced immutable bounded inputs, exact SHA-256 and topology identity, deterministic reports, fail-closed no-overwrite publication including race preservation, and positive/rejection/window/CLI tests.
+
 ## 2.20.0 - 2026-08-22
 
 - Added the permanent `character-source-diagnostic-export` command for one exact proved XPP character record, packed stream, and caller-selected numeric hypothesis.

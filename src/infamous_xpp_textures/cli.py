@@ -24,6 +24,16 @@ from .character_source_export import (
     CharacterSourceExportError,
     export_character_source_diagnostic_glb,
 )
+from .character_source_correlation import (
+    MAX_RUNTIME_ARRAY_BYTES,
+    MAX_RUNTIME_INDEX_BYTES,
+    CharacterSourceCorrelationError,
+    correlate_character_source_runtime,
+    read_bounded_regular_file,
+    regular_file_identity,
+    render_correlation_report,
+    write_new_correlation_report,
+)
 from .cross_build import CrossBuildOracleError, build_cross_build_character_oracle
 from .decode import extract_package, load_xpp_bytes
 from .derive import derive_scaled
@@ -739,6 +749,49 @@ def cmd_character_source_diagnostic_export(args: argparse.Namespace) -> int:
         print(f"character-source-diagnostic-export: {exc}", file=sys.stderr)
         return 1
     print(rendered, end="")
+    return 0
+
+
+def cmd_character_source_runtime_correlate(args: argparse.Namespace) -> int:
+    try:
+        source_paths = [path for path in (args.xpp, args.psarc) if path is not None]
+        source_path = source_paths[0]
+        source_identity = regular_file_identity(source_path, "XPP/PSARC source")
+        input_paths = source_paths + [args.runtime_index, args.runtime_positions]
+        if args.output.is_symlink() or args.output.exists():
+            raise CharacterSourceCorrelationError(
+                "correlation output already exists; refusing to overwrite it"
+            )
+        if any(args.output.resolve() == path.resolve() for path in input_paths):
+            raise CharacterSourceCorrelationError(
+                "correlation output must not overwrite an input"
+            )
+        runtime_index = read_bounded_regular_file(
+            args.runtime_index, MAX_RUNTIME_INDEX_BYTES, "runtime index"
+        )
+        runtime_positions = read_bounded_regular_file(
+            args.runtime_positions, MAX_RUNTIME_ARRAY_BYTES, "runtime positions"
+        )
+        data, _ = _load(args)
+        if regular_file_identity(source_path, "XPP/PSARC source") != source_identity:
+            raise CharacterSourceCorrelationError(
+                "XPP/PSARC source changed while it was read"
+            )
+        report = correlate_character_source_runtime(
+            data,
+            runtime_index,
+            runtime_positions,
+            record_offset=args.record_offset,
+            runtime_index_sha256=args.runtime_index_sha256,
+            runtime_positions_sha256=args.runtime_positions_sha256,
+            runtime_byte_order=args.runtime_byte_order,
+            runtime_first_row=args.runtime_first_row,
+        )
+        write_new_correlation_report(args.output, report)
+    except (OSError, CharacterSourceCorrelationError, ValueError) as exc:
+        print(f"character-source-runtime-correlate: {exc}", file=sys.stderr)
+        return 1
+    print(render_correlation_report(report).decode("utf-8"), end="")
     return 0
 
 
@@ -1506,6 +1559,58 @@ def main(argv: list[str] | None = None) -> int:
         "--json-out", type=Path, help="also write the deterministic export report"
     )
     p_character_source_export.set_defaults(func=cmd_character_source_diagnostic_export)
+
+    p_character_source_correlate = sub.add_parser(
+        "character-source-runtime-correlate",
+        help="rank exact packed streams against one topology-matched runtime float32x3 array",
+    )
+    _add_source(p_character_source_correlate)
+    p_character_source_correlate.add_argument(
+        "--record-offset",
+        type=lambda value: int(value, 0),
+        required=True,
+        help="exact proved character record offset (decimal or 0x-prefixed)",
+    )
+    p_character_source_correlate.add_argument(
+        "--runtime-index",
+        type=Path,
+        required=True,
+        help="exact owned runtime u16 index bytes for topology pairing",
+    )
+    p_character_source_correlate.add_argument(
+        "--runtime-index-sha256",
+        required=True,
+        help="required exact SHA-256 pin for --runtime-index",
+    )
+    p_character_source_correlate.add_argument(
+        "--runtime-positions",
+        type=Path,
+        required=True,
+        help="exact owned contiguous runtime float32x3 rows",
+    )
+    p_character_source_correlate.add_argument(
+        "--runtime-positions-sha256",
+        required=True,
+        help="required exact SHA-256 pin for --runtime-positions",
+    )
+    p_character_source_correlate.add_argument(
+        "--runtime-byte-order",
+        choices=("big", "little"),
+        required=True,
+        help="byte order of the runtime float32x3 payload",
+    )
+    p_character_source_correlate.add_argument(
+        "--runtime-first-row",
+        type=int,
+        default=0,
+        help="first float32x3 row paired with vertex zero (default: 0)",
+    )
+    p_character_source_correlate.add_argument(
+        "--output", type=Path, required=True, help="new payload-free JSON report"
+    )
+    p_character_source_correlate.set_defaults(
+        func=cmd_character_source_runtime_correlate
+    )
 
     p_runtime_topology_export = sub.add_parser(
         "runtime-topology-diagnostic-export",
