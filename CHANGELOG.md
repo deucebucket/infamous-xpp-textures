@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.19.0 - 2026-08-22
+
+- Added `runtime-xpp-source-census` to bind paged RSX draw blocks to one unique exact byte slice of a retail character XPP stream-zero record while preserving observed per-record strides.
+- Revalidated the complete character-contract set, geometry-heap bounds, exact v3/v4 page chain, cumulative capture-key exclusion, texture allowlist, payload sizes, and SHA-256 identities before comparing any bytes.
+- Kept full XPP index identity separate from partial vertex-window identity, reported ambiguous and unmatched draws without promotion, and emitted only a bounded payload-free report.
+- Preserved human component names, position/UV/material semantics, skin weights, skeleton, full-character completeness, PBR, and mod readiness as explicit open gates.
+
 ## 2.18.0 - 2026-08-22
 
 - Added `runtime-page-family-census` to distinguish exact geometry reuse, exact ordered vertex-stream reuse, stable-layout partial-stream candidates, weak target-texture/vertex-program compatibility, and novel observed signatures across a strict v3/v4 page chain.
