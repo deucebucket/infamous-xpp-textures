@@ -418,6 +418,65 @@ a universal lookup map. It does not yet tell Blender which packed numbers are
 positions, UVs, bones, or weights; that still needs one complete decoded retail
 vertex-stream proof.
 
+### Version 2.39 — compatible full-range material passes
+
+`character-material-coverage-union` now admits a full-range draw that binds
+more textures than the canonical display anchor when the display material is
+still exactly the same. This is the safe bridge for a runtime pass that binds
+`Zeke_Hair_A/C/N/S` while the final diagnostic GLB deliberately displays only
+the proved `C/N` pair:
+
+```console
+timeout 60s xpp-tool character-material-coverage-export \
+  --xpp /path/to/owned/male_base_Zeke.xpp \
+  --xpp-sha256 RETAIL_XPP_SHA256 \
+  --texture-allowlist /path/to/zeke-surface-identities.sha256 \
+  --record-offset 533752 \
+  --anchor-lineage /path/to/page2-anchor-lineage.json \
+  --anchor-lineage-sha256 ANCHOR_LINEAGE_SHA256 \
+  --observation /path/to/page2-material.json PAGE2_SHA /path/to/page2-v4 /path/to/page1-keys.tsv \
+  --observation /path/to/page5-four-map-material.json PAGE5_SHA /path/to/page5-v4 /path/to/page4-keys.tsv \
+  --partial-observation /path/to/page1-lineage.json PAGE1_LINEAGE_SHA /path/to/page1-v3 - /path/to/source-census.json SOURCE_CENSUS_SHA /path/to/character-census.json CHARACTER_CENSUS_SHA \
+  --output-glb /new/path/zeke-hair-290.glb \
+  --output-report /new/path/zeke-hair-290.json
+```
+
+The assignment contract is strict. Display-assigned and unassigned suffix lists
+must be present together, bounded, unique, disjoint, and cover every texture in
+the pass. The declared shader-bound texture count must equal the report. Every
+display texture must match the anchor by descriptor, name, suffix, dimensions,
+decoded pixels, and runtime prefix. Repeated extra textures must also keep one
+identity. Only the generated PNG container hash may differ because exporting
+the same decoded image beside two images versus four can change that container;
+the anchor owns the PNG embedded in the final GLB.
+
+RR — Really Readable rundown: the game used the same brown hair color/normal
+maps but had two extra maps connected during this draw. The older checker saw
+“two maps here, four maps there” and stopped, even though the actual displayed
+hair pixels matched. Version 2.39 checks the maps by their real decoded pixels
+and runtime identity, keeps the known-good `C/N` display material, and records
+`A`/`S` only as unassigned evidence. That draw safely fills two of the six
+orange holes: Zeke hair is now **290 / 294**, with four orange faces left. The
+matte/even-brown appearance is locked; no shine, PBR role, or missing face is
+guessed.
+
+Two installed-wheel runs in the pinned release environment produce the same
+179,204-byte GLB at SHA-256
+`a18546b7dcf6db48e54affa0acdb5c045f074fa369c1e3df8386a321b2e78745`
+and the same 5,430-byte report at SHA-256
+`3cbdff5d85ab857c881e3b9d2bf73fc6ba7fc0addf481ae219be3344c5cd731e`.
+The immediate Blender 5.2.0 unlit -58-degree audit is 1,753,289 bytes at
+SHA-256 `fd4dc943c38f1dd697eddf787c9f8756fe0af8dc48656adecb35cdc930f0f56e`.
+
+Operator card: this extends stable IDs
+`xpp-tool.character-material-coverage-union.v1` and
+`xpp-tool.character-material-coverage-export.v1`; it does not create a new
+one-off command. Existing input, bundle, process, report, GLB, atomic
+publication, and no-overwrite bounds remain. This proves four additional
+material assignments only when the runtime supplies them. It does not prove
+the final four faces, original normals/tangents, a complete head/body, rigging,
+4x textures, authored PBR, an RPCS3 repack round trip, or native-decomp import.
+
 ### Version 2.38 — strict material-gap spatial and UV locator
 
 Locate unresolved faces inside one canonical strict material GLB without

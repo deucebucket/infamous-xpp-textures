@@ -165,23 +165,25 @@ output where applicable, an operator card, and a maintained source location.
 
 ## `xpp-tool.character-material-coverage-export.v1`
 
-- Status: maintained; introduced in 2.32.0 and extended with strict partial-
-  range material observations in xpp-tool 2.36.0.
+- Status: maintained; introduced in 2.32.0, extended with strict partial-range
+  observations in xpp-tool 2.36.0, and extended with compatible full-range
+  passes in xpp-tool 2.39.0.
 - Parent goal: finish every character/item once as a complete editable asset,
   first for validated RPCS3 package mods and later for native-decomp import.
 - Binary question: can one exact repeated-draw material union become a
   deterministic strict Blender GLB without serializing game payloads in its
   receipt or assigning the material to unproved faces?
 - First answer: two full-range Zeke hair observations plus one safely bounded
-  partial-range observation export record 533752 as one 184-vertex /
-  294-triangle GLB with 288 exact retail `Zeke_Hair_C/N` triangle assignments
-  and six separate orange diagnostic triangles.
+  partial-range observation exported record 533752 with 288 exact retail
+  `Zeke_Hair_C/N` assignments. A later compatible four-map full-range pass adds
+  two more, so the current 184-vertex / 294-triangle GLB has 290 proved faces
+  and four separate orange diagnostic faces.
 - Entry point: `xpp-tool character-material-coverage-export` (also exposed by
   the compatible `if1-tex` alias).
 - Implementation: `src/infamous_xpp_textures/material_coverage_export.py`,
   SHA-256 `79d387decf7ce8c404575525865b4985195f241b7297eb6eae3f71d055d7c54f`;
   union owner `src/infamous_xpp_textures/material_coverage.py`, SHA-256
-  `3c3298c28703257d656a8f7db7c33953867185b93643277e3f1855ae99dd80c8`;
+  `fc068ad0cb2b5c7a1e60d77f146e24d0f48b2a3c18069910c9bf9996e434242a`;
   strict GLB owner `src/infamous_xpp_textures/character_material_export.py`,
   SHA-256 `df5d9fa41663fb6596f8ec04d822db2f33030eb4c7f02f172393a06b7dc7b8b9`;
   CLI wiring `src/infamous_xpp_textures/cli.py`, SHA-256
@@ -189,8 +191,8 @@ output where applicable, an operator card, and a maintained source location.
 - Tests: `tests/test_material_coverage_export.py`, SHA-256
   `8b2f54831b9641cab534cfe2b895e7e1fa781ebe3f0a3690c1f784cdeb4c6628`,
   plus union, strict exporter, and component-ledger suites. The complete
-  repository suite passes **252 tests**.
-- Operator card: [README — Version 2.36](README.md#version-236--strict-partial-range-material-observations).
+  repository suite passes **279 tests**.
+- Operator card: [README — Version 2.39](README.md#version-239--compatible-full-range-material-passes).
 - Inputs: one exact retail XPP/SHA-256; allowlist; record offset; one through 16
   checksum-pinned strict material observations with immutable v3/v4 bundles and
   required exclusions; zero through 15 eight-value partial observations with
@@ -213,22 +215,34 @@ output where applicable, an operator card, and a maintained source location.
   `87a41528677928bb555217b6c21916dfef65ea85f81eabbbae91433a357034eb`;
   approved immediate unlit audit 1,187,390 bytes / SHA-256
   `6b80f816abb734ad3e2dde45225252dd28521c34b099c0142e4a024d42095cc1`.
+- Current evidence after the 2.39.0 compatible full-range extension: strict
+  Zeke hair is 290/294. Installed-wheel GLB A/B 179,204 bytes / SHA-256
+  `a18546b7dcf6db48e54affa0acdb5c045f074fa369c1e3df8386a321b2e78745`;
+  report A/B 5,430 bytes / SHA-256
+  `3cbdff5d85ab857c881e3b9d2bf73fc6ba7fc0addf481ae219be3344c5cd731e`;
+  approved immediate unlit audit 1,753,289 bytes / SHA-256
+  `fd4dc943c38f1dd697eddf787c9f8756fe0af8dc48656adecb35cdc930f0f56e`.
 - Build proof: two builds with pinned `SOURCE_DATE_EPOCH=1787494800`
   produced the identical 238,586-byte 2.36.0 wheel, SHA-256
   `10096f105406b83260591b12d1b60ecda63ce1196f7f06d78671c92a761463d7`.
-- Limitations: this does not close the six remaining hair assignments,
+- Current build proof: two builds with pinned `SOURCE_DATE_EPOCH=1787498400`
+  produced the identical 254,616-byte 2.39.0 wheel, SHA-256
+  `d47052127ea9215ada421952a9ff048284a7d5a1276ce05a2ac9fce41c6d8c10`;
+  a fresh isolated environment reproduced the 290/294 GLB/report A/B.
+- Limitations: this does not close the four remaining hair assignments,
   identify every hair/head/body piece, recover retail normals/tangents or
   rig/skin, create 4×/authored-PBR material, reverse-pack an RPCS3 mod, or import
   into the native decomp. The approved clean matte render remains the separate
   appearance baseline.
-- Return status: `returned-with-capability-and-evidence`. Keep this 288/294
+- Return status: `returned-with-capability-and-evidence`. Keep this 290/294
   strict component and the approved matte/even-brown look; capture a genuinely
-  different compatible hair pass for the remaining six faces.
+  different compatible hair pass for the remaining four faces.
 
 ## `xpp-tool.character-material-coverage-union.v1`
 
-- Status: maintained; introduced in 2.31.0 and extended with strict partial-
-  range observations in xpp-tool 2.36.0.
+- Status: maintained; introduced in 2.31.0, extended with strict partial-range
+  observations in xpp-tool 2.36.0, and extended with compatible full-range
+  material passes in xpp-tool 2.39.0.
 - Parent goal: finish every character/item once as a complete editable asset,
   first for validated RPCS3 package mods and later for native-decomp import.
 - Binary question: do repeated exact runtime draws of one retail record expose
@@ -238,16 +252,19 @@ output where applicable, an operator card, and a maintained source location.
   packs 170/302, and jacket detail 24/24. Page three then advances compatible
   full-range hair coverage from 275 to 282/294. Revalidating the old page-one
   183-of-184 vertex tray as a safe partial observation advances hair to 288/294.
+  A later four-map full-range pass with the same exact `C/N` display identities
+  adds two more occurrences and advances hair to 290/294 while leaving `A/S`
+  explicitly unassigned.
 - Entry point: `xpp-tool character-material-coverage-union` (also exposed by
   the compatible `if1-tex` alias).
 - Implementation: `src/infamous_xpp_textures/material_coverage.py`, SHA-256
-  `3c3298c28703257d656a8f7db7c33953867185b93643277e3f1855ae99dd80c8`;
+  `fc068ad0cb2b5c7a1e60d77f146e24d0f48b2a3c18069910c9bf9996e434242a`;
   CLI wiring `src/infamous_xpp_textures/cli.py`, SHA-256
   `342820d98f72e844697a8fb3f7c33bcaa7cc427805ca6c21c3760c65a2f8b003`.
 - Tests: `tests/test_material_coverage.py`, SHA-256
-  `ba31735594589fd66f00446ddb9b51671ec3928aaa40765c61921573f661addb`.
-  The complete repository suite passes **252 tests**.
-- Operator card: [README — Version 2.36](README.md#version-236--strict-partial-range-material-observations).
+  `c19d96116e8ed7d237ba6f46e6e6a702f1bd51ff92681d2dfb526c385a8d5346`.
+  The complete repository suite passes **279 tests**.
+- Operator card: [README — Version 2.39](README.md#version-239--compatible-full-range-material-passes).
 - Inputs: exact retail XPP and SHA-256; exact texture allowlist; one source
   record offset; one through 16 pinned strict material reports with immutable
   v3/v4 bundles and required v4 capture-key exclusions; optional eight-value
@@ -262,17 +279,23 @@ output where applicable, an operator card, and a maintained source location.
 - Proven capability: exact source/topology/UV/family/texture/bundle/page/index
   reconciliation; multiset union without duplicate inflation; deterministic
   A/B results; bounded partial-range index and census revalidation; fail-closed
-  duplicate, conflict, dishonest multiset, out-of-range, out-of-retail, and
-  overwrite behavior. A/B union reports are 5,283 bytes / SHA-256
-  `3f90252ab92980500ceea34dca3f5a9a486adb874109079aea233509a5dae825`.
+  compatible full-range assignment partitions and repeated texture identities;
+  fail-closed duplicate, conflict, dishonest multiset, out-of-range,
+  out-of-retail, and overwrite behavior. The current A/B export report is 5,430
+  bytes / SHA-256
+  `3cbdff5d85ab857c881e3b9d2bf73fc6ba7fc0addf481ae219be3344c5cd731e`.
 - Build proof: two builds with pinned `SOURCE_DATE_EPOCH=1787494800`
   produced the identical 238,586-byte 2.36.0 wheel, SHA-256
   `10096f105406b83260591b12d1b60ecda63ce1196f7f06d78671c92a761463d7`.
+- Current build proof: two builds with pinned `SOURCE_DATE_EPOCH=1787498400`
+  produced the identical 254,616-byte 2.39.0 wheel, SHA-256
+  `d47052127ea9215ada421952a9ff048284a7d5a1276ce05a2ac9fce41c6d8c10`;
+  a fresh isolated environment reproduced the exact 290/294 report and GLB.
 - Limitations: an exact triangle union does not identify assembly placement,
   recover original normals/tangents, create bones/weights, upscale textures,
   author PBR, repack an RPCS3 mod, or import into the native decomp.
 - Return status: `returned-with-capability-and-evidence`. Preserve the accepted
-  matte Zeke render; capture a different compatible hair draw for the six open
+  matte Zeke render; capture a different compatible hair draw for the four open
   faces and deliberately different pose/state/occlusion draws for jacket,
   head, and packs.
 

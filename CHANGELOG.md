@@ -1,5 +1,37 @@
 # Changelog
 
+## 2.39.0 - 2026-08-23
+
+- Extended permanent `character-material-coverage-union` support so a strict
+  full-range pass may carry additional shader-bound textures without being
+  rejected when its exact display-assigned textures still match the canonical
+  anchor. Assignment lists must form one bounded, unique, disjoint partition;
+  the declared shader-bound count and every repeated texture identity must
+  reconcile or the union fails closed.
+- Display compatibility deliberately pins descriptor, name, suffix,
+  dimensions, decoded RGBA, and runtime-prefix identity while ignoring only
+  the generated embedded-PNG container hash. The anchor still owns the final
+  display PNG. Extra `A`/`S` maps remain named compatible evidence and are not
+  invented as PBR roles.
+- The first real full-range compatible pass adds exactly two Zeke hair triangle
+  occurrences. Strict editable coverage advances from **288 / 294** to
+  **290 / 294**, leaving four orange audit faces. Two exports are byte-identical:
+  GLB 179,204 bytes / SHA-256
+  `a18546b7dcf6db48e54affa0acdb5c045f074fa369c1e3df8386a321b2e78745`;
+  report 5,430 bytes / SHA-256
+  `3cbdff5d85ab857c881e3b9d2bf73fc6ba7fc0addf481ae219be3344c5cd731e`.
+- Blender 5.2.0 produced the immediate approved matte/unlit -58-degree audit:
+  1,753,289 bytes / SHA-256
+  `fd4dc943c38f1dd697eddf787c9f8756fe0af8dc48656adecb35cdc930f0f56e`.
+  The new proof changes face coverage, not the locked hair appearance.
+- Added deterministic, input-order, container-hash compatibility, malformed
+  assignment, count-drift, reassignment, missing-anchor, and conflicting-extra
+  rejection coverage. All **279 tests** pass.
+- Two pinned-epoch builds produced the identical 254,616-byte 2.39.0 wheel,
+  SHA-256 `d47052127ea9215ada421952a9ff048284a7d5a1276ce05a2ac9fce41c6d8c10`;
+  a fresh isolated environment installed it and
+  reproduced the full-range compatibility behavior.
+
 ## 2.38.0 - 2026-08-23
 
 - Added permanent `character-material-gap-locator` with stable inventory ID
