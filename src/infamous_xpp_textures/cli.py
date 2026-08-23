@@ -64,6 +64,14 @@ from .material_gap_oracle import (
     read_bounded_regular as read_material_gap_input,
     write_new_material_gap_oracle,
 )
+from .material_gap_locator import (
+    MAX_GLB_BYTES as MAX_MATERIAL_GAP_GLB_BYTES,
+    MAX_REPORT_BYTES as MAX_MATERIAL_GAP_REPORT_BYTES,
+    MaterialGapLocatorError,
+    locate_material_gap,
+    read_bounded_regular as read_material_gap_locator_input,
+    write_new_material_gap_location,
+)
 from .material_pass_census import (
     MaterialPassCensusError,
     build_material_pass_census,
@@ -746,6 +754,43 @@ def cmd_character_material_gap_oracle(args: argparse.Namespace) -> int:
         "unobserved topology occurrences map exactly"
     )
     print(f"wrote {args.json_out}")
+    return 0
+
+
+def cmd_character_material_gap_locator(args: argparse.Namespace) -> int:
+    try:
+        sources = {args.material_glb.resolve(), args.material_report.resolve()}
+        if len(sources) != 2:
+            raise MaterialGapLocatorError("material GLB and report must differ")
+        if args.output.resolve() in sources:
+            raise MaterialGapLocatorError("output must not overwrite an input")
+        report = locate_material_gap(
+            read_material_gap_locator_input(
+                args.material_glb,
+                limit=MAX_MATERIAL_GAP_GLB_BYTES,
+                label="material GLB",
+            ),
+            read_material_gap_locator_input(
+                args.material_report,
+                limit=MAX_MATERIAL_GAP_REPORT_BYTES,
+                label="material report",
+            ),
+            glb_sha256=args.material_glb_sha256,
+            material_report_sha256=args.material_report_sha256,
+        )
+        write_new_material_gap_location(args.output, report)
+    except (OSError, MaterialGapLocatorError, ValueError) as exc:
+        print(f"character-material-gap-locator: {exc}", file=sys.stderr)
+        return 1
+
+    gap = report["gap"]
+    print(
+        "character material gap locator: "
+        f"{report['component']['unobserved_material_triangle_occurrences']} faces / "
+        f"{gap['unique_vertices']} vertices / "
+        f"{gap['connectivity']['edge_connected_components']} edge clusters"
+    )
+    print(f"wrote {args.output}")
     return 0
 
 
@@ -2181,6 +2226,32 @@ def main(argv: list[str] | None = None) -> int:
         help="write a new deterministic payload-free report (refuses overwrite)",
     )
     p_character_material_gap_oracle.set_defaults(func=cmd_character_material_gap_oracle)
+
+    p_character_material_gap_locator = sub.add_parser(
+        "character-material-gap-locator",
+        help="locate unresolved strict-material faces in aggregate mesh and UV space",
+    )
+    p_character_material_gap_locator.add_argument(
+        "--material-glb", type=Path, required=True
+    )
+    p_character_material_gap_locator.add_argument(
+        "--material-glb-sha256", required=True
+    )
+    p_character_material_gap_locator.add_argument(
+        "--material-report", type=Path, required=True
+    )
+    p_character_material_gap_locator.add_argument(
+        "--material-report-sha256", required=True
+    )
+    p_character_material_gap_locator.add_argument(
+        "--output",
+        type=Path,
+        required=True,
+        help="write a new deterministic payload-free report (refuses overwrite)",
+    )
+    p_character_material_gap_locator.set_defaults(
+        func=cmd_character_material_gap_locator
+    )
 
     p_character_capture = sub.add_parser(
         "character-capture-report",

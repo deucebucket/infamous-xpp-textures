@@ -1,5 +1,30 @@
 # Changelog
 
+## 2.38.0 - 2026-08-23
+
+- Added permanent `character-material-gap-locator` with stable inventory ID
+  `xpp-tool.character-material-gap-locator.v1`.
+- Revalidates a checksum-pinned strict material-union GLB and its exact export
+  report, identifies primitive roles from the fail-closed evidence contract,
+  and checks exact accessor component/shape, buffer, count, vertex, and triangle
+  bounds. Eight focused rejection/behavior tests and all 274 repository tests
+  pass.
+- Emits deterministic payload-free spatial/UV aggregates: connected component
+  sizes, observed-boundary adjacency, diagnostic bounds and normalized
+  centroids, area fractions, and dominant diagnostic face orientations.
+- The first owned Zeke hair result locates six unresolved faces as two
+  edge-disconnected three-triangle patches using 10 vertices. All 10 vertices
+  already belong to observed hair, all six faces share an edge with observed
+  hair, and the gaps occupy 1.2627171% of diagnostic surface area and
+  0.9167829% of UV triangle area.
+- The result rejects the missing-detachable-chunk hypothesis. The next capture
+  must target a different material pass, state, or LOD; a camera angle alone
+  does not prove a different runtime draw.
+- Raw positions, UV rows, triangle indices, textures, paths, and payload lists
+  remain outside the report. Position meaning, camera direction, the six
+  material assignments, retail normals/tangents, rigging, 4x/PBR, RPCS3 round
+  trip, and native import remain open.
+
 ## 2.36.0 - 2026-08-23
 
 - Extended permanent `character-uv-texture-binding`,
