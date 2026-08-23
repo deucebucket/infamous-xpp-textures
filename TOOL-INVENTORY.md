@@ -5,6 +5,49 @@ modding or reverse-engineering goal. A command enters this file only after it
 has a callable contract, rejection tests, no-overwrite behavior, deterministic
 output where applicable, an operator card, and a maintained source location.
 
+## `xpp-tool.character-material-coverage-union.v1`
+
+- Status: maintained; introduced and callable in xpp-tool 2.31.0.
+- Parent goal: finish every character/item once as a complete editable asset,
+  first for validated RPCS3 package mods and later for native-decomp import.
+- Binary question: do repeated exact runtime draws of one retail record expose
+  new material-bound triangle occurrences, and does their union cover the full
+  retail triangle multiset?
+- First answer: page one plus page two proves jacket 493/1,002, head 185/404,
+  packs 170/302, and jacket detail 24/24. The second ordinary view contributes
+  only 1, 11, 0, and 0 new triangle occurrences respectively.
+- Entry point: `xpp-tool character-material-coverage-union` (also exposed by
+  the compatible `if1-tex` alias).
+- Implementation: `src/infamous_xpp_textures/material_coverage.py`, SHA-256
+  `be1d615ea08bcbc0c93953fc863f38bd6e353eb4af9db45a3b42663fb7c358e6`;
+  CLI wiring `src/infamous_xpp_textures/cli.py`, SHA-256
+  `005a29653df7e9ae970b3aa39398f1ae0b39833ecefa0c6b3c3d1d1a59819f52`.
+- Tests: `tests/test_material_coverage.py`, SHA-256
+  `9731ddb3cfb3a9e7178f941232d4447402f0bcea73e5e7cd911dd7b51298a4c2`.
+  The complete repository suite passes **234 tests**.
+- Operator card: [README — Version 2.31](README.md#version-231--exact-material-coverage-across-repeated-draws).
+- Inputs: exact retail XPP and SHA-256; exact texture allowlist; one source
+  record offset; one through 16 pinned strict material reports with immutable
+  v3/v4 bundles and required v4 capture-key exclusions.
+- Output: deterministic, input-order-independent, payload-free JSON at a new
+  path, preserving per-observation new/overlap/cumulative counts and exact
+  covered/unobserved multiset hashes.
+- Bounds: 64 MiB XPP; 1 MiB per report; 16 observations; inherited bounded
+  bundles; 64 KiB completion marker; 256 KiB output; one process; no runtime,
+  network, symlink output, or overwrite.
+- Proven capability: exact source/topology/UV/family/texture/bundle/page/index
+  reconciliation; multiset union without duplicate inflation; deterministic
+  A/B results; fail-closed duplicate, conflict, out-of-retail, and overwrite
+  behavior.
+- Build proof: the 2.31.0 wheel is 214,881 bytes, SHA-256
+  `ebcd1fdaae0be0b28e44742d1f09893abc583f3410262c4d80bde1225f1e0892`.
+- Limitations: an exact triangle union does not identify assembly placement,
+  recover original normals/tangents, create bones/weights, upscale textures,
+  author PBR, repack an RPCS3 mod, or import into the native decomp.
+- Return status: `returned-with-capability-and-evidence`. Preserve the accepted
+  matte Zeke render; capture deliberately different pose/state/occlusion draws
+  for jacket, head, and packs instead of repeating the same ordinary view.
+
 ## `xpp-tool.character-component-ledger.v1`
 
 - Status: maintained; introduced and callable in xpp-tool 2.30.0.
