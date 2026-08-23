@@ -857,6 +857,42 @@ payload bytes. The tiers are correlation evidence only: same source component,
 new geometry, Zeke ownership, completeness, UVs, materials, bones, weights,
 PBR, and reverse import all remain unproved.
 
+Version 2.19 ties those runtime families back to the editable XPP source without
+guessing a body-part name:
+
+```console
+xpp-tool runtime-xpp-source-census \
+  --xpp /path/to/owned/male_base_Zeke.xpp \
+  --page-bundle /path/to/owned/page-1-v3 \
+  --page-capture-key-exclusion - \
+  --page-bundle /path/to/owned/page-2-v4 \
+  --page-capture-key-exclusion /path/to/page-1-keys.tsv \
+  --texture-allowlist /path/to/exact-targets.sha256 \
+  --json-out /path/outside-the-inputs/xpp-source-census.json
+```
+
+The command first requires complete topology coverage for the supplied XPP.
+For each bounded runtime block, it applies that block's captured stride and
+range start/count to every bounded XPP character stream-zero record and accepts
+only one exact byte match. This preserves distinct layouts instead of forcing
+every component through one record width. A full index-list match is reported
+separately. Zero matches remain unbound; multiple matches remain ambiguous.
+Neither is promoted by size, vertex count, appearance, or texture identity.
+
+RR — Really Readable rundown: the GPU gives us Zeke as batches of triangles,
+not as one Blender file. This check asks whether a runtime batch contains an
+exact strip of bytes from one specific editable XPP record. A unique answer is
+a real bridge back to the game package. It still does not tell us whether that
+record is a shoe, jacket, glasses, book, or hair, and it does not decode UVs or
+bones. Those names and meanings need separate proof.
+
+Operator card: the command is offline and single-process. The XPP is capped at
+64 MiB and an observed record stride is capped at 64 bytes; the
+page/event/comparison bounds are inherited from the strict page
+validator; the JSON is capped at 256 KiB. Inputs must be regular immutable
+files/directories, output must be a new path outside every bundle and different
+from the XPP, and no raw source or runtime payload bytes enter the report.
+
 ## Typical HD texture pass
 
 1. `profile-extract` the protected retail install pair.

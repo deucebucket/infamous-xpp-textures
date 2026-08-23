@@ -49,6 +49,12 @@ from .runtime_topology_export import (
 )
 from .screen_page_merge import export_screen_replay_pages_glb
 from .screen_replay import ScreenReplayError, export_screen_replay_glb
+from .source_correlation import (
+    MAX_SOURCE_CORRELATION_REPORT_BYTES,
+    MAX_XPP_SOURCE_BYTES,
+    SourceCorrelationError,
+    correlate_paged_draws_to_xpp,
+)
 from .validation import ValidationError, compare_xpp, validate_xpp
 from .vertex_transform import (
     VertexTransformCensusError,
@@ -1028,6 +1034,59 @@ def cmd_runtime_page_family_census(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_runtime_xpp_source_census(args: argparse.Namespace) -> int:
+    try:
+        if len(args.page_bundle) != len(args.page_capture_key_exclusion):
+            raise SourceCorrelationError(
+                "--page-bundle and --page-capture-key-exclusion counts must match"
+            )
+        exclusions = tuple(
+            None if value == "-" else Path(value)
+            for value in args.page_capture_key_exclusion
+        )
+        bundle_roots = tuple(path.resolve() for path in args.page_bundle)
+        source = args.xpp.resolve()
+        output = args.json_out.resolve()
+        if output == source or any(
+            output == bundle or bundle in output.parents for bundle in bundle_roots
+        ):
+            raise SourceCorrelationError(
+                "source-census output must not overwrite the XPP or enter an input bundle"
+            )
+        if args.json_out.is_symlink() or args.json_out.exists():
+            raise SourceCorrelationError(
+                "source-census output exists; refusing to overwrite it"
+            )
+        if args.xpp.is_symlink() or not args.xpp.is_file():
+            raise SourceCorrelationError(
+                "XPP source must be an existing regular non-symlink file"
+            )
+        if not 0 < args.xpp.stat().st_size <= MAX_XPP_SOURCE_BYTES:
+            raise SourceCorrelationError(
+                "XPP source is empty or exceeds the 64 MiB bound"
+            )
+        result = correlate_paged_draws_to_xpp(
+            args.xpp.read_bytes(),
+            args.xpp.name,
+            tuple(args.page_bundle),
+            args.texture_allowlist,
+            exclusions,
+        )
+        rendered = render_report(result)
+        if len(rendered.encode("utf-8")) > MAX_SOURCE_CORRELATION_REPORT_BYTES:
+            raise SourceCorrelationError("source-census report exceeds its byte bound")
+        args.json_out.parent.mkdir(parents=True, exist_ok=True)
+        with args.json_out.open("x", encoding="utf-8") as handle:
+            handle.write(rendered)
+            handle.flush()
+            os.fsync(handle.fileno())
+    except (OSError, SourceCorrelationError, ValueError) as exc:
+        print(f"runtime-xpp-source-census: {exc}", file=sys.stderr)
+        return 1
+    print(rendered, end="")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         prog=Path(sys.argv[0]).name,
@@ -1517,6 +1576,24 @@ def main(argv: list[str] | None = None) -> int:
     p_page_family_census.add_argument("--texture-allowlist", type=Path, required=True)
     p_page_family_census.add_argument("--json-out", type=Path, required=True)
     p_page_family_census.set_defaults(func=cmd_runtime_page_family_census)
+
+    p_xpp_source_census = sub.add_parser(
+        "runtime-xpp-source-census",
+        help="bind paged runtime draws to exact XPP stream-zero byte slices",
+    )
+    p_xpp_source_census.add_argument("--xpp", type=Path, required=True)
+    p_xpp_source_census.add_argument(
+        "--page-bundle", type=Path, action="append", required=True
+    )
+    p_xpp_source_census.add_argument(
+        "--page-capture-key-exclusion",
+        action="append",
+        required=True,
+        help="exact page exclusion path, or - for the base v3 page",
+    )
+    p_xpp_source_census.add_argument("--texture-allowlist", type=Path, required=True)
+    p_xpp_source_census.add_argument("--json-out", type=Path, required=True)
+    p_xpp_source_census.set_defaults(func=cmd_runtime_xpp_source_census)
 
     args = ap.parse_args(argv)
     return args.func(args)
