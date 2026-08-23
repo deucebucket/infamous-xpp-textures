@@ -19,11 +19,11 @@ output where applicable, an operator card, and a maintained source location.
   `if1-tex` alias exposes the same command).
 - Implementation:
   `src/infamous_xpp_textures/character_source_export.py`, SHA-256
-  `0aac4350fd2d616b320a9ed2f1bb775e52f92c7f54df84628d6d6772ed91ec0d`;
+  `90378a871f18387c50aefa4ac484424334c91025e5411750404550cce39de7cc`;
   CLI wiring `src/infamous_xpp_textures/cli.py`, SHA-256
   `dbeebb1b7c777083d77e57bb4336294f682f640b89b198395f7de0a6ce190e9b`.
 - Tests: `tests/test_character_export.py`, SHA-256
-  `acb846e6b06030255a30fb2f6f9cd105f12799cf749495749824258ccc4a5a20`.
+  `1141938731997e1497c414812df0c201628e178e2bfa87962ac0c333d032369b`.
 - Operator card: [README — Version 2.20](README.md#version-220--permanent-packed-source-diagnostic-export).
 - Call shape:
 

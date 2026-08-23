@@ -47,7 +47,8 @@ def _write_new_atomic(destination: Path, payload: bytes) -> None:
             handle.write(payload)
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(temporary, destination)
+        os.link(temporary, destination)
+        os.unlink(temporary)
     except BaseException:
         try:
             os.unlink(temporary)

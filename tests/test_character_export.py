@@ -382,6 +382,28 @@ def test_packed_source_export_refuses_existing_output(tmp_path):
     assert output.read_bytes() == b"preserve"
 
 
+def test_packed_source_export_refuses_publication_race(tmp_path, monkeypatch):
+    xpp = _character_xpp()
+    output = tmp_path / "raced.glb"
+    real_link = character_source_export.os.link
+
+    def race_link(source, destination):
+        destination.write_bytes(b"racer")
+        real_link(source, destination)
+
+    monkeypatch.setattr(character_source_export.os, "link", race_link)
+    with pytest.raises(FileExistsError):
+        export_character_source_diagnostic_glb(
+            xpp,
+            output,
+            record_offset=0x20,
+            stream_index=1,
+            numeric_family="endpoint-unsigned",
+        )
+    assert output.read_bytes() == b"racer"
+    assert list(tmp_path.iterdir()) == [output]
+
+
 def test_packed_source_export_refuses_unknown_record_and_family(tmp_path):
     xpp = _character_xpp()
     with pytest.raises(CharacterSourceExportError, match="selects 0"):
