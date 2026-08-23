@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.16.0 - 2026-08-22
+
+- Added bounded screenshot-aligned replay of exact captured RSX output-zero clip coordinates with a checked homogeneous divide and deterministic per-event GLB export.
+- Preserved each selected draw's NDC bounds and relative on-screen position so exact foreground evidence can distinguish prop fragments from plausible character fragments without inventing world-space transforms.
+- Kept attribute meaning, runtime branch execution, component ownership, world space, a complete character, skinning, skeleton, retail materials, and mod readiness explicitly unproved.
+
 ## 2.15.0 - 2026-08-22
 
 - Added strict `if1-texture-bound-topology-v3` validation for exact bounded RSX fragment-program payloads, independently decoded sampler references, captured-mask reconciliation, and target-slot proof.
