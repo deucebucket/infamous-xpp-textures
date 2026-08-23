@@ -5,6 +5,59 @@ modding or reverse-engineering goal. A command enters this file only after it
 has a callable contract, rejection tests, no-overwrite behavior, deterministic
 output where applicable, an operator card, and a maintained source location.
 
+## `xpp-tool.runtime-xpp-source-census.v1`
+
+- Status: maintained since 2.19.0; extended with callable retail index-coverage
+  receipts in xpp-tool 2.35.0.
+- Parent goal: complete every character/item once as an editable Blender asset
+  for near-term RPCS3 mods and later native-decomp import without discarding a
+  useful partial-range draw or assigning material to unproved faces.
+- Binary question: after one runtime draw is uniquely bound to an exact XPP
+  stream slice, is its triangle multiset a retail subset, do all indices stay
+  inside the mapped vertex range, and what does the safe per-record union leave
+  unobserved?
+- First answer: all 45 uniquely bound events across three Zeke pages validate.
+  Hair page one contributes a third index payload with 276 retail triangles and
+  a maximum index of 182 inside the exact 183-vertex slice. Page two adds 11
+  unique occurrences and page three adds one, proving a 288/294 topology union
+  with six unobserved.
+- Entry point: `xpp-tool runtime-xpp-source-census` (also exposed by compatible
+  `if1-tex`).
+- Implementation: `src/infamous_xpp_textures/source_correlation.py`, SHA-256
+  `b212b2f7acdc88025ea38f11e2692a716a697808dcd172e60a3e818f741f67ef`;
+  CLI wiring remains in `src/infamous_xpp_textures/cli.py`, SHA-256
+  `687289ccf0a5fa9cd7fabd3144981fb547bd503d8a51a9070bbcc40348137e83`.
+- Tests: `tests/test_source_correlation.py`, including deterministic union,
+  partial-range containment, out-of-retail rejection, mapped-range escape,
+  payload privacy, bounds, and no-overwrite behavior; SHA-256
+  `37aab68ab01fbfa4c3ed5971a58af86d22942f75c63836c8e0e98e915e12d621`.
+  The complete repository suite passes **247 tests**.
+- Operator card: [README — Version 2.35](README.md#version-235--safe-retail-coverage-from-partial-range-runtime-draws).
+- Inputs: one regular non-symlink XPP capped at 64 MiB; one exact allowlist;
+  one through 17 immutable v3/v4 page bundles and exact cumulative exclusions.
+- Output: deterministic payload-free JSON at a new path outside every input,
+  with per-event admission and per-record retail-ordered union receipts.
+- Bounds: inherited 16 events per page, 64-byte source stride, 256 KiB report,
+  one process, no runtime, network, input mutation, symlink output, or overwrite.
+- Proven capability: exact source/bundle/exclusion/index identities; retail
+  triangle-subset and mapped-range containment; deterministic distinct-payload
+  union; fail-closed malformed, out-of-retail, out-of-range, bound, and occupied
+  output behavior.
+- First evidence: two byte-identical 103,798-byte reports, SHA-256
+  `990a50de1cee155e5efc887e43c291c00047dedf74109bb8d658b5b4d474f865`;
+  occupied-output retry exited 1 and preserved the same hash.
+- Build proof: two builds with pinned `SOURCE_DATE_EPOCH=1787491200`
+  produced the identical 232,337-byte 2.35.0 wheel, SHA-256
+  `8e264dd9ec4e672d6c0996e9371b5549ef8ef2f6390c918056f72ef726d46ee3`;
+  a fresh isolated environment installed it and exposed the extended command.
+- Limitations: 288/294 is topology evidence, not yet the canonical material
+  assignment. Page-one UV/shader/named-texture admission, six remaining faces,
+  full character assembly, rig/skin, 4×, authored PBR, RPCS3 round trip, and
+  native import remain separate gates. No render was created or withheld.
+- Return status: `returned-with-capability-and-evidence`. Wire the admitted
+  page-one receipt into the strict material union without changing the locked
+  matte hair baseline, then capture again only for the final six topology faces.
+
 ## `xpp-tool.character-material-pass-census.v1`
 
 - Status: maintained; introduced and callable in xpp-tool 2.33.0.

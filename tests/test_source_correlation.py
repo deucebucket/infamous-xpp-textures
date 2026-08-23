@@ -92,13 +92,16 @@ def _block(number: int, payload_file: str, payload: bytes, *, first=0, stride=10
     )
 
 
-def _event(number: int, blocks: tuple, *, index=99, count=3):
+def _event(number: int, blocks: tuple, *, index_payload: bytes | None = None):
+    payload = index_payload or struct.pack(">3H", 0, 1, 2)
     return SimpleNamespace(
         number=number,
         blocks=blocks,
-        index_sha256=_sha(index),
-        index_count=count,
-        index_bytes=count * 2,
+        index_sha256=hashlib.sha256(payload).hexdigest(),
+        index_count=len(payload) // 2,
+        index_bytes=len(payload),
+        index_payload_file=f"index-{number}-{hashlib.sha256(payload).hexdigest()[:8]}.bin",
+        test_index_payload=payload,
     )
 
 
@@ -112,6 +115,9 @@ def _wire(monkeypatch, tmp_path: Path):
     c = b"C" * 10
     x = b"X" * 10
     hair = b"H" * 8 + b"I" * 8
+    retail_a = struct.pack(">3H", 0, 1, 2)
+    retail_x = struct.pack(">6H", 0, 1, 2, 2, 1, 0)
+    retail_hair = struct.pack(">3H", 0, 1, 0)
     payloads = {
         (page1, "full-a.bin"): a + b + c,
         (page1, "shared.bin"): b + c,
@@ -124,7 +130,8 @@ def _wire(monkeypatch, tmp_path: Path):
             "record_offset": 100,
             "vertex_count": 3,
             "index_count": 3,
-            "index_sha256": _sha(1),
+            "index_sha256": hashlib.sha256(retail_a).hexdigest(),
+            "index_payload": retail_a,
             "stream_zero_offset": 1000,
             "stream_zero_bytes": 30,
             "stream_zero_sha256": hashlib.sha256(a + b + c).hexdigest(),
@@ -134,7 +141,8 @@ def _wire(monkeypatch, tmp_path: Path):
             "record_offset": 200,
             "vertex_count": 3,
             "index_count": 6,
-            "index_sha256": _sha(2),
+            "index_sha256": hashlib.sha256(retail_x).hexdigest(),
+            "index_payload": retail_x,
             "stream_zero_offset": 2000,
             "stream_zero_bytes": 30,
             "stream_zero_sha256": hashlib.sha256(x + b + c).hexdigest(),
@@ -144,20 +152,36 @@ def _wire(monkeypatch, tmp_path: Path):
             "record_offset": 300,
             "vertex_count": 2,
             "index_count": 3,
-            "index_sha256": _sha(3),
+            "index_sha256": hashlib.sha256(retail_hair).hexdigest(),
+            "index_payload": retail_hair,
             "stream_zero_offset": 3000,
             "payload": hair,
         },
     ]
     first = {
-        1: _event(1, (_block(1, "full-a.bin", a + b + c),), index=1),
+        1: _event(
+            1,
+            (_block(1, "full-a.bin", a + b + c),),
+            index_payload=retail_a,
+        ),
         2: _event(2, (_block(1, "shared.bin", b + c, first=1),)),
         3: _event(3, (_block(1, "other.bin", b"Q" * 12, stride=12),)),
     }
     second = {
-        1: _event(1, (_block(1, "full-x.bin", x + b + c),), index=9),
-        2: _event(2, (_block(1, "hair.bin", hair, stride=8),), index=9),
+        1: _event(
+            1,
+            (_block(1, "full-x.bin", x + b + c),),
+            index_payload=retail_x[:6],
+        ),
+        2: _event(
+            2,
+            (_block(1, "hair.bin", hair, stride=8),),
+            index_payload=retail_hair,
+        ),
     }
+    for bundle, events in ((page1, first), (page2, second)):
+        for event in events.values():
+            payloads[(bundle, event.index_payload_file)] = event.test_index_payload
     monkeypatch.setattr(
         source,
         "_source_records",
@@ -211,7 +235,18 @@ def test_classifies_unique_ambiguous_and_unmatched_events(monkeypatch, tmp_path:
     assert first["unmatched_runtime_events"] == 1
     assert first["mapped_source_record_count"] == 3
     assert first["source_record_coverage"] == "3/3"
-    assert first["exact_full_index_source_record_offsets"] == [100]
+    assert first["exact_full_index_source_record_offsets"] == [100, 300]
+    assert first["runtime_index_subset_events"] == 3
+    assert first["runtime_index_rejected_events"] == 0
+    assert first["gates"]["runtime_index_retail_subset_validation"] is True
+    assert [row["record_offset"] for row in first["record_index_coverage"]] == [
+        100,
+        200,
+        300,
+    ]
+    record_200 = first["record_index_coverage"][1]
+    assert record_200["union"]["covered_retail_triangle_occurrences"] == 1
+    assert record_200["union"]["unobserved_retail_triangle_occurrences"] == 1
     statuses = [item["status"] for item in first["events"]]
     assert statuses == [
         "unique-exact-xpp-stream-zero-slice",
@@ -261,7 +296,10 @@ def test_does_not_match_a_slice_past_the_bounded_source_record(
                     "record_offset": 100,
                     "vertex_count": 2,
                     "index_count": 3,
-                    "index_sha256": _sha(1),
+                    "index_sha256": hashlib.sha256(
+                        event.test_index_payload
+                    ).hexdigest(),
+                    "index_payload": event.test_index_payload,
                     "stream_zero_offset": 1000,
                     "payload": b"A" * 10,
                 }
@@ -282,6 +320,135 @@ def test_does_not_match_a_slice_past_the_bounded_source_record(
     assert report["unique_exact_source_binding_events"] == 0
     assert report["unmatched_runtime_events"] == 1
     assert report["events"][0]["status"] == "no-exact-xpp-stream-zero-slice"
+
+
+def test_source_binding_does_not_admit_out_of_retail_triangle_multiset(
+    monkeypatch, tmp_path: Path
+):
+    page = tmp_path / "page"
+    page.mkdir()
+    vertex_payload = b"A" * 30
+    retail_indices = struct.pack(">3H", 0, 1, 2)
+    runtime_indices = struct.pack(">3H", 0, 2, 1)
+    event = _event(
+        1,
+        (_block(1, "vertices.bin", vertex_payload),),
+        index_payload=runtime_indices,
+    )
+    monkeypatch.setattr(
+        source,
+        "_source_records",
+        lambda _data: (
+            {
+                "source_sha256": _sha(500),
+                "source_size": 30,
+                "xpp_version": 8,
+                "character_record_count": 1,
+                "contract_coverage": "1/1",
+            },
+            [
+                {
+                    "record_offset": 100,
+                    "vertex_count": 3,
+                    "index_count": 3,
+                    "index_sha256": hashlib.sha256(retail_indices).hexdigest(),
+                    "index_payload": retail_indices,
+                    "stream_zero_offset": 1000,
+                    "payload": vertex_payload,
+                }
+            ],
+        ),
+    )
+    monkeypatch.setattr(
+        source,
+        "_load_page_chain",
+        lambda *_args: ([{"page": 1}], [{1: event}], _sha(600)),
+    )
+    payloads = {
+        "vertices.bin": vertex_payload,
+        event.index_payload_file: runtime_indices,
+    }
+    monkeypatch.setattr(
+        source,
+        "_read_payload",
+        lambda _bundle, filename, _size, _digest: payloads[filename],
+    )
+
+    report = source.correlate_paged_draws_to_xpp(
+        b"owned", "owned.xpp", (page,), tmp_path / "allow", (None,)
+    )
+
+    coverage = report["events"][0]["mapping"]["runtime_index_coverage"]
+    assert coverage["status"] == "not-admitted"
+    assert coverage["safe_for_retail_coverage_union"] is False
+    assert "exceeds the retail record" in coverage["reason"]
+    assert report["runtime_index_subset_events"] == 0
+    assert report["runtime_index_rejected_events"] == 1
+    assert report["record_index_coverage"] == []
+    assert report["gates"]["runtime_index_retail_subset_validation"] is False
+
+
+def test_partial_vertex_slice_rejects_an_index_that_escapes_the_slice(
+    monkeypatch, tmp_path: Path
+):
+    page = tmp_path / "page"
+    page.mkdir()
+    source_vertices = b"A" * 40
+    captured_vertices = source_vertices[:30]
+    retail_indices = struct.pack(">3H", 0, 1, 3)
+    event = _event(
+        1,
+        (_block(1, "vertices.bin", captured_vertices),),
+        index_payload=retail_indices,
+    )
+    monkeypatch.setattr(
+        source,
+        "_source_records",
+        lambda _data: (
+            {
+                "source_sha256": _sha(500),
+                "source_size": 40,
+                "xpp_version": 8,
+                "character_record_count": 1,
+                "contract_coverage": "1/1",
+            },
+            [
+                {
+                    "record_offset": 100,
+                    "vertex_count": 4,
+                    "index_count": 3,
+                    "index_sha256": hashlib.sha256(retail_indices).hexdigest(),
+                    "index_payload": retail_indices,
+                    "stream_zero_offset": 1000,
+                    "payload": source_vertices,
+                }
+            ],
+        ),
+    )
+    monkeypatch.setattr(
+        source,
+        "_load_page_chain",
+        lambda *_args: ([{"page": 1}], [{1: event}], _sha(600)),
+    )
+    payloads = {
+        "vertices.bin": captured_vertices,
+        event.index_payload_file: retail_indices,
+    }
+    monkeypatch.setattr(
+        source,
+        "_read_payload",
+        lambda _bundle, filename, _size, _digest: payloads[filename],
+    )
+
+    report = source.correlate_paged_draws_to_xpp(
+        b"owned", "owned.xpp", (page,), tmp_path / "allow", (None,)
+    )
+
+    coverage = report["events"][0]["mapping"]["runtime_index_coverage"]
+    assert coverage["status"] == "not-admitted"
+    assert "escape the exact mapped vertex range" in coverage["reason"]
+    assert report["runtime_index_subset_events"] == 0
+    assert report["runtime_index_rejected_events"] == 1
 
 
 def test_rejects_source_bounds(monkeypatch):
