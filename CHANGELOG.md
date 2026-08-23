@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.28.0 - 2026-08-23
+
+- Extended permanent `character-material-export` inputs from exactly two shader-bound textures to one bounded family of two through eight unique sampler/suffix bindings containing required `C` and `N` descriptors.
+- Embedded every runtime-matched retail image in deterministic shader-sampler order while assigning only the existing name-derived `C` base-color and `N` normal display roles. Additional `A` and `S` images remain explicitly unassigned; no alpha/specular/roughness/metallic or native-PBR role is invented.
+- Generalized GLB family, node, mesh, material, texture, and receipt labels instead of hardcoding Zeke hair, and accepted shader-proved half3 rows while exporting only their sampled X/Y pair as `TEXCOORD_0`.
+- The first real four-map export preserves record 536488 as 26 vertices / 24 triangles with exact full runtime material coverage, four embedded `Zeke_Jacket` images, two display-assigned suffixes, and two unassigned suffixes.
+- Added deterministic four-map GLB tests, retained the two-map hair and strict/preview tests, and made the CLI report the actual embedded image count.
+- Published three immediate 1600×1200 unlit component views. They show two separated textured detail islands and are not promoted to a full jacket, full Zeke, PBR/4×, rig, RPCS3 round trip, or native import.
+
 ## 2.27.0 - 2026-08-23
 
 - Corrected `character-uv-texture-binding` to distinguish packed guest source-storage widths from padded renderer host-upload widths for source-proved three-component unorm8 and half-float vertex arrays.

@@ -1097,7 +1097,8 @@ def cmd_character_material_export(args: argparse.Namespace) -> int:
     print(
         "character material export: "
         f"record {selection['record_offset']} {selection['vertices']} vertices / "
-        f"{selection['triangles']} triangles / 1 proved UV layer / 2 retail images"
+        f"{selection['triangles']} triangles / 1 proved UV layer / "
+        f"{selection['shader_bound_texture_count']} retail images"
         f" / {report['presentation_mode']}"
     )
     print(f"wrote {args.output_glb}")

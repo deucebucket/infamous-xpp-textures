@@ -896,6 +896,61 @@ validator; the JSON is capped at 256 KiB. Inputs must be regular immutable
 files/directories, output must be a new path outside every bundle and different
 from the XPP, and no raw source or runtime payload bytes enter the report.
 
+### Version 2.28 — complete shader-bound texture-family GLB export
+
+`character-material-export` now preserves every texture selected by one exact
+shader-lineage family instead of requiring exactly two. A lineage must still
+contain unique samplers, unique short alphanumeric name suffixes, one bounded
+family, and required `C` plus `N` descriptors. Two through eight images are
+accepted; every encoded runtime-prefix identity is rechecked against the retail
+XPP before decoding.
+
+```console
+timeout 60s xpp-tool character-material-export \
+  --xpp /path/to/owned/male_base_Zeke.xpp \
+  --bundle /path/to/owned/page-2-v4 \
+  --texture-allowlist /path/to/zeke-surface-identities.sha256 \
+  --capture-key-exclusion /path/to/page-1-keys.tsv \
+  --lineage /path/to/zeke-jacket-event5-binding.json \
+  --lineage-sha256 LINEAGE_SHA256 \
+  --material-coverage-mode observed-only \
+  --output-glb /new/path/zeke-jacket-event5.glb \
+  --output-report /new/path/zeke-jacket-event5.json
+```
+
+The first owned run exports record `536488` as **26 vertices / 24 triangles**,
+one shader-proved UV layer, generated inspection normals, and four exact retail
+images in sampler order:
+
+- sampler 0: `Zeke_Jacket_N.psd` — display-wired as the name-derived normal;
+- sampler 1: `Zeke_Jacket_A.psd` — embedded, role unassigned;
+- sampler 2: `Zeke_Jacket_S.psd` — embedded, role unassigned;
+- sampler 3: `Zeke_Jacket_C.psd` — display-wired as name-derived base color.
+
+The runtime and retail index lists are identical, so all **24/24 triangles** have
+exact material coverage. Two final GLBs repeat at **513,796 bytes**, SHA-256
+`bd364627c4bd2e57cb7088320859d1839e5b67fa4d3d91acd487646ea83e3c47`;
+their payload-free reports repeat at SHA-256
+`a208e1335c10ea5fb27585ede1499af26f075ddce57bc491d91ab9ce5815f09e`.
+
+RR — Really Readable rundown: Blender should receive every image the captured
+shader selected, but receiving an image is not the same as knowing its modern
+PBR meaning. The exporter therefore keeps all four retail maps inside the GLB,
+uses only the already-supported `C`/`N` display convention, and writes explicit
+`null` display roles for `A` and `S`. Nothing silently turns those letters into
+alpha, specular, roughness, or metalness.
+
+Three immediate unlit views show two small, widely separated textured islands,
+including a legible `EMPIRE CITY` detail. That proves the UVs address coherent
+retail imagery. It does not prove the human-readable name or whole-character
+placement of the geometry, and it does not make this record a full jacket.
+
+Operator card: stable ID `xpp-tool.character-material-export.v1`, maintained in
+xpp-tool 2.28.0. The 64 MiB XPP/GLB and 256 KiB report bounds, immutable authority
+pins, complete topology/material partition, deterministic atomic pair publication,
+and no-overwrite behavior remain unchanged. The GLB is private/operator-owned;
+the public repo and wiki retain only source, payload-free facts, and review PNGs.
+
 ### Version 2.27 — packed three-component character streams
 
 `character-uv-texture-binding` now distinguishes two byte counts that look
@@ -950,8 +1005,8 @@ exporter from a two-texture hair pair to this four-texture family while keeping
 retail name suffixes separate from authored PBR meanings; any progress render
 is published as soon as it exists.
 
-Operator card: stable ID `xpp-tool.character-uv-texture-binding.v1`, maintained
-in xpp-tool 2.27.0. Inputs, bounds, payload-free output, SHA-256 pins, atomic
+Operator card: stable ID `xpp-tool.character-uv-texture-binding.v1`, introduced
+in 2.25 and maintained in xpp-tool 2.28.0. Inputs, bounds, payload-free output, SHA-256 pins, atomic
 new-only publication, and no-runtime/no-network behavior remain unchanged from
 2.25. Packed source widths are now explicit and regression-tested; full
 character, PBR/4x, RPCS3 repack, and native-decomp import remain separate gates.

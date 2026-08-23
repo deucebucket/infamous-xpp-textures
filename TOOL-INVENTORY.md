@@ -7,17 +7,21 @@ output where applicable, an operator card, and a maintained source location.
 
 ## `xpp-tool.character-material-export.v1`
 
-- Status: maintained; introduced in 2.26.0 and callable in xpp-tool 2.27.0.
+- Status: maintained; introduced in 2.26.0 and callable in xpp-tool 2.28.0.
 - Parent goal: complete editable character/item assets once, deliver them first
   through validated retail RPCS3 packages, then reuse the same canonical
   records through a native-decomp importer.
 - Binary question: can one exact shader-lineage record become a deterministic
   GLB with its full topology, proved UV layer, and exact runtime-matched retail
-  color/normal images without promoting unresolved semantics?
+  shader-selected images without promoting unresolved semantics?
 - First answer: Zeke hair record 533752 exports as 184 vertices, 294 triangles,
   one `TEXCOORD_0` layer, generated inspection normals, and embedded
   `Zeke_Hair_C.psd` / `Zeke_Hair_N.psd` mip-zero PNGs. The exact runtime draw
   proves that material for 275 triangles and leaves 19 explicitly unobserved.
+- Second answer: Zeke record 536488 exports as 26 vertices / 24 triangles with
+  full exact runtime material coverage and four embedded `Zeke_Jacket` images.
+  `C` and `N` receive display wiring; `A` and `S` remain embedded with explicit
+  unassigned roles instead of being promoted into a guessed PBR contract.
 - Entry point: `xpp-tool character-material-export` (also exposed by the
   compatible `if1-tex` alias).
 - Implementation: `src/infamous_xpp_textures/character_material_export.py`;
@@ -25,40 +29,43 @@ output where applicable, an operator card, and a maintained source location.
   in `src/infamous_xpp_textures/cli.py`.
 - Tests: `tests/test_character_material_export.py` plus the existing material,
   PNG, shader-lineage, fragment-sampler, topology, and XPP suites.
-- Maintained source pins at 2.26.0: exporter
-  `5c07d0d29ae53c9d066a8f6d5ef9b350f198bc8f8869a0fabbee2e40e45cd1be`;
+- Maintained source pins at 2.28.0: exporter
+  `f5410f1c68e9013c1b7c7eef0bd9f3124a5f96c37175a31a6d64daad8de373fd`;
   PNG encoder
   `2ce34b184d48822ae578eadae96c1717c88ee2a8eef001fcf40ac7563c54c6b2`;
-  CLI `fbe2156fd8662879c6001b1b1d85222c9076cbb2de0d436237fc06439de1d653`;
+  CLI `de8e60e534e43b546c5941fbdddcbe2e2721482d1f6c3c0c5e3518cd7bdec68f`;
   focused tests
-  `9966dec72d8c4b035d19e98397d9ec75f47a6e39179cc7a0439e095bf70c277e`.
-- Operator card: [README — Version 2.26](README.md#version-226--permanent-retail-material-component-glb-export).
+  `59b4539f5b549c7f508a49c758896b6589993a9b25d1aa62a5907364b6caf484`.
+- Operator card: [README — Version 2.28](README.md#version-228--complete-shader-bound-texture-family-glb-export).
 - Inputs: exact retail XPP; complete v3/v4 bundle; allowlist and required paging
-  exclusion; checksum-pinned 2.25 lineage report.
+  exclusion; checksum-pinned 2.25-or-later compatible lineage report.
 - Outputs: deterministic payload-bearing GLB for private/operator asset work and
   a separate deterministic payload-free JSON receipt. Both destinations are
   new-only and published as one fail-closed pair.
 - Bounds: 64 MiB XPP, inherited 64 MiB bundle payload, 64 MiB GLB, 256 KiB
   report, regular immutable authorities, one process, no network, no overwrite.
 - Proven capability: full retail index topology, exact full vertex range,
-  shader-proved half2 `TEXCOORD_0`, encoded runtime-prefix/retail-descriptor
-  identity before decode, embedded retail color/normal images, exact
-  275-triangle runtime material subset, deterministic strict/preview GLBs, and
-  Blender import/render through the maintained decomp review tool. The strict
-  GLB is 178,024 bytes / `1a2a3eaa...018f0b68`; the clean full-record preview
-  is 177,084 bytes / `39d8773b...0e71f6b` and remains labeled extrapolated.
+  shader-proved half2/half3 `TEXCOORD_0`, encoded runtime-prefix/retail-descriptor
+  identity before decode, all shader-bound retail images embedded in sampler
+  order, required color/normal display wiring with extra roles left unassigned,
+  exact runtime material subsets, deterministic strict/preview GLBs, and Blender
+  import/render through the maintained decomp review tool. Hair strict is
+  178,024 bytes / `1a2a3eaa...018f0b68`; its clean preview is 177,084 bytes /
+  `39d8773b...0e71f6b`. Jacket detail is 513,796 bytes /
+  `bd364627...e3c47` with full 24-triangle coverage.
 - Limitations: position attribute 0 remains diagnostic; inspection normals are
-  generated; `C`/`N` roles are retail-name-derived; 19 triangles still lack a
-  proved material assignment. The old metallic review override is rejected.
-  Full character, all materials, authored 4x/PBR, rigging, RPCS3 round trip,
-  and native import remain false.
-- Return status: `returned-with-evidence`. Resume by proving the 19-face
-  material assignment, then repeat the chain across the remaining Zeke pieces
-  and move the canonical component into retail pack validation.
+  generated; `C`/`N` roles are retail-name-derived; the hair record's 19
+  unobserved triangles remain unresolved while the jacket-detail record is fully
+  covered. The old metallic review override is rejected. Full character, all
+  materials, authored 4x/PBR, rigging, RPCS3 round trip, and native import remain
+  false.
+- Return status: `returned-with-evidence`. Preserve the accepted hair and jacket
+  detail components, then repeat the chain across the remaining Zeke pieces and
+  join them only through the canonical assembly/completeness inventory.
 
 ## `xpp-tool.character-uv-texture-binding.v1`
 
-- Status: maintained; introduced in 2.25.0 and callable in xpp-tool 2.27.0.
+- Status: maintained; introduced in 2.25.0 and callable in xpp-tool 2.28.0.
 - Parent goal: turn every character/item into a complete, correctly textured,
   editable Blender asset that can first round-trip through retail RPCS3 and
   later import unchanged through the native decomp's asset API.
@@ -107,10 +114,9 @@ output where applicable, an operator card, and a maintained source location.
   guest widths are not host-upload widths. Name suffixes do not prove native
   PBR channel semantics. Full character, every material, 4x/PBR, RPCS3 round
   trip, and native import remain false.
-- Return status: `returned-with-evidence`. Resume by extending the material
-  exporter from the two-map hair pair to the exact four-map jacket family,
-  keeping alpha/specular roles unpromoted until separately proved, and publish
-  the resulting component render immediately.
+- Return status: `returned-with-evidence`. The four-map exporter is now complete;
+  resume by proving the next source-bound record's UV/material family and joining
+  components only after exact placement/identity evidence.
 
 ## `xpp-tool.asset-completion-inventory.v1`
 

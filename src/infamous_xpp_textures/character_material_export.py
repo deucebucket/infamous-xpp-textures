@@ -38,6 +38,7 @@ _POSITION_TYPE = 2
 _POSITION_COMPONENTS = 3
 _COLOR_SUFFIX = "C"
 _NORMAL_SUFFIX = "N"
+_MAX_SHADER_TEXTURES = 8
 _MATERIAL_COVERAGE_MODES = ("observed-only", "preview-full-record")
 
 
@@ -237,9 +238,15 @@ def _retail_texture_images(
         if binding is None:
             continue
         suffix = binding.get("name_suffix")
-        if suffix not in (_COLOR_SUFFIX, _NORMAL_SUFFIX) or suffix in found:
+        if (
+            not isinstance(suffix, str)
+            or not suffix
+            or len(suffix) > 8
+            or not suffix.isalnum()
+            or suffix in found
+        ):
             raise CharacterMaterialExportError(
-                "material needs one unique retail C and N descriptor"
+                "material texture suffixes must be unique short alphanumeric values"
             )
         try:
             expected_format = int(binding["format"], 16)
@@ -277,6 +284,7 @@ def _retail_texture_images(
                 "retail texture could not be decoded exactly"
             ) from exc
         item = {
+            "sampler": binding["sampler"],
             "suffix": suffix,
             "name": binding["name"],
             "descriptor_index": index,
@@ -293,11 +301,15 @@ def _retail_texture_images(
         }
         found[suffix] = item
         receipts.append({key: value for key, value in item.items() if key != "png"})
-    if set(found) != {_COLOR_SUFFIX, _NORMAL_SUFFIX}:
+    if not {_COLOR_SUFFIX, _NORMAL_SUFFIX}.issubset(found):
         raise CharacterMaterialExportError(
-            "retail XPP did not provide the exact color and normal pair"
+            "retail XPP did not provide the required color and normal pair"
         )
-    receipts.sort(key=lambda item: item["suffix"])
+    if len(found) != len(bindings):
+        raise CharacterMaterialExportError(
+            "retail XPP did not provide every shader-bound descriptor"
+        )
+    receipts.sort(key=lambda item: item["sampler"])
     return found, receipts
 
 
@@ -341,13 +353,40 @@ def build_character_material_export(
         _object(item, "texture binding")
         for item in _array(lineage.get("texture_bindings"), "texture bindings")
     ]
-    if len(bindings) != 2 or {item.get("name_suffix") for item in bindings} != {
-        _COLOR_SUFFIX,
-        _NORMAL_SUFFIX,
-    }:
-        raise CharacterMaterialExportError(
-            "shader lineage does not select one color and one normal descriptor"
+    suffixes = [item.get("name_suffix") for item in bindings]
+    samplers = [item.get("sampler") for item in bindings]
+    families = {item.get("family") for item in bindings}
+    if (
+        not 2 <= len(bindings) <= _MAX_SHADER_TEXTURES
+        or len(set(suffixes)) != len(suffixes)
+        or not {_COLOR_SUFFIX, _NORMAL_SUFFIX}.issubset(suffixes)
+        or any(
+            not isinstance(suffix, str)
+            or not suffix
+            or len(suffix) > 8
+            or not suffix.isalnum()
+            for suffix in suffixes
         )
+        or len(set(samplers)) != len(samplers)
+        or any(
+            not isinstance(sampler, int)
+            or isinstance(sampler, bool)
+            or not 0 <= sampler <= 15
+            for sampler in samplers
+        )
+        or len(families) != 1
+    ):
+        raise CharacterMaterialExportError(
+            "shader lineage does not select one bounded texture family with unique "
+            "samplers/suffixes and required color/normal descriptors"
+        )
+    texture_family = families.pop()
+    if (
+        not isinstance(texture_family, str)
+        or not texture_family
+        or len(texture_family) > 128
+    ):
+        raise CharacterMaterialExportError("shader lineage texture family is invalid")
     xpp_identity = _sha256(xpp_data)
     if (
         xpp_identity != authorities.get("source_xpp_sha256")
@@ -443,10 +482,12 @@ def build_character_material_export(
     if (
         shader.get("vertex_input_attribute") != 9
         or shader.get("vertex_input_type") != 3
-        or shader.get("vertex_input_components") != 2
+        or shader.get("vertex_input_components") not in (2, 3)
         or shader.get("fragment_input_name") != "TEX0"
     ):
-        raise CharacterMaterialExportError("shader lineage is not the bounded half2 TEX0 case")
+        raise CharacterMaterialExportError(
+            "shader lineage is not the bounded half2/half3 TEX0 case"
+        )
     uv_offset = _integer(shader.get("vertex_input_byte_offset"), "UV byte offset")
 
     if (
@@ -529,8 +570,17 @@ def build_character_material_export(
             [min(unobserved_indices)],
             [max(unobserved_indices)],
         )
-    color_view = builder.add_view(textures[_COLOR_SUFFIX]["png"])
-    normal_view = builder.add_view(textures[_NORMAL_SUFFIX]["png"])
+    ordered_bindings = sorted(bindings, key=lambda item: item["sampler"])
+    ordered_textures = [textures[item["name_suffix"]] for item in ordered_bindings]
+    texture_views = [builder.add_view(item["png"]) for item in ordered_textures]
+    texture_indices = {
+        item["suffix"]: index for index, item in enumerate(ordered_textures)
+    }
+    unassigned_suffixes = [
+        item["suffix"]
+        for item in ordered_textures
+        if item["suffix"] not in (_COLOR_SUFFIX, _NORMAL_SUFFIX)
+    ]
     evidence = {
         "diagnosticOnly": True,
         "recordOffset": record_offset,
@@ -543,7 +593,11 @@ def build_character_material_export(
         ),
         "uvProved": True,
         "retailTextureIdentitiesProved": True,
+        "textureFamily": texture_family,
+        "shaderBoundTextureSuffixes": [item["suffix"] for item in ordered_textures],
+        "unassignedTextureSuffixes": unassigned_suffixes,
         "materialRolesFromRetailNames": True,
+        "extraTextureRolesAssigned": False,
         "positionHypothesisAttribute": _POSITION_ATTRIBUTE,
         "positionSemanticProved": False,
         "generatedInspectionNormals": True,
@@ -591,18 +645,25 @@ def build_character_material_export(
     materials = [
         {
             "name": (
-                "Zeke_Hair retail C/N PROVISIONAL full-record preview"
+                f"{texture_family} retail C/N PROVISIONAL full-record preview"
                 if material_coverage_mode == "preview-full-record"
-                else "Zeke_Hair retail C/N observed subset"
+                else f"{texture_family} retail C/N observed subset"
             ),
             "doubleSided": True,
             "alphaMode": "BLEND",
             "pbrMetallicRoughness": {
-                "baseColorTexture": {"index": 0, "texCoord": 0},
+                "baseColorTexture": {
+                    "index": texture_indices[_COLOR_SUFFIX],
+                    "texCoord": 0,
+                },
                 "metallicFactor": 0.0,
                 "roughnessFactor": 1.0,
             },
-            "normalTexture": {"index": 1, "texCoord": 0, "scale": 1.0},
+            "normalTexture": {
+                "index": texture_indices[_NORMAL_SUFFIX],
+                "texCoord": 0,
+                "scale": 1.0,
+            },
             "extras": {"infamousMaterialEvidence": evidence},
         }
     ]
@@ -623,7 +684,7 @@ def build_character_material_export(
     document = {
         "asset": {
             "version": "2.0",
-            "generator": "xpp-tool 2.26.0 character material exporter",
+            "generator": "xpp-tool 2.28.0 character material exporter",
             "extras": {"infamousMaterialEvidence": evidence},
         },
         "scene": 0,
@@ -631,13 +692,13 @@ def build_character_material_export(
         "nodes": [
             {
                 "mesh": 0,
-                "name": "Zeke hair retail-material diagnostic",
+                "name": f"{texture_family} retail-material diagnostic",
                 "extras": {"infamousMaterialEvidence": evidence},
             }
         ],
         "meshes": [
             {
-                "name": "Exact hair topology / observed material subset",
+                "name": f"Exact {texture_family} topology / observed material subset",
                 "primitives": primitives,
             }
         ],
@@ -651,20 +712,31 @@ def build_character_material_export(
             }
         ],
         "textures": [
-            {"sampler": 0, "source": 0, "name": textures[_COLOR_SUFFIX]["name"]},
-            {"sampler": 0, "source": 1, "name": textures[_NORMAL_SUFFIX]["name"]},
+            {
+                "sampler": 0,
+                "source": index,
+                "name": item["name"],
+                "extras": {
+                    "retailNameSuffix": item["suffix"],
+                    "shaderSampler": item["sampler"],
+                    "displayRole": (
+                        "baseColor"
+                        if item["suffix"] == _COLOR_SUFFIX
+                        else "normal"
+                        if item["suffix"] == _NORMAL_SUFFIX
+                        else None
+                    ),
+                },
+            }
+            for index, item in enumerate(ordered_textures)
         ],
         "images": [
             {
-                "bufferView": color_view,
+                "bufferView": view,
                 "mimeType": "image/png",
-                "name": textures[_COLOR_SUFFIX]["name"],
-            },
-            {
-                "bufferView": normal_view,
-                "mimeType": "image/png",
-                "name": textures[_NORMAL_SUFFIX]["name"],
-            },
+                "name": item["name"],
+            }
+            for view, item in zip(texture_views, ordered_textures)
         ],
         "bufferViews": builder.views,
         "accessors": builder.accessors,
@@ -707,6 +779,10 @@ def build_character_material_export(
             "uv_byte_offset": uv_offset,
             "uv_minimum": uv_min,
             "uv_maximum": uv_max,
+            "texture_family": texture_family,
+            "shader_bound_texture_count": len(ordered_textures),
+            "display_assigned_texture_suffixes": [_COLOR_SUFFIX, _NORMAL_SUFFIX],
+            "unassigned_texture_suffixes": unassigned_suffixes,
         },
         "textures": texture_receipts,
         "source_position_bounds": {"minimum": source_min, "maximum": source_max},
@@ -719,6 +795,8 @@ def build_character_material_export(
             "exact_uv_rows": True,
             "runtime_prefix_to_retail_descriptor": True,
             "embedded_retail_color_and_normal": True,
+            "embedded_all_shader_bound_textures": True,
+            "all_extra_texture_roles_left_unassigned": True,
             "exact_observed_triangle_material_subset": True,
             "deterministic_material_glb": True,
         },
@@ -727,6 +805,7 @@ def build_character_material_export(
             "position_semantic": False,
             "generated_inspection_normals_are_retail_normals": False,
             "material_roles_from_retail_name_suffixes": True,
+            "unassigned_texture_suffixes": unassigned_suffixes,
             "native_pbr": False,
             "full_character": False,
             "all_materials": False,
