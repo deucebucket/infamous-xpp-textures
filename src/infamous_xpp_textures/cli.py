@@ -9,6 +9,11 @@ import sys
 import tempfile
 from pathlib import Path
 
+from .asset_inventory import (
+    AssetInventoryError,
+    build_asset_completion_inventory,
+    write_new_asset_completion_inventory,
+)
 from .character import (
     CharacterReportError,
     build_character_compatibility_report,
@@ -846,6 +851,50 @@ def cmd_character_asset_census(args: argparse.Namespace) -> int:
         f"{str(findings['multipart_package_names_proved']).lower()}; "
         "geometry/name and geometry/texture bindings remain unproved"
     )
+    print(f"wrote {args.output}")
+    return 0
+
+
+def cmd_asset_completion_inventory(args: argparse.Namespace) -> int:
+    try:
+        inputs = (
+            args.decomp_tally.resolve(),
+            args.static_glb_manifest.resolve(),
+            args.gallery_snapshot.resolve(),
+            args.character_census.resolve(),
+        )
+        output = args.output.resolve()
+        if output in inputs:
+            raise AssetInventoryError("inventory output must not overwrite an input")
+        report = build_asset_completion_inventory(
+            args.decomp_tally,
+            args.decomp_tally_sha256,
+            args.static_glb_manifest,
+            args.static_glb_manifest_sha256,
+            args.gallery_snapshot,
+            args.gallery_snapshot_sha256,
+            args.character_census,
+            args.character_census_sha256,
+            candidate_id=args.candidate_id,
+        )
+        write_new_asset_completion_inventory(args.output, report)
+    except (OSError, AssetInventoryError, ValueError) as exc:
+        print(f"asset-completion-inventory: {exc}", file=sys.stderr)
+        return 1
+    counts = report["counts"]
+    gallery = report["reconciliation"]["gallery"]
+    print(
+        "asset completion inventory: "
+        f"{counts['records']} records; {counts['complete']} complete, "
+        f"{counts['partial']} partial, {counts['unknown']} unknown"
+    )
+    print(
+        "existing work: "
+        f"{counts['retail_static_glb_exports_to_skip']} retail GLB exports and "
+        f"{counts['existing_8k_asset_renders_to_skip']} unique 8K asset renders; "
+        f"{gallery['gameplay_screenshots']} gameplay screenshot is not an asset render"
+    )
+    print(f"first unfinished batch: {report['first_unfinished_batch']['asset_id']}")
     print(f"wrote {args.output}")
     return 0
 
@@ -1716,6 +1765,48 @@ def main(argv: list[str] | None = None) -> int:
         "--output", type=Path, required=True, help="new payload-free JSON report"
     )
     p_character_asset_census.set_defaults(func=cmd_character_asset_census)
+
+    p_asset_inventory = sub.add_parser(
+        "asset-completion-inventory",
+        help="reconcile completed asset evidence and emit independent RPCS3/native gates",
+    )
+    p_asset_inventory.add_argument(
+        "--decomp-tally",
+        type=Path,
+        required=True,
+        help="authoritative GRAPHICS-ASSETS-TALLY.md",
+    )
+    p_asset_inventory.add_argument("--decomp-tally-sha256", required=True)
+    p_asset_inventory.add_argument(
+        "--static-glb-manifest",
+        type=Path,
+        required=True,
+        help="exact completed retail GLB manifest",
+    )
+    p_asset_inventory.add_argument("--static-glb-manifest-sha256", required=True)
+    p_asset_inventory.add_argument(
+        "--gallery-snapshot",
+        type=Path,
+        required=True,
+        help="exact metadata-only gallery snapshot",
+    )
+    p_asset_inventory.add_argument("--gallery-snapshot-sha256", required=True)
+    p_asset_inventory.add_argument(
+        "--character-census",
+        type=Path,
+        required=True,
+        help="exact character/item census selected for the first unfinished batch",
+    )
+    p_asset_inventory.add_argument("--character-census-sha256", required=True)
+    p_asset_inventory.add_argument(
+        "--candidate-id",
+        required=True,
+        help="stable candidate token that must occur in both census target paths",
+    )
+    p_asset_inventory.add_argument(
+        "--output", type=Path, required=True, help="new payload-free JSON inventory"
+    )
+    p_asset_inventory.set_defaults(func=cmd_asset_completion_inventory)
 
     p_runtime_topology_export = sub.add_parser(
         "runtime-topology-diagnostic-export",

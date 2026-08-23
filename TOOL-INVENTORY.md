@@ -5,6 +5,49 @@ modding or reverse-engineering goal. A command enters this file only after it
 has a callable contract, rejection tests, no-overwrite behavior, deterministic
 output where applicable, an operator card, and a maintained source location.
 
+## `xpp-tool.asset-completion-inventory.v1`
+
+- Status: maintained; source-defined and callable as xpp-tool 2.24.0.
+- Parent goal: avoid duplicate extraction/render work while producing one
+  canonical character/item asset record for a near-term RPCS3 retail mod and a
+  later native-decomp import.
+- Binary question: which exact work classes are already proved for each known
+  asset, which evidence remains unmatched, and what is the first unfinished
+  batch whose source identity is backed by a checksum-pinned census?
+- Answer for the first inventory: 57 retail static GLB exports and 19 unique 8K
+  asset renders are retained; one gameplay screenshot is separated from those
+  renders, one duplicate Drive entry is recorded, and character renders remain
+  zero. The 68 canonical/evidence records are 0 complete, 58 partial, and 10
+  unknown; Zeke is the first evidence-selected unfinished batch.
+- Entry point: `xpp-tool asset-completion-inventory` (also available through the
+  compatible `if1-tex` alias).
+- Implementation: `src/infamous_xpp_textures/asset_inventory.py`, SHA-256
+  `16122c956130147ee18eba8d27d6312c4122e5594395b6038db0f5d195a37e83`;
+  CLI wiring `src/infamous_xpp_textures/cli.py`, SHA-256
+  `e9b46f80b21a3f6269c89bc19be13ef133949711ced6d775a5488617b0c02213`.
+- Tests: `tests/test_asset_inventory.py`, SHA-256
+  `1c6b1cbae88e8e805e7b0e8c31ca01d46257ff79d9a7f55027bcfc8dbbd547d3`.
+- Operator card: [README — Version 2.24](README.md#version-224--canonical-completion-inventory-and-dual-output-manifest).
+- Inputs: exact decomp tally and pin; retail GLB manifest and pin; metadata-only
+  gallery snapshot and pin; character/item census and pin; candidate token that
+  must occur in both census targets.
+- Output: deterministic payload-free JSON to a new path. Private contact paths,
+  game payload bytes, Drive IDs, and raw texture/model data are not serialized.
+- Bounds: 5,000 static rows; 5,000 gallery rows; 4 MiB tally/static inputs;
+  512 KiB gallery; 2 MiB census; 4 MiB output; regular non-symlink inputs;
+  no-overwrite same-directory atomic publication; no runtime or network.
+- Proven capability: exact source reconciliation, conservative render/model
+  joins, duplicate separation, per-work-class skip decisions, partial/unknown
+  preservation, first-batch evidence, and independent RPCS3/native delivery
+  gates on one canonical record.
+- Limitations: a retail GLB proves only that export, and an 8K PNG proves only
+  that image. Orientation, alignment, complete piece inventory, material/UV
+  correctness, rigging, 4x/PBR, retail round trip, and native import remain
+  false until separately evidenced.
+- Return status: `returned-with-evidence`. Resume the parent goal at the Zeke
+  geometry-owner/material/UV chain, then prove a complete Blender asset and
+  harmless retail round trip without waiting for native decomp readiness.
+
 ## `xpp-tool.character-asset-census.v1`
 
 - Status: maintained; source-defined and callable as xpp-tool 2.23.0.

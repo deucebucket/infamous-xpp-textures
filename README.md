@@ -896,6 +896,60 @@ validator; the JSON is capped at 256 KiB. Inputs must be regular immutable
 files/directories, output must be a new path outside every bundle and different
 from the XPP, and no raw source or runtime payload bytes enter the report.
 
+### Version 2.24 — canonical completion inventory and dual-output manifest
+
+`asset-completion-inventory` is the permanent gate before any corpus-wide
+character or item batch. It consumes four exact, checksum-pinned authorities:
+the decomp graphics/assets tally, the retail static-GLB manifest, a metadata-only
+gallery snapshot, and one character/item census selected as the first unfinished
+batch.
+
+```console
+xpp-tool asset-completion-inventory \
+  --decomp-tally /path/to/GRAPHICS-ASSETS-TALLY.md \
+  --decomp-tally-sha256 TALLY_SHA256 \
+  --static-glb-manifest /path/to/MANIFEST.json \
+  --static-glb-manifest-sha256 GLB_MANIFEST_SHA256 \
+  --gallery-snapshot /path/to/gallery-drive-snapshot.json \
+  --gallery-snapshot-sha256 GALLERY_SNAPSHOT_SHA256 \
+  --character-census /path/to/character-census.json \
+  --character-census-sha256 CENSUS_SHA256 \
+  --candidate-id zeke \
+  --output /new/path/canonical-asset-inventory.json
+```
+
+The first owned run reconciles **57** successful retail static GLB exports,
+**19** unique 8K asset renders, **1** gameplay screenshot, **1** duplicate Drive
+file entry, **15,437** corrected texture records, and **0** character renders.
+Nine render subjects join one static GLB by the deliberately narrow normalized
+identity rule; ten remain unresolved instead of being guessed. The resulting
+inventory has 68 records: 0 fully complete, 58 partial, and 10 unknown. It skips
+only the work already proved: 57 retail static exports and 19 existing renders.
+
+The first unfinished batch is Zeke because the input census—not a filename-only
+search—proves the same multipart target in both builds, 31 named cross-build
+texture identities, and 16 packed geometry contracts per build while every
+complete-model and delivery gate remains false. The short exit is an editable,
+correctly assembled asset that round-trips through retail XPP/PSARC in RPCS3.
+The long exit uses the same canonical record in the native decomp. Native import
+does not block the emulator path.
+
+RR — Really Readable rundown: this is the project checklist that stops us from
+doing finished work twice or calling a pretty picture a finished mod. A GLB says
+“we exported this exact static model once.” An 8K PNG says “this exact picture
+exists.” Neither says the object is correctly aligned, fully textured, safely
+repackable, accepted by RPCS3, or loadable by the future native engine. For the
+native decomp, mod authoring should become easier after its asset loader and
+renderer exist because we control that loader and can use this stable manifest;
+the hard wait is building that native runtime, not repacking each later mod.
+
+Inputs are regular non-symlink files and must match their SHA-256 pins. Counts,
+hashes, safe relative GLB paths, duplicate claims, candidate identity, and source
+reconciliation fail closed. Private contact paths and payload bytes are never
+serialized. Output is deterministic, capped at 4 MiB, and published only to a
+new path. A partial render or turntable may publish immediately and never blocks
+other evidence, but it cannot change a completion gate by itself.
+
 ### Version 2.23 — multipart character and item asset census
 
 `character-asset-census` is the permanent profile-wide discovery primitive for
