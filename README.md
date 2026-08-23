@@ -418,6 +418,45 @@ a universal lookup map. It does not yet tell Blender which packed numbers are
 positions, UVs, bones, or weights; that still needs one complete decoded retail
 vertex-stream proof.
 
+### Version 2.37 — cross-build material-gap oracle
+
+Map one already checked material-coverage union onto the matching character
+topology in another owned build:
+
+```console
+timeout 60s xpp-tool character-material-gap-oracle \
+  --left-xpp /path/to/source-build/character.xpp \
+  --right-xpp /path/to/target-build/character.xpp \
+  --coverage-union /path/to/source-material-coverage-union.json \
+  --left-label source-build \
+  --right-label target-build \
+  --json-out /new/path/material-gap-oracle.json
+```
+
+The command validates the union schema, source XPP identity, selected geometry
+record, retail index hash, triangle counts, and coverage arithmetic. It then
+uses the existing location-independent character oracle to require one unique
+target contract and an identical retail index stream. Record offsets and
+texture descriptor numbers are never assumed portable.
+
+RR — Really Readable rundown: imagine painting 288 of 294 exact roof tiles and
+leaving six marked tiles unpainted. A second edition of the building can move
+the paint cans to different shelf numbers while keeping every roof tile
+identical. This oracle proves whether those same six tile identities exist in
+the second edition. It does **not** pretend the second edition showed us which
+paint belongs on them. A positive result therefore means “same topology gap,”
+not “new material evidence” or “finished character.”
+
+Operator card: stable ID `xpp-tool.character-material-gap-oracle.v1`. The
+command is offline and single-process. Each XPP is capped at 64 MiB; the source
+coverage receipt and output are each capped at 256 KiB. Inputs must be regular
+non-symlink files. Output must be a new path and is atomically published without
+overwrite. The report contains hashes, counts, labels, and safe component
+metadata only—no mesh, texture, index, path, or other payload bytes. A target
+runtime material observation, material binding, descriptor-index portability,
+full character, rig, 4x texture set, authored PBR, RPCS3 round trip, and native
+decomp import all remain separate gates.
+
 ```bash
 xpp-tool character-report \
   --xpp /path/to/male_base_Zeke.xpp \
