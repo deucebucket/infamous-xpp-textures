@@ -167,7 +167,8 @@ output where applicable, an operator card, and a maintained source location.
 
 - Status: maintained; introduced in 2.32.0, extended with strict partial-range
   observations in xpp-tool 2.36.0, and extended with compatible full-range
-  passes in xpp-tool 2.39.0.
+  passes in xpp-tool 2.39.0. Version 2.40.0 repairs export of a four-map anchor
+  whose component summary deliberately exposes only its `C/N` display pair.
 - Parent goal: finish every character/item once as a complete editable asset,
   first for validated RPCS3 package mods and later for native-decomp import.
 - Binary question: can one exact repeated-draw material union become a
@@ -178,6 +179,11 @@ output where applicable, an operator card, and a maintained source location.
   `Zeke_Hair_C/N` assignments. A later compatible four-map full-range pass adds
   two more, so the current 184-vertex / 294-triangle GLB has 290 proved faces
   and four separate orange diagnostic faces.
+- First head answer after the 2.40.0 repair: five exact observations of record
+  536280 export one 277-vertex / 404-triangle head/neck component with 212
+  proved material assignments and 192 unresolved orange audit faces. The four
+  anchor images remain embedded; only `C/N` are display-assigned and `A/S`
+  remain explicitly unassigned.
 - Entry point: `xpp-tool character-material-coverage-export` (also exposed by
   the compatible `if1-tex` alias).
 - Implementation: `src/infamous_xpp_textures/material_coverage_export.py`,
@@ -185,14 +191,17 @@ output where applicable, an operator card, and a maintained source location.
   union owner `src/infamous_xpp_textures/material_coverage.py`, SHA-256
   `fc068ad0cb2b5c7a1e60d77f146e24d0f48b2a3c18069910c9bf9996e434242a`;
   strict GLB owner `src/infamous_xpp_textures/character_material_export.py`,
-  SHA-256 `df5d9fa41663fb6596f8ec04d822db2f33030eb4c7f02f172393a06b7dc7b8b9`;
+  SHA-256 `7b5c0e334aafd186dc0ad17f64c94642cb58254cce543d5f48e1f7b4f5fe1bf5`;
   CLI wiring `src/infamous_xpp_textures/cli.py`, SHA-256
-  `342820d98f72e844697a8fb3f7c33bcaa7cc427805ca6c21c3760c65a2f8b003`.
+  `3354f83acd2a629c386edf6072aa64dd63fa17017f9c035b00a4828d0e74837a`.
 - Tests: `tests/test_material_coverage_export.py`, SHA-256
   `8b2f54831b9641cab534cfe2b895e7e1fa781ebe3f0a3690c1f784cdeb4c6628`,
-  plus union, strict exporter, and component-ledger suites. The complete
-  repository suite passes **279 tests**.
-- Operator card: [README — Version 2.39](README.md#version-239--compatible-full-range-material-passes).
+  plus union, strict exporter, and component-ledger suites. The strict exporter
+  test module is SHA-256
+  `046faf8cd83406eb6d5aebb22495c7cb7f5137cefcac11143a8355721e4d5c8a`.
+  The complete repository suite passes **284 tests**.
+- Operator card:
+  [README — Version 2.40](README.md#version-240--compatible-four-map-anchors-export-correctly).
 - Inputs: one exact retail XPP/SHA-256; allowlist; record offset; one through 16
   checksum-pinned strict material observations with immutable v3/v4 bundles and
   required exclusions; zero through 15 eight-value partial observations with
@@ -222,6 +231,13 @@ output where applicable, an operator card, and a maintained source location.
   `3cbdff5d85ab857c881e3b9d2bf73fc6ba7fc0addf481ae219be3344c5cd731e`;
   approved immediate unlit audit 1,753,289 bytes / SHA-256
   `fd4dc943c38f1dd697eddf787c9f8756fe0af8dc48656adecb35cdc930f0f56e`.
+- Current head evidence after the 2.40.0 exporter repair: source-tree A/B GLB
+  493,956 bytes / SHA-256
+  `59d7e3b477bc5f2c28fc935874d52d39b33e2d182cd1af90544aaa73bb05131f`;
+  report A/B 6,574 bytes / SHA-256
+  `2bf265a8e9684c39a09afc035725029aa33cb50465ff62c92c76e6bf4f080978`;
+  immediate unlit component audit 1,671,003 bytes / SHA-256
+  `66c2092628b912972adbfda2cae6271871a138e230988f920b0f9daf6028d68f`.
 - Build proof: two builds with pinned `SOURCE_DATE_EPOCH=1787494800`
   produced the identical 238,586-byte 2.36.0 wheel, SHA-256
   `10096f105406b83260591b12d1b60ecda63ce1196f7f06d78671c92a761463d7`.
@@ -229,14 +245,21 @@ output where applicable, an operator card, and a maintained source location.
   produced the identical 254,618-byte 2.39.0 wheel, SHA-256
   `c503da8d5e12741b271aa90f2ca286f501de022f18a95c22c8e6f17214a0c0b5`;
   a fresh isolated environment reproduced the 290/294 GLB/report A/B.
-- Limitations: this does not close the four remaining hair assignments,
-  identify every hair/head/body piece, recover retail normals/tangents or
-  rig/skin, create 4×/authored-PBR material, reverse-pack an RPCS3 mod, or import
-  into the native decomp. The approved clean matte render remains the separate
-  appearance baseline.
-- Return status: `returned-with-capability-and-evidence`. Keep this 290/294
-  strict component and the approved matte/even-brown look; capture a genuinely
-  different compatible hair pass for the remaining four faces.
+- Current 2.40.0 build proof: two builds with pinned
+  `SOURCE_DATE_EPOCH=1787504400` produced the identical 255,642-byte wheel,
+  SHA-256
+  `d19b4c3915bce5100efbc774f8608c6188364c1555852131e4213d5b2133f5d6`;
+  a fresh isolated environment reproduced the exact 212/404 head GLB and
+  report byte-for-byte.
+- Limitations: this does not close the four remaining hair assignments or the
+  192 head assignments, identify every hair/head/body piece, recover retail
+  normals/tangents or rig/skin, create 4×/authored-PBR material, reverse-pack an
+  RPCS3 mod, or import into the native decomp. The approved clean matte render
+  remains the separate appearance baseline.
+- Return status: `returned-with-capability-and-evidence`. Keep the 290/294
+  strict hair component, the approved matte/even-brown look, and the separate
+  212/404 head component; capture genuinely different compatible passes for
+  their unresolved assignments.
 
 ## `xpp-tool.character-material-coverage-union.v1`
 

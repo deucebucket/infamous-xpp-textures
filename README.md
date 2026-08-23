@@ -418,6 +418,50 @@ a universal lookup map. It does not yet tell Blender which packed numbers are
 positions, UVs, bones, or weights; that still needs one complete decoded retail
 vertex-stream proof.
 
+### Version 2.40 — compatible four-map anchors export correctly
+
+`character-material-coverage-export` now accepts the exact representation that
+the coverage-union tool already validates for a compatible four-map anchor:
+the component's `texture_names` remains the deliberately displayed `C/N` pair,
+while `compatible_full_range_texture_names` preserves the complete sorted
+`A/C/N/S` shader-bound set. The older exporter incorrectly compared all four
+anchor maps with the display-only pair and rejected valid evidence.
+
+The repair remains strict. The compatible list is required whenever the anchor
+binds extra maps; it must contain two through eight unique, sorted names and
+include every display and anchor identity. A missing, incomplete, duplicated,
+unsorted, oversized, or changed list fails closed. All four images remain
+embedded in the private GLB, but only `C/N` are display-assigned. `A/S` stay
+explicitly unassigned because their authored PBR meaning has not been proved.
+
+RR — Really Readable rundown: the game handed this head draw four texture maps,
+but our honest preview uses only the two maps whose display roles we have
+proved. The union receipt correctly said both things. The exporter used to
+mistake that deliberate distinction for corruption. Version 2.40 understands
+the distinction without loosening identity checks or inventing shine. Five
+real observations now produce an editable Zeke head/neck component with
+**212 / 404** triangle occurrences textured and **192** left orange. Orange is
+an audit warning for material assignment, not a claim that those triangles are
+missing from the mesh.
+
+Two source-tree runs and a fresh isolated 2.40.0-wheel run produce the same
+493,956-byte GLB at SHA-256
+`59d7e3b477bc5f2c28fc935874d52d39b33e2d182cd1af90544aaa73bb05131f`
+and the same 6,574-byte report at SHA-256
+`2bf265a8e9684c39a09afc035725029aa33cb50465ff62c92c76e6bf4f080978`.
+The immediate Blender 5.2.0 unlit -58-degree audit is 1,671,003 bytes at
+SHA-256 `66c2092628b912972adbfda2cae6271871a138e230988f920b0f9daf6028d68f`.
+It proves a three-dimensional head/neck component, not a complete character:
+hair, eyes, teeth, glasses, body, rig/skin, 4x textures, authored PBR, RPCS3
+repacking, and native-decomp import remain separate work.
+
+Operator card: this extends stable ID
+`xpp-tool.character-material-coverage-export.v1`; it is not a one-off command.
+Existing bounded inputs, immutable evidence, deterministic output, atomic
+publication, no-overwrite behavior, and offline/single-process limits remain.
+Two pinned-epoch wheel builds are byte-identical at 255,642 bytes, SHA-256
+`d19b4c3915bce5100efbc774f8608c6188364c1555852131e4213d5b2133f5d6`.
+
 ### Version 2.39 — compatible full-range material passes
 
 `character-material-coverage-union` now admits a full-range draw that binds

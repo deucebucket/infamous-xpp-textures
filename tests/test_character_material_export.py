@@ -408,6 +408,87 @@ def test_exact_union_override_builds_strict_deterministic_glb(tmp_path, monkeypa
         )
 
 
+def test_union_accepts_four_map_anchor_with_display_only_component_names(
+    tmp_path, monkeypatch
+):
+    xpp_data, bundle, lineage, lineage_sha = _fixture(
+        tmp_path, monkeypatch, four_maps=True
+    )
+    union = _union_receipt(xpp_data, lineage, lineage_sha)
+    union["component"].update(
+        {
+            "texture_family": "Zeke_Jacket",
+            "texture_names": ["Jacket_C.psd", "Jacket_N.psd"],
+            "compatible_full_range_texture_names": [
+                "Jacket_A.psd",
+                "Jacket_C.psd",
+                "Jacket_N.psd",
+                "Jacket_S.psd",
+            ],
+        }
+    )
+    union_payload = (json.dumps(union, indent=2, sort_keys=True) + "\n").encode()
+
+    glb, report = build_character_material_export(
+        xpp_data,
+        bundle,
+        tmp_path / "unused-allowlist",
+        None,
+        lineage,
+        lineage_sha,
+        material_indices_override=struct.unpack(">6H", xpp_data[:12]),
+        material_coverage_union_report=union,
+        material_coverage_union_sha256=_sha(union_payload),
+        tool_inventory_id="xpp-tool.character-material-coverage-export.v1",
+    )
+
+    assert [item["suffix"] for item in report["textures"]] == ["N", "A", "S", "C"]
+    assert report["selection"]["display_assigned_texture_suffixes"] == ["C", "N"]
+    assert report["selection"]["unassigned_texture_suffixes"] == ["A", "S"]
+    assert len(_glb_document(glb)["images"]) == 4
+
+
+@pytest.mark.parametrize(
+    "compatible_names",
+    [
+        None,
+        ["Jacket_C.psd", "Jacket_N.psd"],
+        ["Jacket_A.psd", "Jacket_N.psd", "Jacket_C.psd", "Jacket_S.psd"],
+        ["Jacket_A.psd", "Jacket_C.psd", "Jacket_N.psd", "Jacket_N.psd"],
+    ],
+)
+def test_union_rejects_invalid_four_map_compatible_name_set(
+    tmp_path, monkeypatch, compatible_names
+):
+    xpp_data, bundle, lineage, lineage_sha = _fixture(
+        tmp_path, monkeypatch, four_maps=True
+    )
+    union = _union_receipt(xpp_data, lineage, lineage_sha)
+    union["component"].update(
+        {
+            "texture_family": "Zeke_Jacket",
+            "texture_names": ["Jacket_C.psd", "Jacket_N.psd"],
+        }
+    )
+    if compatible_names is not None:
+        union["component"]["compatible_full_range_texture_names"] = compatible_names
+    union_payload = (json.dumps(union, indent=2, sort_keys=True) + "\n").encode()
+
+    with pytest.raises(CharacterMaterialExportError, match="compatible full-range"):
+        build_character_material_export(
+            xpp_data,
+            bundle,
+            tmp_path / "unused-allowlist",
+            None,
+            lineage,
+            lineage_sha,
+            material_indices_override=struct.unpack(">6H", xpp_data[:12]),
+            material_coverage_union_report=union,
+            material_coverage_union_sha256=_sha(union_payload),
+            tool_inventory_id="xpp-tool.character-material-coverage-export.v1",
+        )
+
+
 def test_union_uses_declared_texture_suffixes_not_filename_punctuation(
     tmp_path, monkeypatch
 ):

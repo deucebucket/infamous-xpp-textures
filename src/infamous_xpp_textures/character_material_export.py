@@ -245,9 +245,32 @@ def _validate_material_union_override(
         raise CharacterMaterialExportError(
             "material texture identities are not bounded and unique"
         )
-    expected_texture_names = [
-        name for _suffix, name in sorted(texture_identities, key=lambda row: row)
+    expected_display_texture_names = [
+        name
+        for suffix, name in sorted(texture_identities, key=lambda row: row)
+        if suffix in (_COLOR_SUFFIX, _NORMAL_SUFFIX)
     ]
+    anchor_texture_names = sorted(name for _suffix, name in texture_identities)
+    compatible_texture_names = component.get("compatible_full_range_texture_names")
+    if compatible_texture_names is None:
+        if anchor_texture_names != expected_display_texture_names:
+            raise CharacterMaterialExportError(
+                "material coverage union omitted compatible full-range texture names"
+            )
+    elif (
+        not isinstance(compatible_texture_names, list)
+        or not 2 <= len(compatible_texture_names) <= _MAX_SHADER_TEXTURES
+        or any(
+            not isinstance(name, str) or not name or len(name) > 256
+            for name in compatible_texture_names
+        )
+        or compatible_texture_names != sorted(set(compatible_texture_names))
+        or not set(expected_display_texture_names).issubset(compatible_texture_names)
+        or not set(anchor_texture_names).issubset(compatible_texture_names)
+    ):
+        raise CharacterMaterialExportError(
+            "material coverage union compatible full-range texture names drifted"
+        )
     if (
         component.get("record_offset") != record_offset
         or component.get("vertices") != vertex_count
@@ -255,7 +278,7 @@ def _validate_material_union_override(
         or component.get("uv_payload_sha256") != uv_payload_sha256
         or component.get("uv_byte_offset") != uv_byte_offset
         or component.get("texture_family") != texture_family
-        or component.get("texture_names") != expected_texture_names
+        or component.get("texture_names") != expected_display_texture_names
     ):
         raise CharacterMaterialExportError(
             "material coverage union component drifted from the export"
