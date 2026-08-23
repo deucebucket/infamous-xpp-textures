@@ -896,6 +896,81 @@ validator; the JSON is capped at 256 KiB. Inputs must be regular immutable
 files/directories, output must be a new path outside every bundle and different
 from the XPP, and no raw source or runtime payload bytes enter the report.
 
+### Version 2.26 — permanent retail-material component GLB export
+
+`character-material-export` turns one checksum-pinned 2.25 lineage into a
+deterministic, inspectable GLB. It rereads the immutable runtime bundle and
+retail XPP, verifies the full retail topology and both encoded texture-prefix
+identities, decodes the retail color/normal mip-zero images, and writes the
+proved half-float rows as `TEXCOORD_0`.
+
+```console
+timeout 60s xpp-tool character-material-export \
+  --xpp /path/to/owned/male_base_Zeke.xpp \
+  --bundle /path/to/owned/page-2-v4 \
+  --texture-allowlist /path/to/zeke-surface-identities.sha256 \
+  --capture-key-exclusion /path/to/page-1-keys.tsv \
+  --lineage /path/to/zeke-hair-binding.json \
+  --lineage-sha256 LINEAGE_SHA256 \
+  --output-glb /new/path/zeke-hair-retail-material.glb \
+  --output-report /new/path/zeke-hair-retail-material.json
+```
+
+The default `--material-coverage-mode observed-only` is the audit-safe export.
+It proves the captured retail material on **275 of 294 triangles** and writes
+the remaining **19 material-unobserved triangles** as a separate orange,
+unlit diagnostic primitive. It repeats at 178,024 bytes, SHA-256
+`1a2a3eaa8229a2c870b99793996dd948db108397c42f83db5360f0ca018f0b68`;
+its payload-free receipt repeats at SHA-256
+`81e24c77402524c7d7739dfdec4d627158df99eb9b7afaaf46b515f004f3944f`.
+
+For a clean progress image, add
+`--material-coverage-mode preview-full-record`. That preview applies the
+observed material to all 294 retail triangles without orange clay, but both
+the GLB metadata and receipt keep `full_topology_material_coverage=false` and
+`unobserved_material_preview_extrapolated=true`. It repeats at 177,084 bytes,
+SHA-256
+`39d8773b4deecaff5ebcf6cabae3b5e5b19b14a6030f47d3b3e56f95c0e71f6b`;
+its receipt repeats at SHA-256
+`d1261f53a968e3720b805796ac50db39e84e5ef7e8b3b6c88f8e7651e7e928a8`.
+Both forms contain 184 vertices, the full 294-triangle retail topology, one
+proved UV layer, and two embedded retail PNGs.
+
+RR — Really Readable rundown: this is the first time one recovered Zeke piece
+contains the edit-facing trio in one file: triangles, UV coordinates, and the
+exact retail color/normal images the captured shaders selected. The runtime
+draw proves where that material belongs for 275 triangles. It does not yet
+prove the other 19, so the strict file shows them plainly and the clean file
+labels their material as a preview extrapolation. Both are useful for Blender
+today, a retail reverse packer next, and a native importer later.
+
+It is still a diagnostic hair component. Vertex attribute 0 remains an
+explicitly unproved position semantic; the exported normals are generated from
+triangles for inspection, not recovered retail normals; and `C`/`N` material
+roles follow retail names rather than a proved native PBR contract. The first
+published views were also artificially shiny because the old review renderer
+replaced the imported material with metallic 0.18 / roughness 0.48; those
+views are rejected historical evidence. The maintained renderer now has an
+explicit imported-material-preservation mode, and the current clean preview is
+matte. The command preserves the exact 275/19 evidence and leaves coordinate
+convention, diagnostic position meaning, alpha/material behavior, and the
+missing 19-face material assignment as separate gates instead of adjusting the
+asset by eye.
+
+The delivery paths remain independent. Near term, this canonical component is
+input to a validated retail XPP/PSARC round trip in RPCS3. Long term, the same
+mesh/UV/material manifest can feed a native decomp importer once its asset
+runtime and renderer exist. The native infrastructure is the larger up-front
+gate; each later native mod should need less retail-container archaeology.
+
+Operator card: stable ID `xpp-tool.character-material-export.v1`. Inputs are
+immutable and checksum-pinned through the lineage/bundle contracts; the XPP is
+capped at 64 MiB, GLB at 64 MiB, and JSON receipt at 256 KiB. The command is
+offline, single-process, new-only, and publishes the GLB/report pair together.
+The report contains hashes, counts, names, bounds, and gate states—not texture,
+vertex, index, shader, or game payload bytes. A render is published whenever it
+exists and never gates the evidence/tool release.
+
 ### Version 2.25 — permanent character UV-to-texture shader lineage
 
 `character-uv-texture-binding` closes one exact material-binding chain at a

@@ -5,6 +5,57 @@ modding or reverse-engineering goal. A command enters this file only after it
 has a callable contract, rejection tests, no-overwrite behavior, deterministic
 output where applicable, an operator card, and a maintained source location.
 
+## `xpp-tool.character-material-export.v1`
+
+- Status: maintained; source-defined and callable as xpp-tool 2.26.0.
+- Parent goal: complete editable character/item assets once, deliver them first
+  through validated retail RPCS3 packages, then reuse the same canonical
+  records through a native-decomp importer.
+- Binary question: can one exact shader-lineage record become a deterministic
+  GLB with its full topology, proved UV layer, and exact runtime-matched retail
+  color/normal images without promoting unresolved semantics?
+- First answer: Zeke hair record 533752 exports as 184 vertices, 294 triangles,
+  one `TEXCOORD_0` layer, generated inspection normals, and embedded
+  `Zeke_Hair_C.psd` / `Zeke_Hair_N.psd` mip-zero PNGs. The exact runtime draw
+  proves that material for 275 triangles and leaves 19 explicitly unobserved.
+- Entry point: `xpp-tool character-material-export` (also exposed by the
+  compatible `if1-tex` alias).
+- Implementation: `src/infamous_xpp_textures/character_material_export.py`;
+  deterministic PNG bytes in `src/infamous_xpp_textures/pngio.py`; CLI wiring
+  in `src/infamous_xpp_textures/cli.py`.
+- Tests: `tests/test_character_material_export.py` plus the existing material,
+  PNG, shader-lineage, fragment-sampler, topology, and XPP suites.
+- Maintained source pins at 2.26.0: exporter
+  `5c07d0d29ae53c9d066a8f6d5ef9b350f198bc8f8869a0fabbee2e40e45cd1be`;
+  PNG encoder
+  `2ce34b184d48822ae578eadae96c1717c88ee2a8eef001fcf40ac7563c54c6b2`;
+  CLI `fbe2156fd8662879c6001b1b1d85222c9076cbb2de0d436237fc06439de1d653`;
+  focused tests
+  `9966dec72d8c4b035d19e98397d9ec75f47a6e39179cc7a0439e095bf70c277e`.
+- Operator card: [README — Version 2.26](README.md#version-226--permanent-retail-material-component-glb-export).
+- Inputs: exact retail XPP; complete v3/v4 bundle; allowlist and required paging
+  exclusion; checksum-pinned 2.25 lineage report.
+- Outputs: deterministic payload-bearing GLB for private/operator asset work and
+  a separate deterministic payload-free JSON receipt. Both destinations are
+  new-only and published as one fail-closed pair.
+- Bounds: 64 MiB XPP, inherited 64 MiB bundle payload, 64 MiB GLB, 256 KiB
+  report, regular immutable authorities, one process, no network, no overwrite.
+- Proven capability: full retail index topology, exact full vertex range,
+  shader-proved half2 `TEXCOORD_0`, encoded runtime-prefix/retail-descriptor
+  identity before decode, embedded retail color/normal images, exact
+  275-triangle runtime material subset, deterministic strict/preview GLBs, and
+  Blender import/render through the maintained decomp review tool. The strict
+  GLB is 178,024 bytes / `1a2a3eaa...018f0b68`; the clean full-record preview
+  is 177,084 bytes / `39d8773b...0e71f6b` and remains labeled extrapolated.
+- Limitations: position attribute 0 remains diagnostic; inspection normals are
+  generated; `C`/`N` roles are retail-name-derived; 19 triangles still lack a
+  proved material assignment. The old metallic review override is rejected.
+  Full character, all materials, authored 4x/PBR, rigging, RPCS3 round trip,
+  and native import remain false.
+- Return status: `returned-with-evidence`. Resume by proving the 19-face
+  material assignment, then repeat the chain across the remaining Zeke pieces
+  and move the canonical component into retail pack validation.
+
 ## `xpp-tool.character-uv-texture-binding.v1`
 
 - Status: maintained; source-defined and callable as xpp-tool 2.25.0.
