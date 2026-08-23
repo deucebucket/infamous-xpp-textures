@@ -1,5 +1,43 @@
 # Changelog
 
+## 2.36.0 - 2026-08-23
+
+- Extended permanent `character-uv-texture-binding`,
+  `character-material-coverage-union`, and
+  `character-material-coverage-export` support with checksum-pinned, safe
+  partial-range material observations.
+- A partial observation is admitted only after the lineage, source census,
+  character census, immutable runtime bundle, source-record mapping, packed UV
+  stream, shaders, named texture descriptors, mip prefixes, runtime indices,
+  mapped vertex range, and retail triangle multiset all independently
+  revalidate.
+- At least one normal full-range material report remains mandatory as the GLB
+  topology/UV/display-material anchor. Partial evidence can add only the exact
+  retail triangles it actually calls; it cannot promote a partial vertex tray
+  into a full source range or invent `A`/`S` PBR roles.
+- The owned page-one Zeke hair draw safely uses vertices 0-182 from its
+  183-of-184 range. Combined with page two and page three, strict material
+  coverage advances from 282/294 to **288/294**, leaving six orange audit
+  triangles.
+- Two installed-wheel runs are byte-identical: union report 5,283 bytes /
+  `3f90252ab92980500ceea34dca3f5a9a486adb874109079aea233509a5dae825`;
+  GLB 179,204 bytes /
+  `f11dc2be73ccba0aaad2576b76ae8e904c7302e8e44f3a6aa18c1cbc81705e3b`;
+  export report 5,430 bytes /
+  `87a41528677928bb555217b6c21916dfef65ea85f81eabbbae91433a357034eb`.
+- The canonical five-component Zeke ledger now records the 288/6 hair receipt
+  and six published images, including the approved strict matte/even-brown
+  baseline. Its prior 282/12 three-pass census remains preserved in the 2.34
+  historical ledger; it is not falsely relinked to the larger union.
+- An occupied export retry exited 1 and preserved both output hashes. All
+  **252 tests** pass; changed-file Ruff format/check, Python compilation, and
+  diff validation pass.
+- Two builds with pinned `SOURCE_DATE_EPOCH=1787494800` produced the identical
+  238,586-byte 2.36.0 wheel, SHA-256
+  `10096f105406b83260591b12d1b60ecda63ce1196f7f06d78671c92a761463d7`;
+  a fresh isolated environment installed it and exposed the eight-value
+  partial-observation contract.
+
 ## 2.35.0 - 2026-08-23
 
 - Extended permanent `runtime-xpp-source-census` evidence with fail-closed

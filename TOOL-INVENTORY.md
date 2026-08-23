@@ -113,34 +113,37 @@ output where applicable, an operator card, and a maintained source location.
 
 ## `xpp-tool.character-material-coverage-export.v1`
 
-- Status: maintained; introduced and callable in xpp-tool 2.32.0.
+- Status: maintained; introduced in 2.32.0 and extended with strict partial-
+  range material observations in xpp-tool 2.36.0.
 - Parent goal: finish every character/item once as a complete editable asset,
   first for validated RPCS3 package mods and later for native-decomp import.
 - Binary question: can one exact repeated-draw material union become a
   deterministic strict Blender GLB without serializing game payloads in its
   receipt or assigning the material to unproved faces?
-- First answer: two compatible Zeke hair observations export record 533752 as
-  one 184-vertex / 294-triangle GLB with 282 exact retail `Zeke_Hair_C/N`
-  triangle assignments and 12 separate orange diagnostic triangles.
+- First answer: two full-range Zeke hair observations plus one safely bounded
+  partial-range observation export record 533752 as one 184-vertex /
+  294-triangle GLB with 288 exact retail `Zeke_Hair_C/N` triangle assignments
+  and six separate orange diagnostic triangles.
 - Entry point: `xpp-tool character-material-coverage-export` (also exposed by
   the compatible `if1-tex` alias).
 - Implementation: `src/infamous_xpp_textures/material_coverage_export.py`,
-  SHA-256 `6c1abb242ce48f5e5882935d671e8b4afd9a601802a3b3e98c29f25c61f5cc2f`;
+  SHA-256 `79d387decf7ce8c404575525865b4985195f241b7297eb6eae3f71d055d7c54f`;
   union owner `src/infamous_xpp_textures/material_coverage.py`, SHA-256
-  `fa233ba9cd8e64d02421bf25715beeb7af781cb87aa0659eecddf7696c7dd8e6`;
+  `3c3298c28703257d656a8f7db7c33953867185b93643277e3f1855ae99dd80c8`;
   strict GLB owner `src/infamous_xpp_textures/character_material_export.py`,
   SHA-256 `df5d9fa41663fb6596f8ec04d822db2f33030eb4c7f02f172393a06b7dc7b8b9`;
   CLI wiring `src/infamous_xpp_textures/cli.py`, SHA-256
-  `1a3c5c13c703e08fa361fd3f1232bd11f901773aed0bc8c678b8cc83ab8592e9`.
+  `342820d98f72e844697a8fb3f7c33bcaa7cc427805ca6c21c3760c65a2f8b003`.
 - Tests: `tests/test_material_coverage_export.py`, SHA-256
-  `b9fd2efad69c10fbc70d01115b2ce4f36207880ee32ced7b60dcfdd2a36003a3`,
+  `8b2f54831b9641cab534cfe2b895e7e1fa781ebe3f0a3690c1f784cdeb4c6628`,
   plus union, strict exporter, and component-ledger suites. The complete
-  repository suite passes **240 tests**.
-- Operator card: [README — Version 2.32](README.md#version-232--exact-repeated-draw-material-union-to-blender-glb).
+  repository suite passes **252 tests**.
+- Operator card: [README — Version 2.36](README.md#version-236--strict-partial-range-material-observations).
 - Inputs: one exact retail XPP/SHA-256; allowlist; record offset; one through 16
   checksum-pinned strict material observations with immutable v3/v4 bundles and
-  required exclusions; one pinned anchor lineage that must identify exactly one
-  accepted observation.
+  required exclusions; zero through 15 eight-value partial observations with
+  pinned lineage/source-census/character-census authorities; one pinned anchor
+  lineage that must identify exactly one accepted full-range observation.
 - Outputs: deterministic private/operator GLB plus deterministic payload-free
   JSON receipt, atomically published to two different new paths outside every
   immutable input and bundle.
@@ -153,26 +156,27 @@ output where applicable, an operator card, and a maintained source location.
   A/B GLB/report; component-ledger admission; fail-closed ambiguity, drift,
   malformed evidence, and occupied-output behavior.
 - First evidence: GLB A/B 179,204 bytes / SHA-256
-  `e4199e6e8e31635bbe7624164bed04b665224771e3a73851599d68b1fc534879`;
-  report A/B 5,423 bytes / SHA-256
-  `45bcea0b007be9b164b03168c7582806310ccf4195b58d3bfba892ece3f4566e`;
-  immediate unlit audit 1,206,359 bytes / SHA-256
-  `fb297acd2c725e57d8e2e0c59c99985d024a25daf59296e10d22392c20401fe4`.
-- Build proof: two builds with pinned `SOURCE_DATE_EPOCH=1787484000`
-  produced the identical 219,696-byte 2.32.0 wheel, SHA-256
-  `f1bc08008d652fe73cbb4e86ab70b20658ff692947bea103139a786b1ae4fa1c`.
-- Limitations: this does not close the twelve remaining hair assignments,
+  `f11dc2be73ccba0aaad2576b76ae8e904c7302e8e44f3a6aa18c1cbc81705e3b`;
+  report A/B 5,430 bytes / SHA-256
+  `87a41528677928bb555217b6c21916dfef65ea85f81eabbbae91433a357034eb`;
+  approved immediate unlit audit 1,187,390 bytes / SHA-256
+  `6b80f816abb734ad3e2dde45225252dd28521c34b099c0142e4a024d42095cc1`.
+- Build proof: two builds with pinned `SOURCE_DATE_EPOCH=1787494800`
+  produced the identical 238,586-byte 2.36.0 wheel, SHA-256
+  `10096f105406b83260591b12d1b60ecda63ce1196f7f06d78671c92a761463d7`.
+- Limitations: this does not close the six remaining hair assignments,
   identify every hair/head/body piece, recover retail normals/tangents or
   rig/skin, create 4×/authored-PBR material, reverse-pack an RPCS3 mod, or import
   into the native decomp. The approved clean matte render remains the separate
   appearance baseline.
-- Return status: `returned-with-capability-and-evidence`. Keep this 282/294
-  strict component; capture a genuinely different compatible hair pass for the
-  remaining twelve faces instead of repeating export work.
+- Return status: `returned-with-capability-and-evidence`. Keep this 288/294
+  strict component and the approved matte/even-brown look; capture a genuinely
+  different compatible hair pass for the remaining six faces.
 
 ## `xpp-tool.character-material-coverage-union.v1`
 
-- Status: maintained; introduced and callable in xpp-tool 2.31.0.
+- Status: maintained; introduced in 2.31.0 and extended with strict partial-
+  range observations in xpp-tool 2.36.0.
 - Parent goal: finish every character/item once as a complete editable asset,
   first for validated RPCS3 package mods and later for native-decomp import.
 - Binary question: do repeated exact runtime draws of one retail record expose
@@ -180,20 +184,23 @@ output where applicable, an operator card, and a maintained source location.
   retail triangle multiset?
 - First answer: page one plus page two proves jacket 493/1,002, head 185/404,
   packs 170/302, and jacket detail 24/24. Page three then advances compatible
-  hair coverage from 275 to 282/294 and head coverage from 185 to 200/404.
+  full-range hair coverage from 275 to 282/294. Revalidating the old page-one
+  183-of-184 vertex tray as a safe partial observation advances hair to 288/294.
 - Entry point: `xpp-tool character-material-coverage-union` (also exposed by
   the compatible `if1-tex` alias).
 - Implementation: `src/infamous_xpp_textures/material_coverage.py`, SHA-256
-  `fa233ba9cd8e64d02421bf25715beeb7af781cb87aa0659eecddf7696c7dd8e6`;
+  `3c3298c28703257d656a8f7db7c33953867185b93643277e3f1855ae99dd80c8`;
   CLI wiring `src/infamous_xpp_textures/cli.py`, SHA-256
-  `1a3c5c13c703e08fa361fd3f1232bd11f901773aed0bc8c678b8cc83ab8592e9`.
+  `342820d98f72e844697a8fb3f7c33bcaa7cc427805ca6c21c3760c65a2f8b003`.
 - Tests: `tests/test_material_coverage.py`, SHA-256
-  `dea39682ed337d3cb2841770b5b382b24b7ad5439caadbdb7de69d05269accd0`.
-  The complete repository suite passes **240 tests**.
-- Operator card: [README — Version 2.31](README.md#version-231--exact-material-coverage-across-repeated-draws).
+  `ba31735594589fd66f00446ddb9b51671ec3928aaa40765c61921573f661addb`.
+  The complete repository suite passes **252 tests**.
+- Operator card: [README — Version 2.36](README.md#version-236--strict-partial-range-material-observations).
 - Inputs: exact retail XPP and SHA-256; exact texture allowlist; one source
   record offset; one through 16 pinned strict material reports with immutable
-  v3/v4 bundles and required v4 capture-key exclusions.
+  v3/v4 bundles and required v4 capture-key exclusions; optional eight-value
+  partial observations add pinned lineage, source census, and character census
+  authorities while one full-range report remains mandatory.
 - Output: deterministic, input-order-independent, payload-free JSON at a new
   path, preserving per-observation new/overlap/cumulative counts and exact
   covered/unobserved multiset hashes.
@@ -202,22 +209,26 @@ output where applicable, an operator card, and a maintained source location.
   network, symlink output, or overwrite.
 - Proven capability: exact source/topology/UV/family/texture/bundle/page/index
   reconciliation; multiset union without duplicate inflation; deterministic
-  A/B results; fail-closed duplicate, conflict, out-of-retail, and overwrite
-  behavior.
-- Build proof: two builds with pinned `SOURCE_DATE_EPOCH=1787482208`
-  produced the identical 214,881-byte 2.31.0 wheel, SHA-256
-  `4ce849b9f0528ba7404d056de93a20ee11f24fa23d5f77f87e5ddf28e09d94a0`.
+  A/B results; bounded partial-range index and census revalidation; fail-closed
+  duplicate, conflict, dishonest multiset, out-of-range, out-of-retail, and
+  overwrite behavior. A/B union reports are 5,283 bytes / SHA-256
+  `3f90252ab92980500ceea34dca3f5a9a486adb874109079aea233509a5dae825`.
+- Build proof: two builds with pinned `SOURCE_DATE_EPOCH=1787494800`
+  produced the identical 238,586-byte 2.36.0 wheel, SHA-256
+  `10096f105406b83260591b12d1b60ecda63ce1196f7f06d78671c92a761463d7`.
 - Limitations: an exact triangle union does not identify assembly placement,
   recover original normals/tangents, create bones/weights, upscale textures,
   author PBR, repack an RPCS3 mod, or import into the native decomp.
 - Return status: `returned-with-capability-and-evidence`. Preserve the accepted
-  matte Zeke render; capture deliberately different pose/state/occlusion draws
-  for jacket, head, and packs instead of repeating the same ordinary view.
+  matte Zeke render; capture a different compatible hair draw for the six open
+  faces and deliberately different pose/state/occlusion draws for jacket,
+  head, and packs.
 
 ## `xpp-tool.character-component-ledger.v1`
 
 - Status: maintained; introduced in 2.30.0 and extended with exact material-pass
-  receipts in xpp-tool 2.34.0.
+  receipts in 2.34.0; the 2.36 canonical run admits strict partial-derived
+  material exports without changing this ledger's schema.
 - Parent goal: recover every character/item component once, retain every useful
   render immediately, and assemble one canonical editable asset for near-term
   RPCS3 mods and later native-decomp import without confusing partial proof for
@@ -228,19 +239,19 @@ output where applicable, an operator card, and a maintained source location.
 - First answer: five exact BCUS Zeke records are reconciled: hair 533752,
   jacket 534628, packs 535048, head 536280, and jacket detail 536488. Jacket
   detail alone has complete material coverage; the other four retain explicit
-  unresolved face counts. Five images are receipted, with only the approved
-  matte/unlit hair look marked as an accepted visual baseline. The 2.34 ledger
-  also preserves one exact hair pass census with three pass signatures, two
-  runtime index payloads, and the 282/12 any-pass split.
+  unresolved face counts. The current ledger promotes hair to 288/6, receipts
+  six images, and preserves both approved matte/unlit hair views. The immutable
+  2.34 ledger remains the authority for the older three-signature 282/12 pass
+  census; it is not falsely attached to the expanded 288-face union.
 - Entry point: `xpp-tool character-component-ledger` (also exposed by the
   compatible `if1-tex` alias).
 - Implementation: `src/infamous_xpp_textures/component_ledger.py`, SHA-256
   `bbec0935e13eb3e13dccff670522740176628c0249f6a04e98fe4c1f60fe0a76`;
   CLI wiring `src/infamous_xpp_textures/cli.py`, SHA-256
-  `687289ccf0a5fa9cd7fabd3144981fb547bd503d8a51a9070bbcc40348137e83`.
+  `342820d98f72e844697a8fb3f7c33bcaa7cc427805ca6c21c3760c65a2f8b003`.
 - Tests: `tests/test_component_ledger.py`, SHA-256
   `9e90757be9d31463cc528eb5b40d81b2308ff2d0d71512e662512de407bccd57`.
-  The complete repository suite passes **245 tests**.
+  The complete repository suite passes **252 tests**.
 - Operator card: [README — Version 2.34](README.md#version-234--preserve-material-passes-in-the-canonical-character-ledger).
 - Inputs: one through 256 exact material-export JSON files, each with a matching
   SHA-256 pin; canonical title/build/candidate tokens; optional exact visual-
@@ -259,10 +270,19 @@ output where applicable, an operator card, and a maintained source location.
   texture-family, triangle-coverage, relationship, group, and unknown-evidence
   rejection; deterministic 44,794-byte A/B output SHA-256
   `d64a613f6be9a165537493c98f730d77945108a7969524207dcc7fd748e7f44e`.
+- Current promotion proof: two 30,923-byte ledgers are byte-identical at
+  SHA-256 `e61a78fbdc80cecaa97984cbc0cca3bd9a53df075134b0afbd7b5bba79a9553c`;
+  five components, five material observations, six render receipts, one
+  accepted-baseline component, hair 288/6, and no overwritten historical
+  pass-census claim.
 - Build proof: two builds with pinned `SOURCE_DATE_EPOCH=1787488800`
   produced the identical 230,065-byte 2.34.0 wheel, SHA-256
   `81f68fcc6ccd4005c03a6302c8d2e184c5e867367eaa34d9f926473db05e303c`;
   a fresh isolated environment installed it and exposed both pass-census inputs.
+- Current distribution proof: two 2.36.0 builds with pinned
+  `SOURCE_DATE_EPOCH=1787494800` produced the identical 238,586-byte wheel,
+  SHA-256
+  `10096f105406b83260591b12d1b60ecda63ce1196f7f06d78671c92a761463d7`.
 - Limitations: a visual baseline protects appearance only. It cannot prove
   unresolved material faces, assembly placement, missing body pieces, original
   normals/tangents, bones/weights, 4×, authored PBR, RPCS3 repack/gameplay, or
@@ -376,7 +396,8 @@ output where applicable, an operator card, and a maintained source location.
 
 ## `xpp-tool.character-uv-texture-binding.v1`
 
-- Status: maintained; introduced in 2.25.0 and callable in xpp-tool 2.29.0.
+- Status: maintained; introduced in 2.25.0 and extended with fail-closed safe
+  partial-range lineage in xpp-tool 2.36.0.
 - Parent goal: turn every character/item into a complete, correctly textured,
   editable Blender asset that can first round-trip through retail RPCS3 and
   later import unchanged through the native decomp's asset API.
@@ -391,25 +412,32 @@ output where applicable, an operator card, and a maintained source location.
   layout: four-byte attribute 3 at byte 0 and six-byte half3 attribute 9 at
   byte 4. Attribute 9 XY feeds TEX0 and samplers 0–3 select the exact
   `Zeke_Jacket` N/A/S/C family for all 26 vertices / 24 retail triangles.
+- Third answer: the older page-one Zeke hair tray is a safe partial lineage,
+  not a full source range. Its 183 rows cover source vertices 0-182; all 276
+  runtime triangle occurrences stay inside that range and exist in the exact
+  294-triangle retail multiset. Its A/C/N/S descriptors and mip prefixes
+  independently match the pinned character census.
 - Entry point: `xpp-tool character-uv-texture-binding` (also exposed by the
   compatible `if1-tex` alias).
 - Implementation: `src/infamous_xpp_textures/shader_lineage.py`; fragment
   source decode in `src/infamous_xpp_textures/fragment_sampler.py`; CLI wiring
   in `src/infamous_xpp_textures/cli.py`.
 - Tests: `tests/test_shader_lineage.py` and `tests/test_fragment_sampler.py`.
-- Maintained source pins at 2.27.0: implementation
-  `16477c804d59b9b2bdb72e2c3bcdec3e29c1bd3078a664e322f032620bd2c81c`;
+- Maintained source pins at 2.36.0: implementation
+  `20d05ea1b56b3e90c7231fbfee34a6fbe12cf4e0df5206edf3ec2254298e0ebd`;
   fragment decoder
   `6db0ea37623a262299b50e1c071a6aa4846711b404d6bdce3c50a899b11443e3`;
-  CLI `fbe2156fd8662879c6001b1b1d85222c9076cbb2de0d436237fc06439de1d653`;
-  focused tests
-  `e4b1eeb2bac1675bcf128a09773672fbe754f868f834ebb60909d14f45ac0133`
+  CLI `342820d98f72e844697a8fb3f7c33bcaa7cc427805ca6c21c3760c65a2f8b003`;
+  focused lineage tests
+  `6c696da717ad0e12726ffd337404a03d818cc68a84b99d1304c8da2d031e61fc`
   and
   `afd10a8f77fed71a6895eb5ad1a1e592c9bd9be499437588347c524d927bde09`.
-- Operator card: [README — Version 2.27](README.md#version-227--packed-three-component-character-streams).
+- Operator card: [README — Version 2.36](README.md#version-236--strict-partial-range-material-observations).
 - Inputs: complete v3/v4 shader bundle; exact texture allowlist and prior-page
   exclusion where required; source census and pin; character census and pin;
-  bounded page/event/source-record/character-side selection.
+  bounded page/event/source-record/character-side selection. Partial lineage
+  additionally requires the source census to prove every runtime index stays
+  inside the exact captured vertex range and retail triangle multiset.
 - Output: deterministic payload-free JSON at a new path. The report records
   only identities, counts, bounded float minima/maxima, descriptor names, and
   lineage tokens.
@@ -420,14 +448,18 @@ output where applicable, an operator card, and a maintained source location.
   input; component-level branch-free vertex lineage; unique complete packed
   layout using guest source-storage widths rather than host-upload padding;
   unique named texture-prefix identities; one geometry-to-UV-to-texture binding.
+- Proven partial capability: the report keeps `full_source_vertex_range=false`,
+  records exact range bounds and multiset hashes, and becomes eligible for a
+  material union only when every source/bundle/shader/texture/index authority
+  independently reconciles.
 - Limitations: the old capture did not directly serialize attribute byte
   offsets, so byte 4 is a unique finite complete-tiling reconstruction. Packed
   guest widths are not host-upload widths. Name suffixes do not prove native
   PBR channel semantics. Full character, every material, 4x/PBR, RPCS3 round
   trip, and native import remain false.
-- Return status: `returned-with-evidence`. The four-map exporter is now complete;
-  resume by proving the next source-bound record's UV/material family and joining
-  components only after exact placement/identity evidence.
+- Return status: `returned-with-evidence`. Preserve the safe page-one hair
+  lineage and continue the remaining six faces or the next source-bound record
+  without treating a partial tray as complete.
 
 ## `xpp-tool.asset-completion-inventory.v1`
 

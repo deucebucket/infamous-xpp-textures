@@ -52,9 +52,7 @@ def _fragment_program(*, target_hash: str) -> bytes:
     del target_hash
     dest = (4 << 13) | (0 << 17) | (0x31 << 24) | 1
     source = 1 | (1 << 11) | (2 << 13) | (3 << 15)
-    return struct.pack(
-        "<4I", _captured_word(dest), _captured_word(source), 0, 0
-    )
+    return struct.pack("<4I", _captured_word(dest), _captured_word(source), 0, 0)
 
 
 def _block_payload() -> bytes:
@@ -71,6 +69,7 @@ def _block(payload: bytes):
         payload_bytes=len(payload),
         payload_sha256=_sha(payload),
         stride=8,
+        range_first=0,
         range_count=2,
         attributes=(
             {
@@ -299,13 +298,9 @@ def test_builds_complete_shader_lineage_from_pinned_authorities(tmp_path, monkey
             "e" * 64,
         ),
     )
-    source, source_sha, character, character_sha = _authorities(
-        tmp_path, target_hash
-    )
+    source, source_sha, character, character_sha = _authorities(tmp_path, target_hash)
     source_value = json.loads(source.read_text())
-    source_value["events"][0]["mapping"]["matched_stream_slice_sha256"] = _sha(
-        payload
-    )
+    source_value["events"][0]["mapping"]["matched_stream_slice_sha256"] = _sha(payload)
     source_sha = _write_json(source, source_value)
 
     report = build_character_uv_texture_binding(
@@ -335,6 +330,209 @@ def test_builds_complete_shader_lineage_from_pinned_authorities(tmp_path, monkey
     with pytest.raises(ShaderLineageError, match="already exists"):
         write_new_character_uv_texture_binding(output, report)
     assert output.read_bytes() == first
+
+
+def test_builds_safe_partial_shader_lineage_for_indices_inside_slice(
+    tmp_path, monkeypatch
+):
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    payload = _block_payload()
+    vertex = _vertex_program()
+    target_hash = "d" * 64
+    fragment = _fragment_program(target_hash=target_hash)
+    runtime_indices = struct.pack(">3H", 0, 1, 0)
+    for name, value in (
+        ("block.bin", payload),
+        ("vertex.bin", vertex),
+        ("fragment.bin", fragment),
+        ("indices.bin", runtime_indices),
+    ):
+        (bundle / name).write_bytes(value)
+    block = _block(payload)
+    event = SimpleNamespace(
+        number=1,
+        draw_event=42,
+        blocks=(block,),
+        vertex_program_file="vertex.bin",
+        vertex_program_sha256=_sha(vertex),
+        fragment_program_file="fragment.bin",
+        fragment_program_bytes=len(fragment),
+        fragment_program_sha256=_sha(fragment),
+        target_texture_slots=(0,),
+        target_texture_sha256s=(target_hash,),
+        index_payload_file="indices.bin",
+        index_sha256=_sha(runtime_indices),
+        index_count=3,
+        index_bytes=len(runtime_indices),
+    )
+    monkeypatch.setattr(
+        "infamous_xpp_textures.shader_lineage._load_bundle",
+        lambda *args: (
+            {"format": "if1-texture-bound-topology-v3"},
+            {1: event},
+            "e" * 64,
+        ),
+    )
+    source, _source_sha, character, character_sha = _authorities(tmp_path, target_hash)
+    source_value = json.loads(source.read_text())
+    source_value["source"]["records"] = [
+        {
+            "record_offset": 100,
+            "vertex_count": 3,
+            "index_count": 3,
+            "index_sha256": "f" * 64,
+        }
+    ]
+    source_value["events"][0].update(page=1)
+    source_value["events"][0]["mapping"] = {
+        "record_offset": 100,
+        "block": 3,
+        "range_first": 0,
+        "range_count": 2,
+        "range_end": 2,
+        "source_vertex_count": 3,
+        "full_vertex_range": False,
+        "matched_stream_slice_sha256": _sha(payload),
+        "stream_zero_record_bytes": 8,
+        "source_index_count": 3,
+        "source_index_sha256": "f" * 64,
+        "runtime_index_coverage": {
+            "status": "retail-triangle-subset-proved",
+            "safe_for_retail_coverage_union": True,
+            "runtime_indices_within_mapped_vertex_range": True,
+            "runtime_index_sha256": _sha(runtime_indices),
+            "runtime_triangle_occurrences": 1,
+            "covered_retail_triangle_occurrences": 1,
+            "unobserved_retail_triangle_occurrences": 0,
+            "runtime_min_vertex_index": 0,
+            "runtime_max_vertex_index": 1,
+            "covered_triangle_multiset_sha256": _sha(runtime_indices),
+            "unobserved_triangle_multiset_sha256": _sha(b""),
+        },
+    }
+    source_sha = _write_json(source, source_value)
+
+    report = build_character_uv_texture_binding(
+        bundle,
+        tmp_path / "unused-allowlist",
+        None,
+        source,
+        source_sha,
+        character,
+        character_sha,
+        event_number=1,
+        page_number=1,
+        record_offset=100,
+        character_side="left",
+    )
+
+    assert report["status"] == (
+        "exact-partial-shader-lineage-with-unique-packed-layout"
+    )
+    assert report["selection"]["source_vertex_count"] == 3
+    assert report["selection"]["source_range_count"] == 2
+    assert report["proof"]["full_source_vertex_range"] is False
+    assert report["proof"]["safe_for_material_coverage_union"] is True
+    assert (
+        report["partial_runtime_coverage"]["covered_retail_triangle_occurrences"] == 1
+    )
+
+
+def test_partial_shader_lineage_rejects_index_outside_source_slice(
+    tmp_path, monkeypatch
+):
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    payload = _block_payload()
+    vertex = _vertex_program()
+    target_hash = "d" * 64
+    fragment = _fragment_program(target_hash=target_hash)
+    runtime_indices = struct.pack(">3H", 0, 1, 2)
+    for name, value in (
+        ("block.bin", payload),
+        ("vertex.bin", vertex),
+        ("fragment.bin", fragment),
+        ("indices.bin", runtime_indices),
+    ):
+        (bundle / name).write_bytes(value)
+    event = SimpleNamespace(
+        number=1,
+        draw_event=42,
+        blocks=(_block(payload),),
+        vertex_program_file="vertex.bin",
+        vertex_program_sha256=_sha(vertex),
+        fragment_program_file="fragment.bin",
+        fragment_program_bytes=len(fragment),
+        fragment_program_sha256=_sha(fragment),
+        target_texture_slots=(0,),
+        target_texture_sha256s=(target_hash,),
+        index_payload_file="indices.bin",
+        index_sha256=_sha(runtime_indices),
+        index_count=3,
+        index_bytes=len(runtime_indices),
+    )
+    monkeypatch.setattr(
+        "infamous_xpp_textures.shader_lineage._load_bundle",
+        lambda *args: (
+            {"format": "if1-texture-bound-topology-v3"},
+            {1: event},
+            "e" * 64,
+        ),
+    )
+    source, _source_sha, character, character_sha = _authorities(tmp_path, target_hash)
+    source_value = json.loads(source.read_text())
+    source_value["source"]["records"] = [
+        {
+            "record_offset": 100,
+            "vertex_count": 3,
+            "index_count": 3,
+            "index_sha256": "f" * 64,
+        }
+    ]
+    source_value["events"][0].update(page=1)
+    source_value["events"][0]["mapping"] = {
+        "record_offset": 100,
+        "block": 3,
+        "range_first": 0,
+        "range_count": 2,
+        "range_end": 2,
+        "source_vertex_count": 3,
+        "full_vertex_range": False,
+        "matched_stream_slice_sha256": _sha(payload),
+        "stream_zero_record_bytes": 8,
+        "source_index_count": 3,
+        "source_index_sha256": "f" * 64,
+        "runtime_index_coverage": {
+            "status": "retail-triangle-subset-proved",
+            "safe_for_retail_coverage_union": True,
+            "runtime_indices_within_mapped_vertex_range": True,
+            "runtime_index_sha256": _sha(runtime_indices),
+            "runtime_triangle_occurrences": 1,
+            "covered_retail_triangle_occurrences": 1,
+            "unobserved_retail_triangle_occurrences": 0,
+            "runtime_min_vertex_index": 0,
+            "runtime_max_vertex_index": 2,
+            "covered_triangle_multiset_sha256": _sha(runtime_indices),
+            "unobserved_triangle_multiset_sha256": _sha(b""),
+        },
+    }
+    source_sha = _write_json(source, source_value)
+
+    with pytest.raises(ShaderLineageError, match="leave the captured source slice"):
+        build_character_uv_texture_binding(
+            bundle,
+            tmp_path / "unused-allowlist",
+            None,
+            source,
+            source_sha,
+            character,
+            character_sha,
+            event_number=1,
+            page_number=1,
+            record_offset=100,
+            character_side="left",
+        )
 
 
 def test_rejects_authority_hash_drift(tmp_path):

@@ -54,6 +54,20 @@ class MaterialCoverageObservation:
     capture_key_exclusion: Path | None
 
 
+@dataclass(frozen=True)
+class PartialMaterialCoverageObservation:
+    """One pinned partial lineage plus every authority needed to revalidate it."""
+
+    lineage: Path
+    lineage_sha256: str
+    bundle: Path
+    capture_key_exclusion: Path | None
+    source_census: Path
+    source_census_sha256: str
+    character_census: Path
+    character_census_sha256: str
+
+
 def _sha256(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
 
@@ -103,6 +117,470 @@ def _expand_counter(
     return result
 
 
+def _partial_material_observation(
+    observation: PartialMaterialCoverageObservation,
+    *,
+    index: int,
+    xpp_sha256: str,
+    xpp_bytes: int,
+    record_offset: int,
+    vertex_count: int,
+    retail_indices: tuple[int, ...],
+    retail_index_sha256: str,
+    texture_allowlist: Path,
+    common: dict,
+) -> tuple[dict, Counter, str]:
+    """Revalidate one safe partial lineage as material-coverage evidence."""
+
+    try:
+        lineage_payload = _read_pinned(
+            observation.lineage,
+            observation.lineage_sha256,
+            MAX_MATERIAL_REPORT_BYTES,
+            f"partial lineage {index}",
+        )
+        lineage = _load_json(lineage_payload, f"partial lineage {index}")
+        source_payload = _read_pinned(
+            observation.source_census,
+            observation.source_census_sha256,
+            MAX_MATERIAL_REPORT_BYTES,
+            f"partial source census {index}",
+        )
+        source_census = _load_json(source_payload, f"partial source census {index}")
+        character_payload = _read_pinned(
+            observation.character_census,
+            observation.character_census_sha256,
+            MAX_MATERIAL_REPORT_BYTES,
+            f"partial character census {index}",
+        )
+        character_census = _load_json(
+            character_payload, f"partial character census {index}"
+        )
+    except CharacterComponentLedgerError as exc:
+        raise MaterialCoverageUnionError(str(exc)) from exc
+    if (
+        lineage.get("format") != "infamous-character-uv-texture-binding"
+        or lineage.get("version") != 1
+        or lineage.get("tool_inventory_id")
+        != "xpp-tool.character-uv-texture-binding.v1"
+        or lineage.get("status")
+        != "exact-partial-shader-lineage-with-unique-packed-layout"
+        or source_census.get("kind") != "if1-rsx-paged-xpp-source-census"
+        or source_census.get("schema_version") != 1
+        or character_census.get("format") != "infamous-character-asset-census"
+        or character_census.get("version") != 1
+    ):
+        raise MaterialCoverageUnionError(
+            "partial lineage or source census has the wrong schema"
+        )
+    authorities = lineage.get("authorities")
+    selection = lineage.get("selection")
+    shader = lineage.get("shader_lineage")
+    proof = lineage.get("proof")
+    coverage = lineage.get("partial_runtime_coverage")
+    bindings = lineage.get("texture_bindings")
+    if not all(
+        isinstance(item, dict)
+        for item in (authorities, selection, shader, proof, coverage)
+    ) or not isinstance(bindings, list):
+        raise MaterialCoverageUnionError("partial lineage structure is malformed")
+    required_proof = (
+        "same_xpp_source_record",
+        "exact_source_stream_bytes",
+        "exact_shader_payloads",
+        "target_sampler_coordinate_input",
+        "component_level_vertex_lineage",
+        "named_texture_identity",
+        "two_dimensional_texture_coordinate_semantic",
+        "packed_layout_uniquely_reconstructed",
+        "geometry_to_uv_to_texture_binding",
+        "partial_source_vertex_range",
+        "runtime_indices_within_source_range",
+        "runtime_retail_triangle_subset",
+        "safe_for_material_coverage_union",
+    )
+    if (
+        not all(proof.get(key) is True for key in required_proof)
+        or proof.get("full_source_vertex_range") is not False
+        or coverage.get("safe_for_material_coverage_union") is not True
+    ):
+        raise MaterialCoverageUnionError("partial lineage proof is incomplete")
+    source = source_census.get("source")
+    if (
+        not isinstance(source, dict)
+        or authorities.get("source_census_sha256") != observation.source_census_sha256
+        or authorities.get("character_census_sha256")
+        != observation.character_census_sha256
+        or authorities.get("source_xpp_sha256") != xpp_sha256
+        or authorities.get("source_xpp_bytes") != xpp_bytes
+        or source.get("source_sha256") != xpp_sha256
+        or source.get("source_size") != xpp_bytes
+        or authorities.get("texture_allowlist_sha256") != common["allowlist_sha256"]
+    ):
+        raise MaterialCoverageUnionError("partial lineage authorities drifted")
+
+    targets = character_census.get("targets")
+    descriptors_by_side = character_census.get("target_texture_descriptors")
+    if not isinstance(targets, dict) or not isinstance(descriptors_by_side, dict):
+        raise MaterialCoverageUnionError("partial character census is malformed")
+    target_sides = [
+        side
+        for side, target in targets.items()
+        if isinstance(side, str)
+        and isinstance(target, dict)
+        and target.get("sha256") == xpp_sha256
+        and target.get("bytes") == xpp_bytes
+        and target.get("relative_path") == authorities.get("character_target")
+    ]
+    if len(target_sides) != 1:
+        raise MaterialCoverageUnionError(
+            "partial character census does not select one source target"
+        )
+    character_descriptors = descriptors_by_side.get(target_sides[0])
+    if (
+        not isinstance(character_descriptors, list)
+        or not 1 <= len(character_descriptors) <= 512
+    ):
+        raise MaterialCoverageUnionError(
+            "partial character texture descriptors exceed the bound"
+        )
+
+    page = selection.get("page")
+    event_number = selection.get("event")
+    source_range_first = selection.get("source_range_first")
+    source_range_count = selection.get("source_range_count")
+    source_range_end = selection.get("source_range_end")
+    if (
+        isinstance(page, bool)
+        or not isinstance(page, int)
+        or not 1 <= page <= 17
+        or isinstance(event_number, bool)
+        or not isinstance(event_number, int)
+        or not 1 <= event_number <= 16
+        or selection.get("record_offset") != record_offset
+        or selection.get("source_stream_index") != 0
+        or selection.get("source_vertex_count") != vertex_count
+        or selection.get("vertex_count") != source_range_count
+        or not all(
+            isinstance(value, int) and not isinstance(value, bool)
+            for value in (source_range_first, source_range_count, source_range_end)
+        )
+        or not 0 <= source_range_first < source_range_end <= vertex_count
+        or source_range_count != source_range_end - source_range_first
+        or shader.get("vertex_input_attribute") != 9
+        or shader.get("vertex_input_type") != 3
+        or shader.get("vertex_input_components") not in (2, 3)
+        or shader.get("vertex_input_byte_offset") != common["uv_byte_offset"]
+        or shader.get("fragment_input_name") != "TEX0"
+    ):
+        raise MaterialCoverageUnionError(
+            "partial lineage source range or UV contract conflicts with the anchor"
+        )
+
+    normalized_bindings: list[dict] = []
+    seen_suffixes: set[str] = set()
+    seen_samplers: set[int] = set()
+    seen_descriptors: set[int] = set()
+    for binding_index, binding in enumerate(bindings):
+        if not isinstance(binding, dict):
+            raise MaterialCoverageUnionError(
+                f"partial texture binding {binding_index} is malformed"
+            )
+        suffix = binding.get("name_suffix")
+        sampler = binding.get("sampler")
+        name = binding.get("name")
+        descriptor_index = binding.get("descriptor_index")
+        if (
+            not isinstance(suffix, str)
+            or not suffix
+            or len(suffix) > 8
+            or not suffix.isalnum()
+            or suffix in seen_suffixes
+            or isinstance(sampler, bool)
+            or not isinstance(sampler, int)
+            or not 0 <= sampler <= 15
+            or sampler in seen_samplers
+            or isinstance(descriptor_index, bool)
+            or not isinstance(descriptor_index, int)
+            or not 0 <= descriptor_index < 512
+            or descriptor_index in seen_descriptors
+            or not isinstance(name, str)
+            or not name
+            or len(name) > 256
+            or not _valid_sha256(binding.get("runtime_prefix_sha256"))
+        ):
+            raise MaterialCoverageUnionError(
+                "partial texture identities are not bounded and unique"
+            )
+        seen_suffixes.add(suffix)
+        seen_samplers.add(sampler)
+        seen_descriptors.add(descriptor_index)
+        descriptor_matches = [
+            item
+            for item in character_descriptors
+            if isinstance(item, dict) and item.get("index") == descriptor_index
+        ]
+        if len(descriptor_matches) != 1:
+            raise MaterialCoverageUnionError(
+                "partial texture identity does not select one character descriptor"
+            )
+        descriptor = descriptor_matches[0]
+        mip_matches = [
+            item
+            for item in descriptor.get("mip_rows", [])
+            if isinstance(item, dict)
+            and item.get("level") == binding.get("matched_mip_level")
+        ]
+        if (
+            len(mip_matches) != 1
+            or descriptor.get("name") != name
+            or descriptor.get("family") != lineage.get("texture_family")
+            or descriptor.get("name_suffix") != suffix
+            or descriptor.get("format") != binding.get("format")
+            or descriptor.get("width") != binding.get("width")
+            or descriptor.get("height") != binding.get("height")
+            or descriptor.get("faces") != 1
+            or binding.get("faces") != 1
+            or mip_matches[0].get("prefix_bytes") != binding.get("matched_prefix_bytes")
+            or mip_matches[0].get("prefix_sha256")
+            != binding.get("runtime_prefix_sha256")
+        ):
+            raise MaterialCoverageUnionError(
+                "partial texture identity drifted from the character census"
+            )
+        normalized_bindings.append(
+            {
+                "descriptor_index": descriptor_index,
+                "name": name,
+                "suffix": suffix,
+                "sampler": sampler,
+                "width": binding.get("width"),
+                "height": binding.get("height"),
+                "runtime_prefix_sha256": binding["runtime_prefix_sha256"],
+            }
+        )
+    if (
+        not 2 <= len(normalized_bindings) <= 8
+        or lineage.get("texture_family") != common["texture_family"]
+    ):
+        raise MaterialCoverageUnionError(
+            "partial lineage does not select one compatible texture family"
+        )
+    by_suffix = {item["suffix"]: item for item in normalized_bindings}
+    for anchor_texture in common["textures"]:
+        partial_texture = by_suffix.get(anchor_texture["suffix"])
+        if partial_texture is None or any(
+            partial_texture[key] != anchor_texture[key]
+            for key in (
+                "descriptor_index",
+                "name",
+                "width",
+                "height",
+                "runtime_prefix_sha256",
+            )
+        ):
+            raise MaterialCoverageUnionError(
+                "partial lineage conflicts with an anchor texture identity"
+            )
+
+    source_events = [
+        item
+        for item in source_census.get("events", [])
+        if isinstance(item, dict)
+        and item.get("page") == page
+        and item.get("event") == event_number
+    ]
+    if len(source_events) != 1:
+        raise MaterialCoverageUnionError(
+            "partial source census does not select one page/event"
+        )
+    source_event = source_events[0]
+    mapping = source_event.get("mapping")
+    source_records = source.get("records", [])
+    record_matches = [
+        item
+        for item in source_records
+        if isinstance(item, dict) and item.get("record_offset") == record_offset
+    ]
+    if len(record_matches) != 1:
+        raise MaterialCoverageUnionError(
+            "partial source census does not select one retail record"
+        )
+    source_record = record_matches[0]
+    if (
+        not source_event.get("same_xpp_source_record_proved")
+        or not isinstance(mapping, dict)
+        or mapping.get("record_offset") != record_offset
+        or mapping.get("block") != selection.get("source_block")
+        or mapping.get("range_first") != source_range_first
+        or mapping.get("range_count") != source_range_count
+        or mapping.get("range_end") != source_range_end
+        or mapping.get("source_vertex_count") != vertex_count
+        or mapping.get("full_vertex_range") is not False
+        or mapping.get("matched_stream_slice_sha256")
+        != selection.get("source_stream_sha256")
+        or mapping.get("stream_zero_record_bytes")
+        != selection.get("source_stream_stride")
+        or source_record.get("vertex_count") != vertex_count
+        or source_record.get("index_count") != len(retail_indices)
+        or source_record.get("index_sha256") != retail_index_sha256
+    ):
+        raise MaterialCoverageUnionError(
+            "partial source mapping does not reconcile with retail topology"
+        )
+    mapping_coverage = mapping.get("runtime_index_coverage")
+    if (
+        not isinstance(mapping_coverage, dict)
+        or mapping_coverage.get("safe_for_retail_coverage_union") is not True
+        or mapping_coverage.get("runtime_indices_within_mapped_vertex_range")
+        is not True
+        or mapping_coverage.get("runtime_index_sha256")
+        != coverage.get("runtime_index_sha256")
+        or mapping_coverage.get("covered_triangle_multiset_sha256")
+        != coverage.get("covered_triangle_multiset_sha256")
+        or mapping_coverage.get("unobserved_triangle_multiset_sha256")
+        != coverage.get("unobserved_triangle_multiset_sha256")
+    ):
+        raise MaterialCoverageUnionError(
+            "partial source coverage receipt does not reconcile"
+        )
+
+    try:
+        completion, events, allowlist_identity = _load_bundle(
+            observation.bundle,
+            texture_allowlist,
+            observation.capture_key_exclusion,
+        )
+    except RuntimeTopologyExportError as exc:
+        raise MaterialCoverageUnionError(str(exc)) from exc
+    paging = _paged_capture_metadata(completion)
+    if (
+        completion.get("format") != authorities.get("bundle_format")
+        or allowlist_identity != common["allowlist_sha256"]
+        or lineage.get("paging") != paging
+    ):
+        raise MaterialCoverageUnionError("partial runtime bundle authority drifted")
+    event = events.get(event_number)
+    if (
+        event is None
+        or event.draw_event != selection.get("draw_event")
+        or event.index_sha256 != coverage.get("runtime_index_sha256")
+        or event.vertex_program_sha256 != selection.get("vertex_program_sha256")
+        or event.fragment_program_sha256 != selection.get("fragment_program_sha256")
+        or tuple(event.target_texture_slots)
+        != tuple(item["sampler"] for item in normalized_bindings)
+        or tuple(event.target_texture_sha256s)
+        != tuple(item["runtime_prefix_sha256"] for item in normalized_bindings)
+    ):
+        raise MaterialCoverageUnionError("partial runtime event identity drifted")
+    blocks = [
+        item for item in event.blocks if item.number == selection.get("source_block")
+    ]
+    block = _one(blocks, "partial source-bound UV block")
+    if (
+        block.payload_sha256 != selection.get("source_stream_sha256")
+        or block.stride != selection.get("source_stream_stride")
+        or block.range_first != source_range_first
+        or block.range_count != source_range_count
+    ):
+        raise MaterialCoverageUnionError("partial source-bound UV block drifted")
+    try:
+        _read_payload(
+            observation.bundle,
+            block.payload_file,
+            block.payload_bytes,
+            block.payload_sha256,
+        )
+        runtime_payload = _read_payload(
+            observation.bundle,
+            event.index_payload_file,
+            event.index_bytes,
+            event.index_sha256,
+        )
+    except RuntimeTopologyExportError as exc:
+        raise MaterialCoverageUnionError(str(exc)) from exc
+    if (
+        event.index_bytes != event.index_count * 2
+        or event.index_count <= 0
+        or event.index_count % 3
+        or len(runtime_payload) != event.index_bytes
+        or event.index_count // 3 != coverage.get("covered_retail_triangle_occurrences")
+    ):
+        raise MaterialCoverageUnionError("partial runtime index extent drifted")
+    observed_indices = struct.unpack(f">{event.index_count}H", runtime_payload)
+    if (
+        not observed_indices
+        or min(observed_indices) < source_range_first
+        or max(observed_indices) >= source_range_end
+        or min(observed_indices) != coverage.get("runtime_min_vertex_index")
+        or max(observed_indices) != coverage.get("runtime_max_vertex_index")
+    ):
+        raise MaterialCoverageUnionError(
+            "partial material indices leave their proved UV range"
+        )
+    try:
+        _triangle_partition(retail_indices, observed_indices)
+    except CharacterMaterialExportError as exc:
+        raise MaterialCoverageUnionError(str(exc)) from exc
+    observed_triangles = [
+        tuple(observed_indices[offset : offset + 3])
+        for offset in range(0, len(observed_indices), 3)
+    ]
+    retail_triangles = [
+        tuple(retail_indices[offset : offset + 3])
+        for offset in range(0, len(retail_indices), 3)
+    ]
+    retail_counts = Counter(retail_triangles)
+    observed_counts = Counter(observed_triangles)
+    covered_triangles = _expand_counter(retail_triangles, observed_counts)
+    unobserved_triangles = _expand_counter(
+        retail_triangles, retail_counts - observed_counts
+    )
+    if (
+        mapping_coverage.get("status") != "retail-triangle-subset-proved"
+        or mapping_coverage.get("runtime_triangle_occurrences")
+        != len(observed_triangles)
+        or mapping_coverage.get("covered_retail_triangle_occurrences")
+        != len(covered_triangles)
+        or mapping_coverage.get("unobserved_retail_triangle_occurrences")
+        != len(unobserved_triangles)
+        or mapping_coverage.get("runtime_min_vertex_index") != min(observed_indices)
+        or mapping_coverage.get("runtime_max_vertex_index") != max(observed_indices)
+        or mapping_coverage.get("covered_triangle_multiset_sha256")
+        != _sha256(_triangle_bytes(covered_triangles))
+        or mapping_coverage.get("unobserved_triangle_multiset_sha256")
+        != _sha256(_triangle_bytes(unobserved_triangles))
+    ):
+        raise MaterialCoverageUnionError(
+            "partial source coverage does not match the retail triangle partition"
+        )
+    return (
+        {
+            "page": page,
+            "event": event_number,
+            "draw_event": event.draw_event,
+            "lineage_sha256": observation.lineage_sha256,
+            "partial_lineage_report_sha256": observation.lineage_sha256,
+            "source_census_sha256": observation.source_census_sha256,
+            "character_census_sha256": observation.character_census_sha256,
+            "evidence_kind": "safe-partial-range-shader-lineage",
+            "bundle_format": completion["format"],
+            "bundle_completion": _bundle_completion_receipt(observation.bundle),
+            "capture_key_exclusion_sha256": (
+                paging["exclusion_manifest_sha256"] if paging is not None else None
+            ),
+            "runtime_index_sha256": event.index_sha256,
+            "source_range_first": source_range_first,
+            "source_range_count": source_range_count,
+            "source_range_end": source_range_end,
+            "texture_names": sorted(item["name"] for item in normalized_bindings),
+            "observed_triangles": len(observed_triangles),
+        },
+        observed_counts,
+        allowlist_identity,
+    )
+
+
 def _build_material_coverage_union(
     xpp_path: Path,
     xpp_sha256: str,
@@ -110,6 +588,7 @@ def _build_material_coverage_union(
     observations: Sequence[MaterialCoverageObservation],
     *,
     record_offset: int,
+    partial_observations: Sequence[PartialMaterialCoverageObservation] = (),
 ) -> tuple[dict, tuple[int, ...]]:
     """Union exact runtime material triangles for one retail source record."""
 
@@ -119,7 +598,10 @@ def _build_material_coverage_union(
         or record_offset < 0
     ):
         raise MaterialCoverageUnionError("record offset is invalid")
-    if not 1 <= len(observations) <= MAX_OBSERVATIONS:
+    if (
+        not 1 <= len(observations) <= MAX_OBSERVATIONS
+        or len(observations) + len(partial_observations) > MAX_OBSERVATIONS
+    ):
         raise MaterialCoverageUnionError("observation count is invalid")
     if not _valid_sha256(xpp_sha256):
         raise MaterialCoverageUnionError("XPP SHA-256 pin is not canonical")
@@ -293,6 +775,7 @@ def _build_material_coverage_union(
                 "bundle_completion": _bundle_completion_receipt(observation.bundle),
                 "capture_key_exclusion_sha256": expected_exclusion,
                 "runtime_index_sha256": event.index_sha256,
+                "evidence_kind": "full-range-material-export",
                 "observed_counts": observed_counts,
                 "observed_triangles": len(observed_triangles),
             }
@@ -300,6 +783,39 @@ def _build_material_coverage_union(
 
     if common is None or allowlist_identity is None:
         raise MaterialCoverageUnionError("coverage union has no validated observations")
+    common["allowlist_sha256"] = allowlist_identity
+    partial_texture_names: set[str] = set()
+    for index, observation in enumerate(partial_observations):
+        lineage_path = observation.lineage.resolve()
+        if lineage_path in seen_report_paths:
+            raise MaterialCoverageUnionError(
+                "partial lineage path duplicates another observation"
+            )
+        seen_report_paths.add(lineage_path)
+        row, observed_counts, observed_allowlist = _partial_material_observation(
+            observation,
+            index=index,
+            xpp_sha256=xpp_sha256,
+            xpp_bytes=len(xpp_data),
+            record_offset=record_offset,
+            vertex_count=contract.vertex_count,
+            retail_indices=retail_indices,
+            retail_index_sha256=contract.index_sha256,
+            texture_allowlist=texture_allowlist,
+            common=common,
+        )
+        if observed_allowlist != allowlist_identity:
+            raise MaterialCoverageUnionError(
+                "partial runtime bundle uses a different texture allowlist"
+            )
+        identity = (row["page"], row["event"], row["runtime_index_sha256"])
+        if identity in seen_observations:
+            raise MaterialCoverageUnionError(
+                "material observations repeat one page/event/index identity"
+            )
+        seen_observations.add(identity)
+        partial_texture_names.update(row["texture_names"])
+        normalized.append({**row, "observed_counts": observed_counts})
     normalized.sort(
         key=lambda row: (row["page"], row["event"], row["runtime_index_sha256"])
     )
@@ -391,6 +907,16 @@ def _build_material_coverage_union(
             else "capture another exact draw of this record/family that covers the remaining triangle multiset"
         ),
     }
+    if partial_observations:
+        report["component"]["compatible_partial_texture_names"] = sorted(
+            partial_texture_names
+        )
+        report["union"].update(
+            {
+                "full_range_observation_count": len(observations),
+                "partial_range_observation_count": len(partial_observations),
+            }
+        )
     payload = render_material_coverage_union(report)
     if len(payload) > MAX_OUTPUT_BYTES:
         raise MaterialCoverageUnionError("coverage union report exceeds the byte bound")
@@ -407,6 +933,7 @@ def build_material_coverage_union(
     observations: Sequence[MaterialCoverageObservation],
     *,
     record_offset: int,
+    partial_observations: Sequence[PartialMaterialCoverageObservation] = (),
 ) -> dict:
     """Build the public payload-free union receipt."""
 
@@ -416,6 +943,7 @@ def build_material_coverage_union(
         texture_allowlist,
         observations,
         record_offset=record_offset,
+        partial_observations=partial_observations,
     )
     return report
 
@@ -427,6 +955,7 @@ def build_material_coverage_union_with_indices(
     observations: Sequence[MaterialCoverageObservation],
     *,
     record_offset: int,
+    partial_observations: Sequence[PartialMaterialCoverageObservation] = (),
 ) -> tuple[dict, tuple[int, ...]]:
     """Return the checked union plus private in-memory indices for a GLB export."""
 
@@ -436,6 +965,7 @@ def build_material_coverage_union_with_indices(
         texture_allowlist,
         observations,
         record_offset=record_offset,
+        partial_observations=partial_observations,
     )
 
 

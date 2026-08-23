@@ -185,9 +185,31 @@ def test_atomic_writer_and_cli_preserve_outputs(tmp_path, monkeypatch):
                 "-",
             ]
         )
+    partial_lineage = tmp_path / "partial.json"
+    partial_bundle = tmp_path / "partial-bundle"
+    partial_source = tmp_path / "source.json"
+    partial_character = tmp_path / "character.json"
+    partial_bundle.mkdir()
+    argv.extend(
+        [
+            "--partial-observation",
+            str(partial_lineage),
+            "1" * 64,
+            str(partial_bundle),
+            "-",
+            str(partial_source),
+            "2" * 64,
+            str(partial_character),
+            "3" * 64,
+        ]
+    )
     argv.extend(
         ["--output-glb", str(output_glb), "--output-report", str(output_report)]
     )
     assert cli.main(argv) == 0
     assert len(seen["args"][3]) == 2
+    assert len(seen["kwargs"]["partial_observations"]) == 1
+    partial = seen["kwargs"]["partial_observations"][0]
+    assert partial.lineage == partial_lineage
+    assert partial.character_census == partial_character
     assert output_glb.read_bytes() == b"cli"

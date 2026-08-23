@@ -15,6 +15,7 @@ from .component_ledger import CharacterComponentLedgerError, _read_pinned
 from .material_coverage import (
     MAX_XPP_BYTES,
     MaterialCoverageObservation,
+    PartialMaterialCoverageObservation,
     MaterialCoverageUnionError,
     build_material_coverage_union_with_indices,
     render_material_coverage_union,
@@ -34,6 +35,7 @@ def build_material_coverage_export(
     record_offset: int,
     anchor_lineage: Path,
     anchor_lineage_sha256: str,
+    partial_observations: Sequence[PartialMaterialCoverageObservation] = (),
 ) -> tuple[bytes, dict]:
     """Revalidate one union and export its exact covered triangle multiset."""
 
@@ -44,6 +46,7 @@ def build_material_coverage_export(
             texture_allowlist,
             observations,
             record_offset=record_offset,
+            partial_observations=partial_observations,
         )
         union_payload = render_material_coverage_union(union_report)
         union_sha256 = hashlib.sha256(union_payload).hexdigest()
