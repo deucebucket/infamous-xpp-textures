@@ -896,6 +896,45 @@ validator; the JSON is capped at 256 KiB. Inputs must be regular immutable
 files/directories, output must be a new path outside every bundle and different
 from the XPP, and no raw source or runtime payload bytes enter the report.
 
+### Version 2.35 — safe retail coverage from partial-range runtime draws
+
+`runtime-xpp-source-census` now answers one more question before a useful old
+draw is discarded: does its exact runtime triangle multiset exist inside the
+pinned retail record, and do all referenced vertex indices stay inside the
+exact source byte slice that was captured?
+
+The first three-page owned run validates all **45** uniquely source-bound
+events and rejects zero. Zeke hair record 533752 has six observations but only
+three distinct index payloads. Page one events 15/16 carry 276 retail triangle
+occurrences and reference vertices 0 through 182, entirely inside their exact
+183-of-184 captured vertex slice. Page two adds 11 new occurrences; page three
+adds one more. Their retail-ordered topology union is therefore **288 / 294**,
+leaving **6** topology occurrences unobserved.
+
+RR — Really Readable rundown: the older draw was missing one unused seat in its
+vertex table, not necessarily a visible piece of hair. This validator checked
+every triangle ticket from that draw against the retail hair record and then
+checked that none of those tickets asks for the uncaptured last vertex. It is
+safe topology evidence and cuts the search space in half. It is not yet a
+strict material export: the canonical textured GLB remains **282 / 294** until
+the page-one UV/shader/texture lineage is admitted through the material union.
+Nothing about the approved matte hair appearance changes.
+
+Operator card: stable ID `xpp-tool.runtime-xpp-source-census.v1`, extended in
+2.35.0 and maintained in
+`src/infamous_xpp_textures/source_correlation.py`. The existing offline,
+single-process command accepts one regular non-symlink XPP capped at 64 MiB,
+one exact allowlist, and the inherited chain of at most 17 immutable v3/v4
+pages with their exact exclusions. For every unique source-bound event it
+reopens the checksum-validated index payload, requires a triangle list,
+requires every triangle occurrence to be a retail multiset member, and
+requires every referenced vertex to remain inside the exact mapped range.
+Rejected index evidence remains explicit and cannot enter a union. The
+deterministic payload-free JSON is capped at 256 KiB, written only to a new path
+outside all inputs, and includes per-event plus per-record covered/unobserved
+counts and hashes. It does not prove UVs, named material roles, full character,
+rigging, 4×, authored PBR, RPCS3 round trip, or native-decomp import.
+
 ### Version 2.34 — preserve material passes in the canonical character ledger
 
 Attach one or more completed cross-material pass censuses when rebuilding the

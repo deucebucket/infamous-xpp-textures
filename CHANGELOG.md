@@ -1,5 +1,35 @@
 # Changelog
 
+## 2.35.0 - 2026-08-23
+
+- Extended permanent `runtime-xpp-source-census` evidence with fail-closed
+  retail triangle-multiset validation for every uniquely source-bound draw,
+  including partial-range vertex slices.
+- Requires each admitted runtime index to be a bounded triangle list, a subset
+  of the exact retail record multiset, and entirely inside its exact mapped
+  vertex range; rejected events remain explicit and never enter the union.
+- Added deterministic per-event coverage receipts plus a retail-ordered
+  per-record union with distinct payload counts, incremental overlap/new counts,
+  and covered/unobserved hashes without serializing source or runtime payloads.
+- The first owned three-page run validates 45/45 source-bound events. Zeke hair
+  page one safely references vertices 0-182 inside its 183-of-184 slice and
+  advances topology evidence from the strict material union's 282/294 to
+  **288/294**, leaving six topology occurrences unobserved.
+- This does not yet promote the canonical textured GLB: page-one UV/shader/
+  texture lineage still needs a strict material-union bridge, so the accepted
+  matte visual baseline and current 282/294 material receipt remain unchanged.
+- Added partial-range acceptance, out-of-retail orientation rejection,
+  mapped-range escape rejection, deterministic union, payload privacy, bound,
+  and no-overwrite coverage. All **247 tests** pass; changed-file Ruff
+  format/check and Python compilation pass.
+- Two final owned runs are byte-identical at 103,798 bytes, SHA-256
+  `990a50de1cee155e5efc887e43c291c00047dedf74109bb8d658b5b4d474f865`.
+  An occupied-output retry exited 1 and preserved that hash.
+- Two builds with pinned `SOURCE_DATE_EPOCH=1787491200` produced the identical
+  232,337-byte 2.35.0 wheel, SHA-256
+  `8e264dd9ec4e672d6c0996e9371b5549ef8ef2f6390c918056f72ef726d46ee3`;
+  a fresh isolated environment installed it and exposed the extended command.
+
 ## 2.34.0 - 2026-08-23
 
 - Extended the permanent `character-component-ledger` with optional repeatable,
