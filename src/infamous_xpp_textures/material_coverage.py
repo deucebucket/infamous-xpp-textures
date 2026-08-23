@@ -103,14 +103,14 @@ def _expand_counter(
     return result
 
 
-def build_material_coverage_union(
+def _build_material_coverage_union(
     xpp_path: Path,
     xpp_sha256: str,
     texture_allowlist: Path,
     observations: Sequence[MaterialCoverageObservation],
     *,
     record_offset: int,
-) -> dict:
+) -> tuple[dict, tuple[int, ...]]:
     """Union exact runtime material triangles for one retail source record."""
 
     if (
@@ -394,7 +394,49 @@ def build_material_coverage_union(
     payload = render_material_coverage_union(report)
     if len(payload) > MAX_OUTPUT_BYTES:
         raise MaterialCoverageUnionError("coverage union report exceeds the byte bound")
+    covered_indices = tuple(
+        vertex for triangle in covered_triangles for vertex in triangle
+    )
+    return report, covered_indices
+
+
+def build_material_coverage_union(
+    xpp_path: Path,
+    xpp_sha256: str,
+    texture_allowlist: Path,
+    observations: Sequence[MaterialCoverageObservation],
+    *,
+    record_offset: int,
+) -> dict:
+    """Build the public payload-free union receipt."""
+
+    report, _covered_indices = _build_material_coverage_union(
+        xpp_path,
+        xpp_sha256,
+        texture_allowlist,
+        observations,
+        record_offset=record_offset,
+    )
     return report
+
+
+def build_material_coverage_union_with_indices(
+    xpp_path: Path,
+    xpp_sha256: str,
+    texture_allowlist: Path,
+    observations: Sequence[MaterialCoverageObservation],
+    *,
+    record_offset: int,
+) -> tuple[dict, tuple[int, ...]]:
+    """Return the checked union plus private in-memory indices for a GLB export."""
+
+    return _build_material_coverage_union(
+        xpp_path,
+        xpp_sha256,
+        texture_allowlist,
+        observations,
+        record_offset=record_offset,
+    )
 
 
 def render_material_coverage_union(report: dict) -> bytes:

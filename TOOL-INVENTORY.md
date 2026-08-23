@@ -5,6 +5,65 @@ modding or reverse-engineering goal. A command enters this file only after it
 has a callable contract, rejection tests, no-overwrite behavior, deterministic
 output where applicable, an operator card, and a maintained source location.
 
+## `xpp-tool.character-material-coverage-export.v1`
+
+- Status: maintained; introduced and callable in xpp-tool 2.32.0.
+- Parent goal: finish every character/item once as a complete editable asset,
+  first for validated RPCS3 package mods and later for native-decomp import.
+- Binary question: can one exact repeated-draw material union become a
+  deterministic strict Blender GLB without serializing game payloads in its
+  receipt or assigning the material to unproved faces?
+- First answer: two compatible Zeke hair observations export record 533752 as
+  one 184-vertex / 294-triangle GLB with 282 exact retail `Zeke_Hair_C/N`
+  triangle assignments and 12 separate orange diagnostic triangles.
+- Entry point: `xpp-tool character-material-coverage-export` (also exposed by
+  the compatible `if1-tex` alias).
+- Implementation: `src/infamous_xpp_textures/material_coverage_export.py`,
+  SHA-256 `6c1abb242ce48f5e5882935d671e8b4afd9a601802a3b3e98c29f25c61f5cc2f`;
+  union owner `src/infamous_xpp_textures/material_coverage.py`, SHA-256
+  `fa233ba9cd8e64d02421bf25715beeb7af781cb87aa0659eecddf7696c7dd8e6`;
+  strict GLB owner `src/infamous_xpp_textures/character_material_export.py`,
+  SHA-256 `df5d9fa41663fb6596f8ec04d822db2f33030eb4c7f02f172393a06b7dc7b8b9`;
+  CLI wiring `src/infamous_xpp_textures/cli.py`, SHA-256
+  `1a3c5c13c703e08fa361fd3f1232bd11f901773aed0bc8c678b8cc83ab8592e9`.
+- Tests: `tests/test_material_coverage_export.py`, SHA-256
+  `b9fd2efad69c10fbc70d01115b2ce4f36207880ee32ced7b60dcfdd2a36003a3`,
+  plus union, strict exporter, and component-ledger suites. The complete
+  repository suite passes **240 tests**.
+- Operator card: [README — Version 2.32](README.md#version-232--exact-repeated-draw-material-union-to-blender-glb).
+- Inputs: one exact retail XPP/SHA-256; allowlist; record offset; one through 16
+  checksum-pinned strict material observations with immutable v3/v4 bundles and
+  required exclusions; one pinned anchor lineage that must identify exactly one
+  accepted observation.
+- Outputs: deterministic private/operator GLB plus deterministic payload-free
+  JSON receipt, atomically published to two different new paths outside every
+  immutable input and bundle.
+- Bounds: 64 MiB XPP/GLB; 1 MiB per material report; 16 observations; inherited
+  bundle limits; 256 KiB union/export receipts; one process; no runtime, network,
+  symlink input/output, or overwrite.
+- Proven capability: full revalidation and in-memory exact retail-ordered union;
+  exact anchor selection; union/topology/UV/family/texture/count/hash
+  reconciliation; strict proved/unresolved primitive partition; deterministic
+  A/B GLB/report; component-ledger admission; fail-closed ambiguity, drift,
+  malformed evidence, and occupied-output behavior.
+- First evidence: GLB A/B 179,204 bytes / SHA-256
+  `e4199e6e8e31635bbe7624164bed04b665224771e3a73851599d68b1fc534879`;
+  report A/B 5,423 bytes / SHA-256
+  `45bcea0b007be9b164b03168c7582806310ccf4195b58d3bfba892ece3f4566e`;
+  immediate unlit audit 1,206,359 bytes / SHA-256
+  `fb297acd2c725e57d8e2e0c59c99985d024a25daf59296e10d22392c20401fe4`.
+- Build proof: two builds with pinned `SOURCE_DATE_EPOCH=1787484000`
+  produced the identical 219,696-byte 2.32.0 wheel, SHA-256
+  `f1bc08008d652fe73cbb4e86ab70b20658ff692947bea103139a786b1ae4fa1c`.
+- Limitations: this does not close the twelve remaining hair assignments,
+  identify every hair/head/body piece, recover retail normals/tangents or
+  rig/skin, create 4×/authored-PBR material, reverse-pack an RPCS3 mod, or import
+  into the native decomp. The approved clean matte render remains the separate
+  appearance baseline.
+- Return status: `returned-with-capability-and-evidence`. Keep this 282/294
+  strict component; capture a genuinely different compatible hair pass for the
+  remaining twelve faces instead of repeating export work.
+
 ## `xpp-tool.character-material-coverage-union.v1`
 
 - Status: maintained; introduced and callable in xpp-tool 2.31.0.
@@ -14,17 +73,17 @@ output where applicable, an operator card, and a maintained source location.
   new material-bound triangle occurrences, and does their union cover the full
   retail triangle multiset?
 - First answer: page one plus page two proves jacket 493/1,002, head 185/404,
-  packs 170/302, and jacket detail 24/24. The second ordinary view contributes
-  only 1, 11, 0, and 0 new triangle occurrences respectively.
+  packs 170/302, and jacket detail 24/24. Page three then advances compatible
+  hair coverage from 275 to 282/294 and head coverage from 185 to 200/404.
 - Entry point: `xpp-tool character-material-coverage-union` (also exposed by
   the compatible `if1-tex` alias).
 - Implementation: `src/infamous_xpp_textures/material_coverage.py`, SHA-256
-  `be1d615ea08bcbc0c93953fc863f38bd6e353eb4af9db45a3b42663fb7c358e6`;
+  `fa233ba9cd8e64d02421bf25715beeb7af781cb87aa0659eecddf7696c7dd8e6`;
   CLI wiring `src/infamous_xpp_textures/cli.py`, SHA-256
-  `005a29653df7e9ae970b3aa39398f1ae0b39833ecefa0c6b3c3d1d1a59819f52`.
+  `1a3c5c13c703e08fa361fd3f1232bd11f901773aed0bc8c678b8cc83ab8592e9`.
 - Tests: `tests/test_material_coverage.py`, SHA-256
-  `9731ddb3cfb3a9e7178f941232d4447402f0bcea73e5e7cd911dd7b51298a4c2`.
-  The complete repository suite passes **234 tests**.
+  `dea39682ed337d3cb2841770b5b382b24b7ad5439caadbdb7de69d05269accd0`.
+  The complete repository suite passes **240 tests**.
 - Operator card: [README — Version 2.31](README.md#version-231--exact-material-coverage-across-repeated-draws).
 - Inputs: exact retail XPP and SHA-256; exact texture allowlist; one source
   record offset; one through 16 pinned strict material reports with immutable
@@ -67,12 +126,12 @@ output where applicable, an operator card, and a maintained source location.
 - Entry point: `xpp-tool character-component-ledger` (also exposed by the
   compatible `if1-tex` alias).
 - Implementation: `src/infamous_xpp_textures/component_ledger.py`, SHA-256
-  `05c7fcd6afeb1529fef551172be9702ab68a2c8d1297c862080ae680d62bfdee`;
+  `a0a040ca4dd862659b822d65934f20436242906eceb6f1518b964216560ca63e`;
   CLI wiring `src/infamous_xpp_textures/cli.py`, SHA-256
-  `fe6493189b9377badc153492e066f1ea5046f690827c35aa406e5e8f1c8a4213`.
+  `1a3c5c13c703e08fa361fd3f1232bd11f901773aed0bc8c678b8cc83ab8592e9`.
 - Tests: `tests/test_component_ledger.py`, SHA-256
-  `e249ef0b737e874c93dfb00e5e9bee02723b5dd014eb2cce254e8cf9cc9c3659`.
-  The complete repository suite passes **230 tests**.
+  `f329881cf80502199c270a10d126d94b48ec83f4801bf005464343087e054a43`.
+  The complete repository suite passes **240 tests**.
 - Operator card: [README — Version 2.30](README.md#version-230--canonical-multipart-character-component-ledger).
 - Inputs: one through 256 exact material-export JSON files, each with a matching
   SHA-256 pin; canonical title/build/candidate tokens; optional exact visual-
@@ -165,13 +224,13 @@ output where applicable, an operator card, and a maintained source location.
   in `src/infamous_xpp_textures/cli.py`.
 - Tests: `tests/test_character_material_export.py` plus the existing material,
   PNG, shader-lineage, fragment-sampler, topology, and XPP suites.
-- Maintained source pins at 2.28.0: exporter
-  `f5410f1c68e9013c1b7c7eef0bd9f3124a5f96c37175a31a6d64daad8de373fd`;
+- Maintained source pins at 2.32.0: exporter
+  `df5d9fa41663fb6596f8ec04d822db2f33030eb4c7f02f172393a06b7dc7b8b9`;
   PNG encoder
   `2ce34b184d48822ae578eadae96c1717c88ee2a8eef001fcf40ac7563c54c6b2`;
-  CLI `de8e60e534e43b546c5941fbdddcbe2e2721482d1f6c3c0c5e3518cd7bdec68f`;
+  CLI `1a3c5c13c703e08fa361fd3f1232bd11f901773aed0bc8c678b8cc83ab8592e9`;
   focused tests
-  `59b4539f5b549c7f508a49c758896b6589993a9b25d1aa62a5907364b6caf484`.
+  `de153beab18fb8c52a02a7159bd7de3f59001219d3a6bdb96a6d3f57b89f3363`.
 - Operator card: [README — Version 2.28](README.md#version-228--complete-shader-bound-texture-family-glb-export).
 - Inputs: exact retail XPP; complete v3/v4 bundle; allowlist and required paging
   exclusion; checksum-pinned 2.25-or-later compatible lineage report.

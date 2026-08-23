@@ -50,6 +50,11 @@ from .material_coverage import (
     build_material_coverage_union,
     write_new_material_coverage_union,
 )
+from .material_coverage_export import (
+    MaterialCoverageExportError,
+    build_material_coverage_export,
+    write_new_material_coverage_export,
+)
 from .character_source_export import (
     NUMERIC_FAMILIES,
     CharacterSourceExportError,
@@ -1234,6 +1239,70 @@ def cmd_character_material_coverage_union(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_character_material_coverage_export(args: argparse.Namespace) -> int:
+    try:
+        observations = []
+        inputs = {
+            args.xpp.resolve(),
+            args.texture_allowlist.resolve(),
+            args.anchor_lineage.resolve(),
+        }
+        for report, report_sha256, bundle, exclusion in args.observation:
+            report_path = Path(report)
+            bundle_path = Path(bundle)
+            exclusion_path = None if exclusion == "-" else Path(exclusion)
+            inputs.update((report_path.resolve(), bundle_path.resolve()))
+            if exclusion_path is not None:
+                inputs.add(exclusion_path.resolve())
+            observations.append(
+                MaterialCoverageObservation(
+                    report=report_path,
+                    report_sha256=report_sha256,
+                    bundle=bundle_path,
+                    capture_key_exclusion=exclusion_path,
+                )
+            )
+        outputs = {args.output_glb.resolve(), args.output_report.resolve()}
+        bundle_paths = [item.bundle.resolve() for item in observations]
+        if (
+            len(outputs) != 2
+            or outputs & inputs
+            or any(
+                output == bundle or bundle in output.parents
+                for output in outputs
+                for bundle in bundle_paths
+            )
+        ):
+            raise MaterialCoverageExportError(
+                "coverage export outputs must differ and remain outside every immutable input"
+            )
+        glb, report = build_material_coverage_export(
+            args.xpp,
+            args.xpp_sha256,
+            args.texture_allowlist,
+            observations,
+            record_offset=args.record_offset,
+            anchor_lineage=args.anchor_lineage,
+            anchor_lineage_sha256=args.anchor_lineage_sha256,
+        )
+        write_new_material_coverage_export(
+            args.output_glb, args.output_report, glb, report
+        )
+    except (OSError, MaterialCoverageExportError, ValueError) as exc:
+        print(f"character-material-coverage-export: {exc}", file=sys.stderr)
+        return 1
+    selection = report["selection"]
+    print(
+        "character material coverage export: "
+        f"{selection['material_observed_triangles']} / "
+        f"{selection['triangles']} retail triangle occurrences across "
+        f"{report['coverage_union']['observation_count']} observations"
+    )
+    print(f"wrote {args.output_glb}")
+    print(f"wrote {args.output_report}")
+    return 0
+
+
 def cmd_character_material_export(args: argparse.Namespace) -> int:
     try:
         bundle = args.bundle.resolve()
@@ -2277,6 +2346,35 @@ def main(argv: list[str] | None = None) -> int:
         "--output", type=Path, required=True, help="new payload-free JSON report"
     )
     p_material_coverage.set_defaults(func=cmd_character_material_coverage_union)
+
+    p_material_coverage_export = sub.add_parser(
+        "character-material-coverage-export",
+        help="export one exact repeated-draw material union to a strict GLB",
+    )
+    p_material_coverage_export.add_argument("--xpp", type=Path, required=True)
+    p_material_coverage_export.add_argument("--xpp-sha256", required=True)
+    p_material_coverage_export.add_argument(
+        "--texture-allowlist", type=Path, required=True
+    )
+    p_material_coverage_export.add_argument("--record-offset", type=int, required=True)
+    p_material_coverage_export.add_argument(
+        "--anchor-lineage", type=Path, required=True
+    )
+    p_material_coverage_export.add_argument("--anchor-lineage-sha256", required=True)
+    p_material_coverage_export.add_argument(
+        "--observation",
+        action="append",
+        nargs=4,
+        metavar=("REPORT", "REPORT_SHA256", "BUNDLE", "EXCLUSION_OR_DASH"),
+        required=True,
+        help=(
+            "exact observed-only report, SHA-256, immutable bundle, and optional "
+            "capture-key exclusion ('-' for none); repeat for every union member"
+        ),
+    )
+    p_material_coverage_export.add_argument("--output-glb", type=Path, required=True)
+    p_material_coverage_export.add_argument("--output-report", type=Path, required=True)
+    p_material_coverage_export.set_defaults(func=cmd_character_material_coverage_export)
 
     p_material_export = sub.add_parser(
         "character-material-export",

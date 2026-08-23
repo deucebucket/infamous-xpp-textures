@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.32.0 - 2026-08-23
+
+- Added permanent `character-material-coverage-export` support that revalidates one through 16 strict repeated-draw observations and carries their exact retail-ordered triangle union into a deterministic Blender GLB.
+- Requires one checksum-pinned anchor lineage belonging to exactly one accepted observation; reuses only that observation's proved position, UV, shader, and retail texture authorities while replacing its one-draw indices with the independently recomputed union.
+- Extended the strict material exporter and canonical component ledger with explicit `observed-union` receipts, union hashes/counts, exact anchor identity, and fail-closed reconciliation without allowing union outputs to become new union observations.
+- The first real Zeke hair export advances the editable strict GLB from 275 to **282 / 294** proved material triangles and leaves exactly **12** orange/unproved faces. Two runs are byte-identical: GLB 179,204 bytes / `e4199e6e...34879`; report 5,423 bytes / `45bcea0b...4566e`.
+- Blender 5.2.0 produced an immediate 1600×1200 unlit -58° audit, 1,206,359 bytes / `fb297acd...01fe4`; the approved clean matte baseline remains unchanged.
+- Built the 219,696-byte 2.32.0 wheel twice with pinned `SOURCE_DATE_EPOCH=1787484000`; both have SHA-256 `f1bc08008d652fe73cbb4e86ab70b20658ff692947bea103139a786b1ae4fa1c`.
+- Added deterministic union-index recovery, strict exporter, wrapper/anchor, CLI, component-ledger, declared-suffix identity, rejection, bounds, and atomic no-overwrite tests. All **240 tests** pass; changed-file Ruff format/check and Python compilation pass.
+
 ## 2.31.0 - 2026-08-23
 
 - Added permanent `character-material-coverage-union` analysis for exact triangle-multiset coverage across repeated runtime draws of one retail character record and texture family.

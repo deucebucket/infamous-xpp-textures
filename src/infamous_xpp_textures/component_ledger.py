@@ -140,10 +140,16 @@ def _texture_family(textures: list[dict], declared: object) -> str:
 
 
 def _validate_material_report(value: dict, receipt_sha256: str) -> dict:
+    tool_inventory_id = value.get("tool_inventory_id")
+    union_export = tool_inventory_id == "xpp-tool.character-material-coverage-export.v1"
     if (
         value.get("format") != "infamous-character-material-export"
         or value.get("version") != 1
-        or value.get("tool_inventory_id") != "xpp-tool.character-material-export.v1"
+        or tool_inventory_id
+        not in (
+            "xpp-tool.character-material-export.v1",
+            "xpp-tool.character-material-coverage-export.v1",
+        )
         or value.get("status") != "retail-material-progress-glb-written"
     ):
         raise CharacterComponentLedgerError(
@@ -162,6 +168,14 @@ def _validate_material_report(value: dict, receipt_sha256: str) -> dict:
         raise CharacterComponentLedgerError("material report structure is malformed")
     if not 1 <= len(textures) <= 16:
         raise CharacterComponentLedgerError("material texture count is invalid")
+    presentation_mode = value.get("presentation_mode")
+    if (union_export and presentation_mode != "observed-union") or (
+        not union_export
+        and presentation_mode not in (None, "observed-only", "preview-full-record")
+    ):
+        raise CharacterComponentLedgerError(
+            "material report presentation mode is unsupported"
+        )
 
     for key in (
         "xpp_sha256",
@@ -176,6 +190,10 @@ def _validate_material_report(value: dict, receipt_sha256: str) -> dict:
     if capture_key_sha is not None and not _valid_sha256(capture_key_sha):
         raise CharacterComponentLedgerError(
             "material capture-key authority is not canonical"
+        )
+    if union_export and not _valid_sha256(authorities.get("coverage_union_sha256")):
+        raise CharacterComponentLedgerError(
+            "material coverage-union authority is not canonical"
         )
 
     page = _bounded_int(selection.get("page"), 1, 17, "material page")
@@ -298,8 +316,35 @@ def _validate_material_report(value: dict, receipt_sha256: str) -> dict:
         raise CharacterComponentLedgerError(
             "material coverage flag contradicts triangle counts"
         )
+    coverage_union = None
+    if union_export:
+        coverage_union = value.get("coverage_union")
+        if not isinstance(coverage_union, dict):
+            raise CharacterComponentLedgerError(
+                "material coverage-union receipt is malformed"
+            )
+        if (
+            coverage_union.get("receipt_sha256") != authorities["coverage_union_sha256"]
+            or coverage_union.get("covered_retail_triangle_occurrences") != observed
+            or coverage_union.get("unobserved_retail_triangle_occurrences")
+            != unobserved
+            or coverage_union.get("full_retail_material_coverage_proved")
+            is not (unobserved == 0)
+            or not _valid_sha256(coverage_union.get("covered_triangle_multiset_sha256"))
+            or not _valid_sha256(
+                coverage_union.get("unobserved_triangle_multiset_sha256")
+            )
+            or selection.get("material_union_index_sha256")
+            != coverage_union.get("covered_triangle_multiset_sha256")
+            or proof.get("coverage_union_revalidated") is not True
+            or proof.get("exact_union_triangle_material_subset") is not True
+        ):
+            raise CharacterComponentLedgerError(
+                "material coverage-union proof does not reconcile"
+            )
 
     return {
+        "tool_inventory_id": tool_inventory_id,
         "receipt_sha256": receipt_sha256,
         "page": page,
         "event": event,
@@ -317,6 +362,14 @@ def _validate_material_report(value: dict, receipt_sha256: str) -> dict:
         "lineage_sha256": authorities["lineage_sha256"],
         "index_sha256": selection["index_sha256"],
         "material_event_index_sha256": selection["material_event_index_sha256"],
+        **(
+            {
+                "material_union_index_sha256": selection["material_union_index_sha256"],
+                "coverage_union": coverage_union,
+            }
+            if union_export
+            else {}
+        ),
         "texture_family": family,
         "topology": {
             "vertices": vertices,

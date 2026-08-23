@@ -896,6 +896,63 @@ validator; the JSON is capped at 256 KiB. Inputs must be regular immutable
 files/directories, output must be a new path outside every bundle and different
 from the XPP, and no raw source or runtime payload bytes enter the report.
 
+### Version 2.32 — exact repeated-draw material union to Blender GLB
+
+`character-material-coverage-export` closes the gap between a payload-free
+coverage receipt and a usable private Blender asset. It fully reruns the 2.31
+union validation, retains the exact covered triangle multiset in memory, selects
+one checksum-pinned lineage as the position/UV/texture anchor, and writes a
+strict GLB plus a payload-free receipt. It does not recover triangle bytes from
+the public union JSON and never paints unresolved faces by inference.
+
+```console
+timeout 60s xpp-tool character-material-coverage-export \
+  --xpp /path/to/owned/male_base_Zeke.xpp \
+  --xpp-sha256 RETAIL_XPP_SHA256 \
+  --texture-allowlist /path/to/zeke-surface-identities.sha256 \
+  --record-offset 533752 \
+  --anchor-lineage /path/to/page3-hair-lineage.json \
+  --anchor-lineage-sha256 PAGE3_LINEAGE_SHA256 \
+  --observation /path/to/page2-hair.json PAGE2_REPORT_SHA256 /path/to/page2-v4 /path/to/page1-keys.tsv \
+  --observation /path/to/page3-hair.json PAGE3_REPORT_SHA256 /path/to/page3-v4 /path/to/page1-plus-page2-keys.tsv \
+  --output-glb /new/path/zeke-hair-union.glb \
+  --output-report /new/path/zeke-hair-union.json
+```
+
+The first owned run exports Zeke hair record **533752** as one deterministic
+**179,204-byte** GLB, SHA-256
+`e4199e6e8e31635bbe7624164bed04b665224771e3a73851599d68b1fc534879`.
+Its two compatible observations prove the retail `Zeke_Hair_C/N` material on
+**282 / 294** triangle occurrences; the remaining **12** stay in a separate
+orange diagnostic primitive. The 5,423-byte receipt repeats byte-identically at
+SHA-256 `45bcea0b007be9b164b03168c7582806310ccf4195b58d3bfba892ece3f4566e`.
+
+RR — Really Readable rundown: the old union tool could say, “these two game
+views cover 282 hair faces together,” but Blender still received only one
+view's 275-face material assignment. This bridge carries the exact combined
+face list into the editable GLB. It keeps the approved matte texture and makes
+only the twelve still-unproved faces orange. It is a better hair component, not
+a complete hairstyle, head, character, rig, 4× texture set, PBR material, or
+working game mod.
+
+Operator card: stable ID
+`xpp-tool.character-material-coverage-export.v1`. Inputs are one regular
+non-symlink retail XPP capped at 64 MiB; its canonical SHA-256; one exact
+allowlist; one record offset; one through 16 checksum-pinned strict material
+reports with immutable bounded v3/v4 bundles and required exclusions; and one
+checksum-pinned anchor lineage that must identify exactly one accepted
+observation. The command is offline, single-process, deterministic, and
+new-only. GLB output is capped at 64 MiB and the receipt at 256 KiB; destinations
+must differ and remain outside every input/bundle. Duplicate, conflicting,
+ambiguous-anchor, out-of-retail, hash-drift, dishonest-count, over-bound, symlink,
+and overwrite cases fail closed. Public reports contain hashes/counts only; the
+GLB and game-derived payloads remain private operator assets.
+
+Two wheel builds with pinned `SOURCE_DATE_EPOCH=1787484000` are byte-identical.
+The exact wheel size and SHA-256 live in `CHANGELOG.md` and
+`TOOL-INVENTORY.md`, outside the wheel's README metadata, so the artifact never
+contains a self-referential hash claim.
+
 ### Version 2.31 — exact material coverage across repeated draws
 
 `character-material-coverage-union` answers whether two or more runtime views

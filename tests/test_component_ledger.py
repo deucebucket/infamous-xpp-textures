@@ -255,6 +255,47 @@ def test_ledger_requires_truthful_triangle_coverage_and_new_output(tmp_path: Pat
     assert output.read_bytes() == original
 
 
+def test_ledger_accepts_revalidated_union_export_and_rejects_drift(tmp_path: Path):
+    material = _material(event=1, record_offset=100, observed=10, unobserved=0)
+    material["tool_inventory_id"] = "xpp-tool.character-material-coverage-export.v1"
+    material["presentation_mode"] = "observed-union"
+    material["authorities"]["coverage_union_sha256"] = "a" * 64
+    material["selection"]["material_union_index_sha256"] = "b" * 64
+    material["coverage_union"] = {
+        "receipt_sha256": "a" * 64,
+        "observation_count": 3,
+        "covered_retail_triangle_occurrences": 10,
+        "unobserved_retail_triangle_occurrences": 0,
+        "full_retail_material_coverage_proved": True,
+        "covered_triangle_multiset_sha256": "b" * 64,
+        "unobserved_triangle_multiset_sha256": "c" * 64,
+    }
+    material["proof"]["coverage_union_revalidated"] = True
+    material["proof"]["exact_union_triangle_material_subset"] = True
+    path = tmp_path / "union-material.json"
+    digest = _write_json(path, material)
+    report = build_character_component_ledger(
+        ((path, digest),),
+        title_id="infamous-1",
+        build_id="bcus98119-v0100",
+        candidate_id="zeke",
+    )
+    observation = report["components"][0]["observations"][0]
+    assert observation["tool_inventory_id"].endswith("coverage-export.v1")
+    assert observation["proof"]["full_material_coverage"] is True
+
+    material["coverage_union"]["covered_retail_triangle_occurrences"] = 9
+    drift = tmp_path / "union-drift.json"
+    drift_sha = _write_json(drift, material)
+    with pytest.raises(CharacterComponentLedgerError, match="does not reconcile"):
+        build_character_component_ledger(
+            ((drift, drift_sha),),
+            title_id="infamous-1",
+            build_id="bcus98119-v0100",
+            candidate_id="zeke",
+        )
+
+
 def test_cli_requires_paired_reports_and_builds_ledger(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ):
