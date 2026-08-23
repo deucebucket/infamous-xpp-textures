@@ -133,7 +133,14 @@ def _parse_glb(payload: bytes) -> tuple[dict, bytes]:
     return document, chunks[1][1]
 
 
-def _accessor_rows(document: dict, binary: bytes, accessor_index: object) -> list:
+def _accessor_rows(
+    document: dict,
+    binary: bytes,
+    accessor_index: object,
+    *,
+    expected_type: str,
+    expected_component_type: int,
+) -> list:
     accessors = _array(document.get("accessors"), "GLB accessors")
     views = _array(document.get("bufferViews"), "GLB buffer views")
     index = _integer(accessor_index, "GLB accessor index")
@@ -151,6 +158,8 @@ def _accessor_rows(document: dict, binary: bytes, accessor_index: object) -> lis
 
     value_type = accessor.get("type")
     component_type = accessor.get("componentType")
+    if value_type != expected_type or component_type != expected_component_type:
+        raise MaterialGapLocatorError("GLB accessor has the wrong component or shape")
     if value_type not in _COMPONENTS or component_type not in _COMPONENT_FORMATS:
         raise MaterialGapLocatorError("GLB accessor type is unsupported")
     components = _COMPONENTS[value_type]
@@ -166,6 +175,13 @@ def _accessor_rows(document: dict, binary: bytes, accessor_index: object) -> lis
     view_bytes = _integer(
         view.get("byteLength"), "GLB buffer-view byte count", minimum=1
     )
+    declared_buffer_bytes = _integer(
+        _array(document.get("buffers"), "GLB buffers")[0].get("byteLength"),
+        "GLB buffer byte count",
+        minimum=1,
+    )
+    if view_start + view_bytes > declared_buffer_bytes:
+        raise MaterialGapLocatorError("GLB buffer view exceeds the embedded buffer")
     accessor_start = view_start + _integer(
         accessor.get("byteOffset", 0), "GLB accessor offset"
     )
@@ -456,16 +472,38 @@ def locate_material_gap(
                 "strict primitives do not share position and UV accessors"
             )
 
-    positions = _accessor_rows(document, binary, observed_attributes["POSITION"])
-    uvs = _accessor_rows(document, binary, observed_attributes["TEXCOORD_0"])
-    observed_indices = _accessor_rows(
-        document, binary, observed_primitive.get("indices")
+    positions = _accessor_rows(
+        document,
+        binary,
+        observed_attributes["POSITION"],
+        expected_type="VEC3",
+        expected_component_type=5126,
     )
-    gap_indices = _accessor_rows(document, binary, gap_primitive.get("indices"))
+    uvs = _accessor_rows(
+        document,
+        binary,
+        observed_attributes["TEXCOORD_0"],
+        expected_type="VEC2",
+        expected_component_type=5126,
+    )
+    observed_indices = _accessor_rows(
+        document,
+        binary,
+        observed_primitive.get("indices"),
+        expected_type="SCALAR",
+        expected_component_type=5123,
+    )
+    gap_indices = _accessor_rows(
+        document,
+        binary,
+        gap_primitive.get("indices"),
+        expected_type="SCALAR",
+        expected_component_type=5123,
+    )
     if len(positions) != selection["vertices"] or len(uvs) != selection["vertices"]:
         raise MaterialGapLocatorError("strict material GLB vertex count drifted")
     if any(
-        not isinstance(index, int) or index >= len(positions)
+        not isinstance(index, int) or index < 0 or index >= len(positions)
         for index in observed_indices + gap_indices
     ):
         raise MaterialGapLocatorError("strict material GLB index is out of range")

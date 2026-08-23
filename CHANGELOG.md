@@ -6,7 +6,9 @@
   `xpp-tool.character-material-gap-locator.v1`.
 - Revalidates a checksum-pinned strict material-union GLB and its exact export
   report, identifies primitive roles from the fail-closed evidence contract,
-  and checks accessor, buffer, count, vertex, and triangle bounds.
+  and checks exact accessor component/shape, buffer, count, vertex, and triangle
+  bounds. Eight focused rejection/behavior tests and all 274 repository tests
+  pass.
 - Emits deterministic payload-free spatial/UV aggregates: connected component
   sizes, observed-boundary adjacency, diagnostic bounds and normalized
   centroids, area fractions, and dominant diagnostic face orientations.

@@ -231,6 +231,24 @@ def test_rejects_unknown_primitive_role():
         _locate(drifted_glb, drifted_report)
 
 
+def test_rejects_wrong_position_accessor_shape():
+    glb, material_report = _fixture()
+    document_length = struct.unpack_from("<I", glb, 12)[0]
+    document = json.loads(glb[20 : 20 + document_length].rstrip(b" \x00"))
+    position_accessor = document["meshes"][0]["primitives"][0]["attributes"]["POSITION"]
+    document["accessors"][position_accessor]["type"] = "VEC2"
+    binary_offset = 20 + document_length
+    binary_length, binary_kind = struct.unpack_from("<I4s", glb, binary_offset)
+    assert binary_kind == b"BIN\x00"
+    binary = glb[binary_offset + 8 : binary_offset + 8 + binary_length]
+    drifted_glb = _pack_glb(document, bytearray(binary))
+    report = json.loads(material_report)
+    report["glb"] = {"bytes": len(drifted_glb), "sha256": _sha(drifted_glb)}
+    drifted_report = (json.dumps(report, indent=2, sort_keys=True) + "\n").encode()
+    with pytest.raises(MaterialGapLocatorError, match="wrong component or shape"):
+        _locate(drifted_glb, drifted_report)
+
+
 def test_regular_input_rejects_symlink(tmp_path: Path):
     source = tmp_path / "source.glb"
     source.write_bytes(b"owned")
