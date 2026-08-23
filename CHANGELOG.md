@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.27.0 - 2026-08-23
+
+- Corrected `character-uv-texture-binding` to distinguish packed guest source-storage widths from padded renderer host-upload widths for source-proved three-component unorm8 and half-float vertex arrays.
+- Kept the complete-tiling proof fail-closed: packed descriptors must still cover the captured stride exactly, without invented padding or overlap, and every decoded float component must be finite.
+- Proved a second Zeke component end to end. Record 536488 is 26 vertices / 24 triangles with one exact 10-byte layout: four-byte attribute 3 followed by six-byte half3 attribute 9 at byte 4. Shader lineage uses attribute 9 XY as TEX0.
+- Bound all four observed samplers uniquely to the `Zeke_Jacket` family: `N`, `A`, `S`, and `C`. Unlike the hair draw, this component has full runtime-to-retail index identity and no material-unobserved triangles.
+- Preserved component identity, position meaning, native material-channel semantics, full jacket/full character, authored PBR/4x, Blender render, RPCS3 round trip, and native import as explicit open gates.
+- Added packed half3 and unorm3 regression coverage while retaining all existing hair-lineage tests.
+
 ## 2.26.0 - 2026-08-23
 
 - Added permanent `character-material-export` conversion from one checksum-pinned 2.25 shader lineage, immutable runtime bundle, and exact retail XPP into a deterministic GLB plus payload-free receipt.

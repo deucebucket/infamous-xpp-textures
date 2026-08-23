@@ -7,7 +7,7 @@ output where applicable, an operator card, and a maintained source location.
 
 ## `xpp-tool.character-material-export.v1`
 
-- Status: maintained; source-defined and callable as xpp-tool 2.26.0.
+- Status: maintained; introduced in 2.26.0 and callable in xpp-tool 2.27.0.
 - Parent goal: complete editable character/item assets once, deliver them first
   through validated retail RPCS3 packages, then reuse the same canonical
   records through a native-decomp importer.
@@ -58,7 +58,7 @@ output where applicable, an operator card, and a maintained source location.
 
 ## `xpp-tool.character-uv-texture-binding.v1`
 
-- Status: maintained; source-defined and callable as xpp-tool 2.25.0.
+- Status: maintained; introduced in 2.25.0 and callable in xpp-tool 2.27.0.
 - Parent goal: turn every character/item into a complete, correctly textured,
   editable Blender asset that can first round-trip through retail RPCS3 and
   later import unchanged through the native decomp's asset API.
@@ -69,22 +69,26 @@ output where applicable, an operator card, and a maintained source location.
   samplers 0 and 2 select `Zeke_Hair_N.psd` and `Zeke_Hair_C.psd`. The 8-byte
   stream has one valid complete layout: attribute 3 at byte 0, half2 attribute
   9 at byte 4.
+- Second answer: Zeke record 536488 has one valid complete 10-byte packed-source
+  layout: four-byte attribute 3 at byte 0 and six-byte half3 attribute 9 at
+  byte 4. Attribute 9 XY feeds TEX0 and samplers 0–3 select the exact
+  `Zeke_Jacket` N/A/S/C family for all 26 vertices / 24 retail triangles.
 - Entry point: `xpp-tool character-uv-texture-binding` (also exposed by the
   compatible `if1-tex` alias).
 - Implementation: `src/infamous_xpp_textures/shader_lineage.py`; fragment
   source decode in `src/infamous_xpp_textures/fragment_sampler.py`; CLI wiring
   in `src/infamous_xpp_textures/cli.py`.
 - Tests: `tests/test_shader_lineage.py` and `tests/test_fragment_sampler.py`.
-- Maintained source pins at 2.25.0: implementation
-  `731507b900100dc3eab7ccfc0934d5dbae7625401383270d2867a5a75e8fbaf2`;
+- Maintained source pins at 2.27.0: implementation
+  `16477c804d59b9b2bdb72e2c3bcdec3e29c1bd3078a664e322f032620bd2c81c`;
   fragment decoder
   `6db0ea37623a262299b50e1c071a6aa4846711b404d6bdce3c50a899b11443e3`;
-  CLI `f44c9ed0668c7e81d7dd9d82a79a4c469abe6ff2547cf0266b6e4be92faf9ebb`;
+  CLI `fbe2156fd8662879c6001b1b1d85222c9076cbb2de0d436237fc06439de1d653`;
   focused tests
-  `659bd90cf923f263f51e85c49b1555f0626bd5f24c456cdac677712b385d312b`
+  `e4b1eeb2bac1675bcf128a09773672fbe754f868f834ebb60909d14f45ac0133`
   and
   `afd10a8f77fed71a6895eb5ad1a1e592c9bd9be499437588347c524d927bde09`.
-- Operator card: [README — Version 2.25](README.md#version-225--permanent-character-uv-to-texture-shader-lineage).
+- Operator card: [README — Version 2.27](README.md#version-227--packed-three-component-character-streams).
 - Inputs: complete v3/v4 shader bundle; exact texture allowlist and prior-page
   exclusion where required; source census and pin; character census and pin;
   bounded page/event/source-record/character-side selection.
@@ -96,15 +100,17 @@ output where applicable, an operator card, and a maintained source location.
   regular immutable inputs; no overwrite, runtime, network, or concurrency.
 - Proven capability: exact source record/block bytes; target sampler coordinate
   input; component-level branch-free vertex lineage; unique complete packed
-  layout; unique named texture-prefix identities; one geometry-to-UV-to-texture
-  binding.
+  layout using guest source-storage widths rather than host-upload padding;
+  unique named texture-prefix identities; one geometry-to-UV-to-texture binding.
 - Limitations: the old capture did not directly serialize attribute byte
-  offsets, so byte 4 is a unique finite complete-tiling reconstruction. Name
-  suffixes do not prove native PBR channel semantics. Full character, every
-  material, 4x/PBR, render, RPCS3 round trip, and native import remain false.
-- Return status: `returned-with-evidence`. Resume by exporting the proved UV
-  rows as `TEXCOORD_0`, binding retail color/normal maps, and immediately
-  publishing the first correctly textured hair progress render.
+  offsets, so byte 4 is a unique finite complete-tiling reconstruction. Packed
+  guest widths are not host-upload widths. Name suffixes do not prove native
+  PBR channel semantics. Full character, every material, 4x/PBR, RPCS3 round
+  trip, and native import remain false.
+- Return status: `returned-with-evidence`. Resume by extending the material
+  exporter from the two-map hair pair to the exact four-map jacket family,
+  keeping alpha/specular roles unpromoted until separately proved, and publish
+  the resulting component render immediately.
 
 ## `xpp-tool.asset-completion-inventory.v1`
 

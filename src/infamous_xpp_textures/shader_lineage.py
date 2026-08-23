@@ -257,6 +257,15 @@ def analyze_vertex_input_lineage(program: bytes) -> dict:
 
 
 def _element_byte_count(attribute: dict) -> int:
+    """Return bytes occupied in the packed guest source stream.
+
+    This is deliberately not the padded host-upload size used by a renderer.
+    The source-binding path proves that three-component half-float and unorm8
+    arrays occupy exactly three source components; any host-side fourth
+    component is synthesized after upload. Other formats retain their prior
+    conservative size rules until independently proved.
+    """
+
     type_raw = attribute["type"]
     components = attribute["components"]
     if not 1 <= components <= 4:
@@ -266,9 +275,9 @@ def _element_byte_count(attribute: dict) -> int:
     if type_raw == 2:
         return 4 * components
     if type_raw == 3:
-        return 2 * (4 if components == 3 else components)
+        return 2 * components
     if type_raw == 4:
-        return 4 if components == 3 else components
+        return components
     if type_raw == 6:
         return 4
     if type_raw == 7 and components == 4:
@@ -290,8 +299,7 @@ def _finite_numeric_summary(
             if type_raw == 2:
                 row = struct.unpack_from(f">{components}f", payload, start)
             else:
-                stored = 4 if components == 3 else components
-                row = struct.unpack_from(f">{stored}e", payload, start)[:components]
+                row = struct.unpack_from(f">{components}e", payload, start)
             if not all(math.isfinite(value) for value in row):
                 return None
             values.append(row)
@@ -347,7 +355,8 @@ def _reconstruct_attribute_layout(block, payload: bytes) -> dict:
         "byte_offsets_directly_captured": False,
         "byte_offsets_uniquely_reconstructed": len(candidates) == 1,
         "reconstruction_rule": (
-            "all descriptors tile one captured stride without gaps or overlap; "
+            "packed guest-storage widths tile one captured stride without gaps "
+            "or overlap; host-upload padding is not counted; "
             "float payload components must be finite"
         ),
     }

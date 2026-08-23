@@ -115,6 +115,92 @@ def test_packed_layout_has_one_finite_complete_tiling():
     }
 
 
+def test_packed_layout_uses_unpadded_half3_guest_storage():
+    rows = ((0.25, 0.5, -1.0), (0.75, 1.0, 0.125))
+    payload = b"".join(b"\xff\xff\xff\xff" + struct.pack(">3e", *row) for row in rows)
+    block = SimpleNamespace(
+        number=3,
+        payload_file="block.bin",
+        payload_bytes=len(payload),
+        payload_sha256=_sha(payload),
+        stride=10,
+        range_count=2,
+        attributes=(
+            {
+                "attribute": 3,
+                "type": 4,
+                "components": 4,
+                "array_stride": 10,
+                "frequency": 0,
+                "modulo": 0,
+            },
+            {
+                "attribute": 9,
+                "type": 3,
+                "components": 3,
+                "array_stride": 10,
+                "frequency": 0,
+                "modulo": 0,
+            },
+        ),
+    )
+
+    report = _reconstruct_attribute_layout(block, payload)
+
+    assert report["candidate_permutations"] == 2
+    assert report["finite_complete_layouts"] == 1
+    assert report["unique_complete_layout"][0]["element_bytes"] == 4
+    assert report["unique_complete_layout"][1]["element_bytes"] == 6
+    assert report["unique_complete_layout"][1]["byte_offset"] == 4
+    assert report["unique_complete_layout"][1]["numeric_summary"] == {
+        "finite": True,
+        "minimum": [0.25, 0.5, -1.0],
+        "maximum": [0.75, 1.0, 0.125],
+    }
+
+
+def test_packed_layout_uses_unpadded_unorm3_guest_storage():
+    payload = b"".join(
+        row + struct.pack(">2e", *uv)
+        for row, uv in (
+            (bytes((0, 64, 255)), (0.25, 0.5)),
+            (bytes((255, 32, 0)), (0.75, 1.0)),
+        )
+    )
+    block = SimpleNamespace(
+        number=3,
+        payload_file="block.bin",
+        payload_bytes=len(payload),
+        payload_sha256=_sha(payload),
+        stride=7,
+        range_count=2,
+        attributes=(
+            {
+                "attribute": 3,
+                "type": 4,
+                "components": 3,
+                "array_stride": 7,
+                "frequency": 0,
+                "modulo": 0,
+            },
+            {
+                "attribute": 9,
+                "type": 3,
+                "components": 2,
+                "array_stride": 7,
+                "frequency": 0,
+                "modulo": 0,
+            },
+        ),
+    )
+
+    report = _reconstruct_attribute_layout(block, payload)
+
+    assert report["finite_complete_layouts"] == 1
+    assert report["unique_complete_layout"][0]["element_bytes"] == 3
+    assert report["unique_complete_layout"][1]["byte_offset"] == 3
+
+
 def _authorities(tmp_path: Path, target_hash: str) -> tuple[Path, str, Path, str]:
     source = tmp_path / "source.json"
     source_sha = _write_json(
