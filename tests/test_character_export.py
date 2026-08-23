@@ -5,10 +5,15 @@ import struct
 
 import pytest
 
+import infamous_xpp_textures.character_source_export as character_source_export
 from infamous_xpp_textures.character import build_xpp_character_report
 from infamous_xpp_textures.character_export import (
     CharacterDiagnosticExportError,
     export_character_diagnostic_glb,
+)
+from infamous_xpp_textures.character_source_export import (
+    CharacterSourceExportError,
+    export_character_source_diagnostic_glb,
 )
 from infamous_xpp_textures.cli import main
 
@@ -54,6 +59,8 @@ def _character_xpp() -> bytes:
         0x03430050,
         0x01010100,
     )
+    for offset in (0xA8, 0xC0, 0xD8):
+        struct.pack_into(">6f", payload, offset, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0)
     payload[0x480:0x482] = bytes((0x05, 0x70))
     data_offset = 0x88 + 28 + 2 * 16
     result = bytearray(data_offset + len(payload))
@@ -266,7 +273,9 @@ def test_rejects_nonfinite_position_hypothesis(tmp_path):
 def test_rejects_fully_degenerate_position_hypothesis(tmp_path):
     xpp = _character_xpp()
     payload = _payload(((0, 0, 0), (1, 0, 0), (2, 0, 0), (3, 0, 0)))
-    with pytest.raises(CharacterDiagnosticExportError, match="every triangle degenerate"):
+    with pytest.raises(
+        CharacterDiagnosticExportError, match="every triangle degenerate"
+    ):
         export_character_diagnostic_glb(
             xpp,
             _binding_report(xpp, payload),
@@ -316,3 +325,143 @@ def test_cli_refuses_to_overwrite_character_input(tmp_path, capsys):
     assert result == 1
     assert xpp_path.read_bytes() == xpp
     assert "must not overwrite an input" in capsys.readouterr().err
+
+
+def test_exports_exact_packed_source_topology_as_diagnostic(tmp_path):
+    xpp = _character_xpp()
+    output = tmp_path / "source.glb"
+    report = export_character_source_diagnostic_glb(
+        xpp,
+        output,
+        record_offset=0x20,
+        stream_index=1,
+        numeric_family="endpoint-unsigned",
+    )
+    assert report["vertices"] == 4
+    assert report["triangles"] == 2
+    assert report["nondegenerate_triangles"] == 2
+    assert report["stream_index"] == 1
+    assert report["numeric_family"] == "endpoint-unsigned"
+    assert report["gates"]["topology"] is True
+    assert report["gates"]["numeric_family"] is False
+    assert report["gates"]["position_semantic"] is False
+    assert report["gates"]["rigged_export"] is False
+    assert report["output_sha256"] == hashlib.sha256(output.read_bytes()).hexdigest()
+    document = _glb_document(output.read_bytes())
+    evidence = document["asset"]["extras"]["infamousDiagnostic"]
+    assert evidence["topologyProved"] is True
+    assert evidence["packedStreamIdentityProved"] is True
+    assert evidence["numericFamily"] == "endpoint-unsigned-hypothesis"
+    assert evidence["positionSemanticProved"] is False
+    assert "skins" not in document
+
+    second = tmp_path / "source-second.glb"
+    second_report = export_character_source_diagnostic_glb(
+        xpp,
+        second,
+        record_offset=0x20,
+        stream_index=1,
+        numeric_family="endpoint-unsigned",
+    )
+    assert second.read_bytes() == output.read_bytes()
+    assert second_report == report
+
+
+def test_packed_source_export_refuses_existing_output(tmp_path):
+    xpp = _character_xpp()
+    output = tmp_path / "existing.glb"
+    output.write_bytes(b"preserve")
+    with pytest.raises(CharacterSourceExportError, match="refusing to overwrite"):
+        export_character_source_diagnostic_glb(
+            xpp,
+            output,
+            record_offset=0x20,
+            stream_index=1,
+            numeric_family="endpoint-unsigned",
+        )
+    assert output.read_bytes() == b"preserve"
+
+
+def test_packed_source_export_refuses_unknown_record_and_family(tmp_path):
+    xpp = _character_xpp()
+    with pytest.raises(CharacterSourceExportError, match="selects 0"):
+        export_character_source_diagnostic_glb(
+            xpp,
+            tmp_path / "unknown-record.glb",
+            record_offset=0x24,
+            stream_index=1,
+            numeric_family="endpoint-unsigned",
+        )
+    with pytest.raises(CharacterSourceExportError, match="unsupported numeric family"):
+        export_character_source_diagnostic_glb(
+            xpp,
+            tmp_path / "unknown-family.glb",
+            record_offset=0x20,
+            stream_index=1,
+            numeric_family="guess",
+        )
+
+
+def test_packed_source_export_enforces_input_bound(tmp_path, monkeypatch):
+    xpp = _character_xpp()
+    monkeypatch.setattr(character_source_export, "MAX_XPP_SOURCE_BYTES", len(xpp) - 1)
+    with pytest.raises(CharacterSourceExportError, match="64 MiB bound"):
+        export_character_source_diagnostic_glb(
+            xpp,
+            tmp_path / "too-large.glb",
+            record_offset=0x20,
+            stream_index=1,
+            numeric_family="endpoint-unsigned",
+        )
+
+
+def test_packed_source_cli_writes_new_report_and_refuses_alias(tmp_path, capsys):
+    xpp_path = tmp_path / "character.xpp"
+    xpp_path.write_bytes(_character_xpp())
+    output = tmp_path / "source.glb"
+    report = tmp_path / "source.json"
+    result = main(
+        [
+            "character-source-diagnostic-export",
+            "--xpp",
+            str(xpp_path),
+            "--record-offset",
+            "0x20",
+            "--stream-index",
+            "1",
+            "--numeric-family",
+            "endpoint-unsigned",
+            "--output",
+            str(output),
+            "--json-out",
+            str(report),
+        ]
+    )
+    assert result == 0
+    assert output.is_file()
+    assert (
+        json.loads(report.read_text(encoding="utf-8"))["gates"]["position_semantic"]
+        is False
+    )
+    assert "diagnostic-glb-written" in capsys.readouterr().out
+
+    alias = tmp_path / "same-output"
+    result = main(
+        [
+            "character-source-diagnostic-export",
+            "--xpp",
+            str(xpp_path),
+            "--record-offset",
+            "0x20",
+            "--stream-index",
+            "1",
+            "--numeric-family",
+            "endpoint-unsigned",
+            "--output",
+            str(alias),
+            "--json-out",
+            str(alias),
+        ]
+    )
+    assert result == 1
+    assert "must be different paths" in capsys.readouterr().err
