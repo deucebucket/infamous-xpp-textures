@@ -896,6 +896,51 @@ validator; the JSON is capped at 256 KiB. Inputs must be regular immutable
 files/directories, output must be a new path outside every bundle and different
 from the XPP, and no raw source or runtime payload bytes enter the report.
 
+### Version 2.34 — preserve material passes in the canonical character ledger
+
+Attach one or more completed cross-material pass censuses when rebuilding the
+canonical character ledger:
+
+```bash
+xpp-tool character-component-ledger \
+  --title-id infamous-1 \
+  --build-id bcus98119-v0100 \
+  --candidate-id zeke \
+  --material-report ./zeke-hair-union.json \
+  --material-report-sha256 UNION_REPORT_SHA256 \
+  --material-report ./zeke-jacket.json \
+  --material-report-sha256 JACKET_REPORT_SHA256 \
+  --visual-receipts ./zeke-render-receipts.json \
+  --visual-receipts-sha256 RENDER_RECEIPTS_SHA256 \
+  --material-pass-census ./zeke-hair-pass-census.json \
+  --material-pass-census-sha256 PASS_CENSUS_SHA256 \
+  --output ./zeke-component-ledger.json
+```
+
+Repeat the material-report pair for every proved component and the pass-census
+pair for every exact cross-pass receipt. A census is admitted only when its XPP,
+source record, vertex/triangle topology, retail index, texture family, covered
+and unobserved counts, and both union hashes match material evidence already in
+the same ledger. Its internal observations, pass groups, pairwise relationships,
+canonical IDs, and nonclaims are independently validated as well.
+
+RR — Really Readable rundown: the standalone census told us Zeke hair has three
+real material/shader passes but only two geometry selections. Version 2.34 puts
+that fact in Zeke's permanent record. The ledger still treats the page-two and
+page-three animated position captures separately, then links the pass receipt
+to the matching source component. That is like filing three paint recipes with
+one body panel instead of manufacturing three copies of the panel. Nothing is
+lost, and a future exporter can see the `A/C/N/S` possibility without mistaking
+it for the twelve still-unobserved faces.
+
+The first updated ledger is 44,794 bytes and byte-identical under reversed
+material-report and equivalent census inputs. It retains five components, five
+render receipts, and one accepted matte hair baseline while adding one census,
+three pass signatures, and the exact 282/12 hair split. It does not infer PBR
+roles or compositing order, merge poses, assign missing faces, finish Zeke,
+upscale textures, rig the character, repack RPCS3 content, or import into the
+native decomp. This gate creates no render, so no image is withheld.
+
 ### Version 2.33 — exact cross-material pass census
 
 One character piece can be drawn several times with different shaders and

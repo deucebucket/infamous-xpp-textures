@@ -1148,6 +1148,14 @@ def cmd_character_component_ledger(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 1
+    pass_census_paths = args.material_pass_census or []
+    pass_census_hashes = args.material_pass_census_sha256 or []
+    if len(pass_census_paths) != len(pass_census_hashes):
+        print(
+            "character-component-ledger: each material pass census requires one SHA-256 pin",
+            file=sys.stderr,
+        )
+        return 1
     try:
         inputs = {path.resolve() for path in material_paths}
         if len(inputs) != len(material_paths):
@@ -1167,6 +1175,16 @@ def cmd_character_component_ledger(args: argparse.Namespace) -> int:
                 args.visual_receipts,
                 args.visual_receipts_sha256,
             )
+        resolved_pass_censuses = {path.resolve() for path in pass_census_paths}
+        if len(resolved_pass_censuses) != len(pass_census_paths):
+            raise CharacterComponentLedgerError(
+                "material pass census path is duplicated"
+            )
+        if inputs & resolved_pass_censuses:
+            raise CharacterComponentLedgerError(
+                "material pass census path duplicates another input"
+            )
+        inputs.update(resolved_pass_censuses)
         if args.output.resolve() in inputs:
             raise CharacterComponentLedgerError(
                 "component ledger output must be new and outside every input"
@@ -1177,6 +1195,9 @@ def cmd_character_component_ledger(args: argparse.Namespace) -> int:
             build_id=args.build_id,
             candidate_id=args.candidate_id,
             visual_receipts=visual_receipts,
+            material_pass_censuses=tuple(
+                zip(pass_census_paths, pass_census_hashes, strict=True)
+            ),
         )
         write_new_character_component_ledger(args.output, report)
     except (OSError, CharacterComponentLedgerError, ValueError) as exc:
@@ -1187,6 +1208,7 @@ def cmd_character_component_ledger(args: argparse.Namespace) -> int:
         "character component ledger: "
         f"{counts['components']} components / "
         f"{counts['material_observations']} material observations / "
+        f"{counts['material_pass_censuses']} material pass censuses / "
         f"{counts['accepted_visual_baselines']} accepted visual baselines"
     )
     print(f"wrote {args.output}")
@@ -2373,6 +2395,17 @@ def main(argv: list[str] | None = None) -> int:
         help="optional payload-free visual-baseline receipt manifest",
     )
     p_component_ledger.add_argument("--visual-receipts-sha256")
+    p_component_ledger.add_argument(
+        "--material-pass-census",
+        type=Path,
+        action="append",
+        help="optional exact cross-material pass census; repeat as needed",
+    )
+    p_component_ledger.add_argument(
+        "--material-pass-census-sha256",
+        action="append",
+        help="matching pass-census SHA-256 pin; repeat in census order",
+    )
     p_component_ledger.add_argument(
         "--output", type=Path, required=True, help="new payload-free JSON ledger"
     )

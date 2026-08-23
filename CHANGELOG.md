@@ -1,5 +1,35 @@
 # Changelog
 
+## 2.34.0 - 2026-08-23
+
+- Extended the permanent `character-component-ledger` with optional repeatable,
+  checksum-pinned `character-material-pass-census` receipts so every proved
+  shader/texture pass survives in the canonical character record.
+- Added strict internal schema, authority, canonical ID, texture, pass-group,
+  pairwise relation, count, hash, bound, limitation, and any-pass-union
+  validation before a census can enter the ledger.
+- Reconciles each census against an already admitted union material export by
+  exact XPP bytes/hash, source record, vertex/triangle topology, retail index,
+  texture family, covered/unobserved counts, and both union multiset hashes.
+- Keeps runtime pages and their position identities separate while linking the
+  cross-page census to every exact matching component ID; it does not turn a
+  layered pass into duplicate geometry or silently merge animated poses.
+- The first Zeke ledger remains five components, five material observations,
+  five published images, and one accepted matte baseline. It now also preserves
+  one hair census with three pass signatures, two runtime index payloads, one
+  coextensive layered pair, 282 covered triangles, and 12 unobserved.
+- Two reversed-input real builds are byte-identical: 44,794 bytes, SHA-256
+  `d64a613f6be9a165537493c98f730d77945108a7969524207dcc7fd748e7f44e`.
+  An occupied-output retry exited 1 and preserved that hash.
+- Built the 230,065-byte 2.34.0 wheel twice with pinned
+  `SOURCE_DATE_EPOCH=1787488800`; both have SHA-256
+  `81f68fcc6ccd4005c03a6302c8d2e184c5e867367eaa34d9f926473db05e303c`.
+  A fresh isolated environment installed it and exposed both pass-census inputs.
+- Added permanent CLI inputs, deterministic normalization, malformed/drifted/
+  duplicate/unknown-evidence rejection, synthetic reconciliation tests, and RR
+  operator documentation. All **245 tests** pass; changed-file Ruff
+  format/check and Python compilation pass.
+
 ## 2.33.0 - 2026-08-23
 
 - Added permanent `character-material-pass-census` support for comparing two

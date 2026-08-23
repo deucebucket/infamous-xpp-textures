@@ -123,6 +123,150 @@ def _receipts() -> dict:
     }
 
 
+def _pass_census() -> dict:
+    textures = [
+        {
+            "descriptor_index": descriptor,
+            "name": f"Zeke_Hair_{suffix}.psd",
+            "suffix": suffix,
+            "runtime_prefix_sha256": f"{descriptor + 8:x}" * 64,
+        }
+        for descriptor, suffix in enumerate(("C", "N"))
+    ]
+    observations = []
+    for page, event, runtime_index, fragment in (
+        (2, 1, "a" * 64, "e" * 64),
+        (3, 2, "b" * 64, "f" * 64),
+    ):
+        pass_authority = {
+            "vertex_program_sha256": "d" * 64,
+            "fragment_program_sha256": fragment,
+            "uv_payload_sha256": "4" * 64,
+            "uv_byte_offset": 4,
+            "texture_family": "Zeke_Hair",
+            "textures": textures,
+        }
+        report_sha = f"{event + 6:x}" * 64
+        observation_authority = {
+            "page": page,
+            "event": event,
+            "material_report_sha256": report_sha,
+            "runtime_index_sha256": runtime_index,
+        }
+        observations.append(
+            {
+                "observation_id": hashlib.sha256(
+                    json.dumps(
+                        observation_authority, separators=(",", ":"), sort_keys=True
+                    ).encode()
+                ).hexdigest(),
+                "page": page,
+                "event": event,
+                "draw_event": 100 + event,
+                "material_report_sha256": report_sha,
+                "lineage_sha256": f"{event + 2:x}" * 64,
+                "bundle_format": "if1-texture-bound-topology-v4",
+                "bundle_completion": {"bytes": 500, "sha256": f"{event:x}" * 64},
+                "capture_key_exclusion_sha256": None,
+                "position_payload_sha256": f"{event + 2:x}" * 64,
+                "runtime_index_sha256": runtime_index,
+                "vertex_program_sha256": "d" * 64,
+                "fragment_program_sha256": fragment,
+                "uv_payload_sha256": "4" * 64,
+                "uv_byte_offset": 4,
+                "texture_family": "Zeke_Hair",
+                "textures": textures,
+                "pass_signature_sha256": hashlib.sha256(
+                    json.dumps(
+                        pass_authority, separators=(",", ":"), sort_keys=True
+                    ).encode()
+                ).hexdigest(),
+                "observed_triangle_occurrences": 8,
+                "observed_triangle_multiset_sha256": runtime_index,
+            }
+        )
+    observations.sort(
+        key=lambda row: (
+            row["pass_signature_sha256"],
+            row["page"],
+            row["event"],
+            row["material_report_sha256"],
+        )
+    )
+    groups = []
+    for row in observations:
+        groups.append(
+            {
+                "pass_signature_sha256": row["pass_signature_sha256"],
+                "vertex_program_sha256": row["vertex_program_sha256"],
+                "fragment_program_sha256": row["fragment_program_sha256"],
+                "uv_payload_sha256": row["uv_payload_sha256"],
+                "uv_byte_offset": row["uv_byte_offset"],
+                "texture_family": row["texture_family"],
+                "textures": row["textures"],
+                "observation_ids": [row["observation_id"]],
+                "observation_count": 1,
+            }
+        )
+    relationships = [
+        {
+            "left_observation_id": observations[0]["observation_id"],
+            "right_observation_id": observations[1]["observation_id"],
+            "relation": "partial-overlap",
+            "intersection_triangle_occurrences": 6,
+            "left_only_triangle_occurrences": 2,
+            "right_only_triangle_occurrences": 2,
+            "union_triangle_occurrences": 10,
+            "same_pass_signature": False,
+            "same_runtime_index_payload": False,
+        }
+    ]
+    return {
+        "format": "infamous-character-material-pass-census",
+        "version": 1,
+        "tool_inventory_id": "xpp-tool.character-material-pass-census.v1",
+        "status": "exact-cross-material-pass-census",
+        "authorities": {
+            "xpp_sha256": "1" * 64,
+            "xpp_bytes": 1000,
+            "texture_allowlist_sha256": "2" * 64,
+            "retail_index_sha256": "2" * 64,
+        },
+        "component": {
+            "record_offset": 100,
+            "vertices": 12,
+            "retail_triangle_occurrences": 10,
+        },
+        "observations": observations,
+        "pass_groups": groups,
+        "relationships": relationships,
+        "any_pass_union": {
+            "observation_count": 2,
+            "pass_signature_count": 2,
+            "runtime_index_payload_count": 2,
+            "relationship_count": 1,
+            "coextensive_cross_signature_relationship_count": 0,
+            "partial_cross_signature_relationship_count": 1,
+            "covered_retail_triangle_occurrences": 10,
+            "unobserved_retail_triangle_occurrences": 0,
+            "full_retail_material_coverage_proved": True,
+            "covered_triangle_multiset_sha256": "b" * 64,
+            "unobserved_triangle_multiset_sha256": "c" * 64,
+        },
+        "payload_bytes_serialized": False,
+        "limitations": {
+            "pass_roles_interpreted_as_pbr": False,
+            "material_compositing_order_proved": False,
+            "full_character": False,
+            "rigged": False,
+            "four_x_textures": False,
+            "rpcs3_mod_round_trip": False,
+            "native_decomp_import": False,
+        },
+        "next_gate": "preserve every exact pass signature",
+    }
+
+
 def test_ledger_merges_runtime_aliases_and_keeps_completion_false(tmp_path: Path):
     first = tmp_path / "first.json"
     second = tmp_path / "second.json"
@@ -151,6 +295,8 @@ def test_ledger_merges_runtime_aliases_and_keeps_completion_false(tmp_path: Path
     assert report["counts"] == {
         "components": 1,
         "material_observations": 2,
+        "material_pass_censuses": 0,
+        "material_pass_signatures": 0,
         "published_render_receipts": 1,
         "accepted_visual_baselines": 1,
         "full_material_coverage_components": 0,
@@ -296,6 +442,74 @@ def test_ledger_accepts_revalidated_union_export_and_rejects_drift(tmp_path: Pat
         )
 
 
+def test_ledger_attaches_exact_material_pass_census_without_merging_pages(
+    tmp_path: Path,
+):
+    material = _material(event=1, record_offset=100, observed=10, unobserved=0)
+    material["tool_inventory_id"] = "xpp-tool.character-material-coverage-export.v1"
+    material["presentation_mode"] = "observed-union"
+    material["authorities"]["coverage_union_sha256"] = "a" * 64
+    material["selection"]["material_union_index_sha256"] = "b" * 64
+    material["coverage_union"] = {
+        "receipt_sha256": "a" * 64,
+        "observation_count": 2,
+        "covered_retail_triangle_occurrences": 10,
+        "unobserved_retail_triangle_occurrences": 0,
+        "full_retail_material_coverage_proved": True,
+        "covered_triangle_multiset_sha256": "b" * 64,
+        "unobserved_triangle_multiset_sha256": "c" * 64,
+    }
+    material["proof"]["coverage_union_revalidated"] = True
+    material["proof"]["exact_union_triangle_material_subset"] = True
+    material_path = tmp_path / "union-material.json"
+    material_sha = _write_json(material_path, material)
+    census_path = tmp_path / "pass-census.json"
+    census_sha = _write_json(census_path, _pass_census())
+
+    report = build_character_component_ledger(
+        ((material_path, material_sha),),
+        title_id="infamous-1",
+        build_id="bcus98119-v0100",
+        candidate_id="zeke",
+        material_pass_censuses=((census_path, census_sha),),
+    )
+
+    assert report["counts"]["material_pass_censuses"] == 1
+    assert report["counts"]["material_pass_signatures"] == 2
+    receipt = report["material_pass_censuses"][0]
+    assert receipt["any_pass_union"]["covered_retail_triangle_occurrences"] == 10
+    assert receipt["linked_component_ids"] == [
+        "infamous-1:bcus98119-v0100:zeke:p2:r100"
+    ]
+    assert report["components"][0]["material_pass_census_receipts"] == [census_sha]
+
+    drifted = _pass_census()
+    drifted["any_pass_union"]["covered_triangle_multiset_sha256"] = "f" * 64
+    drift_path = tmp_path / "drifted-pass-census.json"
+    drift_sha = _write_json(drift_path, drifted)
+    with pytest.raises(CharacterComponentLedgerError, match="does not reconcile"):
+        build_character_component_ledger(
+            ((material_path, material_sha),),
+            title_id="infamous-1",
+            build_id="bcus98119-v0100",
+            candidate_id="zeke",
+            material_pass_censuses=((drift_path, drift_sha),),
+        )
+
+    malformed = _pass_census()
+    malformed["relationships"][0]["left_only_triangle_occurrences"] = 3
+    malformed_path = tmp_path / "malformed-pass-census.json"
+    malformed_sha = _write_json(malformed_path, malformed)
+    with pytest.raises(CharacterComponentLedgerError, match="counts or identity"):
+        build_character_component_ledger(
+            ((material_path, material_sha),),
+            title_id="infamous-1",
+            build_id="bcus98119-v0100",
+            candidate_id="zeke",
+            material_pass_censuses=((malformed_path, malformed_sha),),
+        )
+
+
 def test_cli_requires_paired_reports_and_builds_ledger(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ):
@@ -309,6 +523,7 @@ def test_cli_requires_paired_reports_and_builds_ledger(
             "counts": {
                 "components": 5,
                 "material_observations": 5,
+                "material_pass_censuses": 0,
                 "accepted_visual_baselines": 1,
             }
         }
@@ -340,6 +555,7 @@ def test_cli_requires_paired_reports_and_builds_ledger(
     assert observed["title_id"] == "infamous-1"
     assert observed["candidate_id"] == "zeke"
     assert len(observed["material_reports"]) == 1
+    assert observed["material_pass_censuses"] == ()
     assert "5 components" in capsys.readouterr().out
 
     assert (
@@ -360,6 +576,29 @@ def test_cli_requires_paired_reports_and_builds_ledger(
                 "a" * 64,
                 "--output",
                 str(tmp_path / "other.json"),
+            ]
+        )
+        == 1
+    )
+
+    assert (
+        cli.main(
+            [
+                "character-component-ledger",
+                "--title-id",
+                "infamous-1",
+                "--build-id",
+                "bcus98119-v0100",
+                "--candidate-id",
+                "zeke",
+                "--material-report",
+                str(tmp_path / "material.json"),
+                "--material-report-sha256",
+                "a" * 64,
+                "--material-pass-census",
+                str(tmp_path / "pass-census.json"),
+                "--output",
+                str(tmp_path / "unpaired.json"),
             ]
         )
         == 1
