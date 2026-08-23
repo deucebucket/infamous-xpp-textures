@@ -896,6 +896,62 @@ validator; the JSON is capped at 256 KiB. Inputs must be regular immutable
 files/directories, output must be a new path outside every bundle and different
 from the XPP, and no raw source or runtime payload bytes enter the report.
 
+### Version 2.30 — canonical multipart character component ledger
+
+`character-component-ledger` is the durable bridge between individual material
+exports and the all-asset completion inventory. It consumes repeatable exact
+`infamous-character-material-export` reports plus an optional checksum-pinned,
+payload-free visual receipt manifest. A friendly texture name is not the
+identity: each component is keyed by title, build, candidate, runtime page, and
+source record offset. Multiple runtime events may therefore remain explicit
+observations of one source component without becoming duplicate work.
+
+```console
+timeout 60s xpp-tool character-component-ledger \
+  --title-id infamous-1 \
+  --build-id bcus98119-v0100 \
+  --candidate-id zeke \
+  --material-report /path/to/hair-material.json \
+  --material-report-sha256 HAIR_REPORT_SHA256 \
+  --material-report /path/to/head-material.json \
+  --material-report-sha256 HEAD_REPORT_SHA256 \
+  --visual-receipts /path/to/zeke-render-receipts.json \
+  --visual-receipts-sha256 RENDER_RECEIPTS_SHA256 \
+  --output /new/path/zeke-component-ledger.json
+```
+
+The first owned run reconciles five distinct Zeke records: hair **533752**,
+jacket **534628**, packs **535048**, head **536280**, and jacket detail
+**536488**. All five already have exact source record, runtime topology, UV,
+retail texture binding, material GLB, and published-render receipts. Only jacket
+detail has complete observed material coverage (**24 / 24** triangles). Hair is
+**275 / 294**; jacket is **492 / 1,002**; packs are **167 / 302**; and head is
+**174 / 404**. Those four remain selected for missing material-draw evidence,
+not for redundant re-export. Three final-code outputs are byte-identical at
+**28,843 bytes**, SHA-256
+`755fb441c735671697953141074e92bce357049addb1bb831388cfccb76e6046`.
+
+RR — Really Readable rundown: this is Zeke's parts checklist. It says, “we have
+this exact hair record, this exact head record, these two separate jacket-family
+records, and this exact packs record.” It also says what each part still lacks.
+The approved matte/unlit hair image is now a protected visual baseline: future
+work should not reintroduce fake shine, patchiness, or split-tone lighting. But
+a good-looking picture cannot fill nineteen unproved hair faces, add feet, join
+the body, create bones, prove 4× textures, invent PBR, or prove a working RPCS3
+mod. Those gates stay separate and false.
+
+Operator card: stable ID `xpp-tool.character-component-ledger.v1`. The command
+is offline and single-process. It accepts at most 256 material observations,
+128 components, and 256 render receipts. Each material report is capped at 1
+MiB, the visual receipt manifest at 256 KiB, and output at 1 MiB. Every input is
+a regular non-symlink file with an exact SHA-256 pin; duplicate paths/content,
+contradictory immutable geometry, mismatched texture families, dishonest
+triangle coverage, unknown render targets, and unsupported schemas fail closed.
+Output contains counts, names, and hashes—not model, texture, shader, or game
+payload bytes—and is atomically published only to a new path. Full character,
+rig/skin, 4×, authored PBR, RPCS3 round trip, and native-decomp import remain
+false until independent evidence closes each gate.
+
 ### Version 2.29 — full-range character material candidate census
 
 `character-material-candidate-census` replaces the repeated manual step of

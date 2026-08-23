@@ -5,6 +5,54 @@ modding or reverse-engineering goal. A command enters this file only after it
 has a callable contract, rejection tests, no-overwrite behavior, deterministic
 output where applicable, an operator card, and a maintained source location.
 
+## `xpp-tool.character-component-ledger.v1`
+
+- Status: maintained; introduced and callable in xpp-tool 2.30.0.
+- Parent goal: recover every character/item component once, retain every useful
+  render immediately, and assemble one canonical editable asset for near-term
+  RPCS3 mods and later native-decomp import without confusing partial proof for
+  a finished character.
+- Binary question: which checksum-pinned material exports are distinct source
+  components, which are repeat runtime observations of one component, what
+  exact gates has each closed, and what work remains without repetition?
+- First answer: five exact BCUS Zeke records are reconciled: hair 533752,
+  jacket 534628, packs 535048, head 536280, and jacket detail 536488. Jacket
+  detail alone has complete material coverage; the other four retain explicit
+  unresolved face counts. Five images are receipted, with only the approved
+  matte/unlit hair look marked as an accepted visual baseline.
+- Entry point: `xpp-tool character-component-ledger` (also exposed by the
+  compatible `if1-tex` alias).
+- Implementation: `src/infamous_xpp_textures/component_ledger.py`, SHA-256
+  `05c7fcd6afeb1529fef551172be9702ab68a2c8d1297c862080ae680d62bfdee`;
+  CLI wiring `src/infamous_xpp_textures/cli.py`, SHA-256
+  `fe6493189b9377badc153492e066f1ea5046f690827c35aa406e5e8f1c8a4213`.
+- Tests: `tests/test_component_ledger.py`, SHA-256
+  `e249ef0b737e874c93dfb00e5e9bee02723b5dd014eb2cce254e8cf9cc9c3659`.
+  The complete repository suite passes **230 tests**.
+- Operator card: [README — Version 2.30](README.md#version-230--canonical-multipart-character-component-ledger).
+- Inputs: one through 256 exact material-export JSON files, each with a matching
+  SHA-256 pin; canonical title/build/candidate tokens; optional exact visual-
+  baseline receipt manifest and pin.
+- Output: deterministic payload-free JSON at a new path. It preserves component,
+  source, event, lineage, topology, coverage, GLB, retail texture, published
+  image, and open-gate identities without serializing private paths or payloads.
+- Bounds: 1 MiB per material report; 256 KiB visual manifest; 256 observations;
+  128 components; 256 render receipts; 1 MiB output; one process; no runtime,
+  network, symlink input/output, or overwrite.
+- Proven capability: exact hash validation; source-record component identity;
+  conservative alias merge; immutable-geometry conflict, duplicate, schema,
+  texture-family, triangle-coverage, and unknown-render rejection; deterministic
+  28,843-byte A/B/C output SHA-256 `755fb441…e6046`.
+- Build proof: the 2.30.0 wheel is 209,114 bytes, SHA-256
+  `685e5f2fe633f0c53419727e8b980d0d154b692b93a03cd72fde34c15b17b215`.
+- Limitations: a visual baseline protects appearance only. It cannot prove
+  unresolved material faces, assembly placement, missing body pieces, original
+  normals/tangents, bones/weights, 4×, authored PBR, RPCS3 repack/gameplay, or
+  native import. Every one of those gates remains independently false.
+- Return status: `returned-with-capability-and-evidence`. Continue with the four
+  exact incomplete material-coverage component IDs before widening to the next
+  page; never redo the completed jacket-detail component.
+
 ## `xpp-tool.character-material-candidate-census.v1`
 
 - Status: maintained; introduced and callable in xpp-tool 2.29.0.
