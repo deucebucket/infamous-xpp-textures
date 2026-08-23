@@ -56,6 +56,14 @@ from .material_coverage_export import (
     build_material_coverage_export,
     write_new_material_coverage_export,
 )
+from .material_gap_oracle import (
+    MAX_COVERAGE_UNION_BYTES,
+    MAX_XPP_BYTES as MAX_MATERIAL_GAP_XPP_BYTES,
+    MaterialGapOracleError,
+    build_cross_build_material_gap_oracle,
+    read_bounded_regular as read_material_gap_input,
+    write_new_material_gap_oracle,
+)
 from .material_pass_census import (
     MaterialPassCensusError,
     build_material_pass_census,
@@ -693,6 +701,52 @@ def cmd_character_oracle(args: argparse.Namespace) -> int:
         )
         print(f"wrote {args.json_out}")
     return 0 if report["audited_semantics_match"] else 2
+
+
+def cmd_character_material_gap_oracle(args: argparse.Namespace) -> int:
+    try:
+        sources = {
+            args.left_xpp.resolve(),
+            args.right_xpp.resolve(),
+            args.coverage_union.resolve(),
+        }
+        if len(sources) != 3:
+            raise MaterialGapOracleError("all three inputs must be different files")
+        if args.json_out.resolve() in sources:
+            raise MaterialGapOracleError("JSON output must not overwrite an input")
+        report = build_cross_build_material_gap_oracle(
+            read_material_gap_input(
+                args.left_xpp,
+                limit=MAX_MATERIAL_GAP_XPP_BYTES,
+                label="left XPP",
+            ),
+            read_material_gap_input(
+                args.right_xpp,
+                limit=MAX_MATERIAL_GAP_XPP_BYTES,
+                label="right XPP",
+            ),
+            read_material_gap_input(
+                args.coverage_union,
+                limit=MAX_COVERAGE_UNION_BYTES,
+                label="coverage union",
+            ),
+            left_label=args.left_label,
+            right_label=args.right_label,
+        )
+        write_new_material_gap_oracle(args.json_out, report)
+    except (OSError, MaterialGapOracleError, ValidationError, ValueError) as exc:
+        print(f"character-material-gap-oracle: {exc}", file=sys.stderr)
+        return 1
+
+    print(
+        "character material gap oracle: "
+        f"{report['source_coverage']['covered_retail_triangle_occurrences']}/"
+        f"{report['component']['retail_triangle_occurrences']} covered; "
+        f"{report['source_coverage']['unobserved_retail_triangle_occurrences']} "
+        "unobserved topology occurrences map exactly"
+    )
+    print(f"wrote {args.json_out}")
+    return 0
 
 
 def cmd_character_capture_report(args: argparse.Namespace) -> int:
@@ -2103,6 +2157,30 @@ def main(argv: list[str] | None = None) -> int:
         help="write a new deterministic payload-free report (refuses overwrite)",
     )
     p_character_oracle.set_defaults(func=cmd_character_oracle)
+
+    p_character_material_gap_oracle = sub.add_parser(
+        "character-material-gap-oracle",
+        help="map one checked material-coverage gap across owned character builds",
+    )
+    p_character_material_gap_oracle.add_argument("--left-xpp", type=Path, required=True)
+    p_character_material_gap_oracle.add_argument(
+        "--right-xpp", type=Path, required=True
+    )
+    p_character_material_gap_oracle.add_argument(
+        "--coverage-union",
+        type=Path,
+        required=True,
+        help="source-build character-material-coverage-union JSON",
+    )
+    p_character_material_gap_oracle.add_argument("--left-label", default="left")
+    p_character_material_gap_oracle.add_argument("--right-label", default="right")
+    p_character_material_gap_oracle.add_argument(
+        "--json-out",
+        type=Path,
+        required=True,
+        help="write a new deterministic payload-free report (refuses overwrite)",
+    )
+    p_character_material_gap_oracle.set_defaults(func=cmd_character_material_gap_oracle)
 
     p_character_capture = sub.add_parser(
         "character-capture-report",
