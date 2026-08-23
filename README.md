@@ -459,8 +459,6 @@ Operator card: this extends stable ID
 `xpp-tool.character-material-coverage-export.v1`; it is not a one-off command.
 Existing bounded inputs, immutable evidence, deterministic output, atomic
 publication, no-overwrite behavior, and offline/single-process limits remain.
-Two pinned-epoch wheel builds are byte-identical at 255,642 bytes, SHA-256
-`d19b4c3915bce5100efbc774f8608c6188364c1555852131e4213d5b2133f5d6`.
 
 ### Version 2.39 — compatible full-range material passes
 
