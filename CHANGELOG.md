@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.26.0 - 2026-08-23
+
+- Added permanent `character-material-export` conversion from one checksum-pinned 2.25 shader lineage, immutable runtime bundle, and exact retail XPP into a deterministic GLB plus payload-free receipt.
+- The first Zeke hair result preserves the full 184-vertex / 294-triangle retail topology, writes the shader-proved half-float rows as `TEXCOORD_0`, and embeds the exact runtime-matched `Zeke_Hair_C.psd` and `Zeke_Hair_N.psd` mip-zero PNGs. Exact runtime indices prove that material for 275 triangles; the remaining 19 are kept separate instead of silently inheriting it.
+- Added explicit `observed-only` and `preview-full-record` presentation modes. The strict default renders the 19 unproved faces as diagnostic clay; the preview may extrapolate the observed material across the retail record while keeping full material coverage false in the GLB and receipt.
+- Added exact encoded-prefix validation before decode, deterministic in-memory PNG encoding, generated inspection normals, bounded atomic two-file publication, no-overwrite behavior, authority reconciliation, and synthetic rejection tests.
+- Preserved the position-attribute hypothesis, generated-normal status, retail-name-derived material roles, full-character, 4x/PBR, RPCS3 round-trip, and native-import gates as explicit limitations.
+- Imported the GLBs in Blender 5.2.0 with the maintained decomp review renderer. Historical shiny views were rejected after localizing a renderer-side metallic override; the clean matte preview is presentation-only, while the orange strict audit view and exact 275/19 split preserve the unresolved material boundary.
+
 ## 2.25.0 - 2026-08-23
 
 - Added permanent `character-uv-texture-binding` analysis for one checksum-pinned XPP source census, character census, and complete RSX v3/v4 shader bundle.

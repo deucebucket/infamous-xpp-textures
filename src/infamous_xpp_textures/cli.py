@@ -29,6 +29,11 @@ from .character_export import (
     CharacterDiagnosticExportError,
     export_character_diagnostic_glb,
 )
+from .character_material_export import (
+    CharacterMaterialExportError,
+    build_character_material_export,
+    write_new_character_material_export,
+)
 from .character_source_export import (
     NUMERIC_FAMILIES,
     CharacterSourceExportError,
@@ -1048,6 +1053,58 @@ def cmd_character_uv_texture_binding(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_character_material_export(args: argparse.Namespace) -> int:
+    try:
+        bundle = args.bundle.resolve()
+        inputs = {
+            args.texture_allowlist.resolve(),
+            args.lineage.resolve(),
+        }
+        if args.capture_key_exclusion is not None:
+            inputs.add(args.capture_key_exclusion.resolve())
+        if args.xpp is not None:
+            inputs.add(args.xpp.resolve())
+        if args.psarc is not None:
+            inputs.add(args.psarc.resolve())
+        outputs = {args.output_glb.resolve(), args.output_report.resolve()}
+        if (
+            len(outputs) != 2
+            or outputs & inputs
+            or any(output == bundle or bundle in output.parents for output in outputs)
+        ):
+            raise CharacterMaterialExportError(
+                "material outputs must differ and remain outside every immutable input"
+            )
+        xpp_data, _stem = load_xpp_bytes(
+            xpp=args.xpp, psarc=args.psarc, entry=args.entry
+        )
+        glb, report = build_character_material_export(
+            xpp_data,
+            args.bundle,
+            args.texture_allowlist,
+            args.capture_key_exclusion,
+            args.lineage,
+            args.lineage_sha256,
+            args.material_coverage_mode,
+        )
+        write_new_character_material_export(
+            args.output_glb, args.output_report, glb, report
+        )
+    except (OSError, CharacterMaterialExportError, ValueError) as exc:
+        print(f"character-material-export: {exc}", file=sys.stderr)
+        return 1
+    selection = report["selection"]
+    print(
+        "character material export: "
+        f"record {selection['record_offset']} {selection['vertices']} vertices / "
+        f"{selection['triangles']} triangles / 1 proved UV layer / 2 retail images"
+        f" / {report['presentation_mode']}"
+    )
+    print(f"wrote {args.output_glb}")
+    print(f"wrote {args.output_report}")
+    return 0
+
+
 def cmd_runtime_capture_key_exclusion(args: argparse.Namespace) -> int:
     try:
         bundle = args.bundle.resolve()
@@ -1947,6 +2004,36 @@ def main(argv: list[str] | None = None) -> int:
         "--output", type=Path, required=True, help="new payload-free JSON report"
     )
     p_shader_lineage.set_defaults(func=cmd_character_uv_texture_binding)
+
+    p_material_export = sub.add_parser(
+        "character-material-export",
+        help="export one shader-proved character UV/material component to GLB",
+    )
+    material_source = p_material_export.add_mutually_exclusive_group(required=True)
+    material_source.add_argument("--xpp", type=Path)
+    material_source.add_argument("--psarc", type=Path)
+    p_material_export.add_argument("--entry")
+    p_material_export.add_argument(
+        "--bundle", type=Path, required=True, help="complete immutable v3/v4 bundle"
+    )
+    p_material_export.add_argument(
+        "--texture-allowlist", type=Path, required=True
+    )
+    _add_capture_key_exclusion(p_material_export)
+    p_material_export.add_argument("--lineage", type=Path, required=True)
+    p_material_export.add_argument("--lineage-sha256", required=True)
+    p_material_export.add_argument(
+        "--material-coverage-mode",
+        choices=("observed-only", "preview-full-record"),
+        default="observed-only",
+        help=(
+            "observed-only marks unproved faces separately; preview-full-record "
+            "visually extrapolates the observed material but keeps proof false"
+        ),
+    )
+    p_material_export.add_argument("--output-glb", type=Path, required=True)
+    p_material_export.add_argument("--output-report", type=Path, required=True)
+    p_material_export.set_defaults(func=cmd_character_material_export)
 
     p_capture_key_exclusion = sub.add_parser(
         "runtime-capture-key-exclusion",

@@ -7,7 +7,19 @@ import zlib
 from pathlib import Path
 
 
-def write_png(path: Path, width: int, height: int, rgba: bytes) -> None:
+def encode_png(width: int, height: int, rgba: bytes) -> bytes:
+    """Encode one deterministic non-interlaced RGBA8 PNG in memory."""
+
+    if (
+        isinstance(width, bool)
+        or isinstance(height, bool)
+        or not isinstance(width, int)
+        or not isinstance(height, int)
+        or width <= 0
+        or height <= 0
+        or len(rgba) != width * height * 4
+    ):
+        raise ValueError("PNG dimensions and RGBA byte count do not reconcile")
     raw = bytearray()
     stride = width * 4
     for y in range(height):
@@ -22,12 +34,16 @@ def write_png(path: Path, width: int, height: int, rgba: bytes) -> None:
             + struct.pack(">I", zlib.crc32(tag + payload) & 0xFFFFFFFF)
         )
 
-    png = (
+    return (
         b"\x89PNG\r\n\x1a\n"
         + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0))
         + chunk(b"IDAT", zlib.compress(bytes(raw), 6))
         + chunk(b"IEND", b"")
     )
+
+
+def write_png(path: Path, width: int, height: int, rgba: bytes) -> None:
+    png = encode_png(width, height, rgba)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(png)
 
