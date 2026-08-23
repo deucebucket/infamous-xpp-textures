@@ -896,6 +896,52 @@ validator; the JSON is capped at 256 KiB. Inputs must be regular immutable
 files/directories, output must be a new path outside every bundle and different
 from the XPP, and no raw source or runtime payload bytes enter the report.
 
+### Version 2.31 — exact material coverage across repeated draws
+
+`character-material-coverage-union` answers whether two or more runtime views
+actually expose different faces of the same editable retail record. It pins each
+strict `observed-only` material report, reopens its immutable runtime bundle,
+rechecks the exact index payload and page exclusion, and unions triangle
+occurrences as a multiset against the retail XPP topology.
+
+```console
+timeout 60s xpp-tool character-material-coverage-union \
+  --xpp /path/to/owned/male_base_Zeke.xpp \
+  --xpp-sha256 RETAIL_XPP_SHA256 \
+  --texture-allowlist /path/to/zeke-surface-identities.sha256 \
+  --record-offset 534628 \
+  --observation /path/to/page1-material.json PAGE1_REPORT_SHA256 /path/to/page1-v3 - \
+  --observation /path/to/page2-material.json PAGE2_REPORT_SHA256 /path/to/page2-v4 /path/to/page1-keys.tsv \
+  --output /new/path/zeke-jacket-coverage-union.json
+```
+
+The first owned run gives a useful negative answer. Main jacket coverage moves
+from **492** to only **493 / 1,002** triangles; the head becomes **185 / 404**;
+the packs remain **170 / 302**; and the small jacket detail is the expected
+complete duplicate control at **24 / 24**. Repeating the same ordinary pose is
+therefore not a path to the missing surfaces. The next capture must deliberately
+change animation, camera, clothing/state, or occlusion before it earns another
+material observation.
+
+RR — Really Readable rundown: a screenshot can look perfect while still showing
+only the same front-facing triangles the last screenshot showed. This tool lays
+the two exact face lists on top of each other. It proved the second view added
+one jacket triangle, some head triangles, and no new pack triangles. That is why
+we are keeping the accepted render as the visual baseline while changing the
+capture strategy instead of changing its good-looking material or lighting.
+
+Operator card: stable ID `xpp-tool.character-material-coverage-union.v1`.
+Inputs are one retail XPP capped at 64 MiB, one exact texture allowlist, and one
+through 16 pinned material reports capped at 1 MiB each with their immutable
+v3/v4 bundles and required v4 exclusion manifests. The tool is offline,
+single-process, deterministic, input-order independent, and payload-free. It
+rejects duplicate observations, source/UV/texture-family conflicts, dishonest
+coverage, index payloads outside retail topology, symlinks, over-bound inputs,
+and overwrite attempts. Output is capped at 256 KiB and contains counts and
+hashes, never model, texture, shader, index, or game payload bytes. Full
+character, original normals/tangents, rig/skin, 4×, authored PBR, RPCS3 round
+trip, and native import remain separate gates.
+
 ### Version 2.30 — canonical multipart character component ledger
 
 `character-component-ledger` is the durable bridge between individual material

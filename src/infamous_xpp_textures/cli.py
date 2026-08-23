@@ -44,6 +44,12 @@ from .component_ledger import (
     build_character_component_ledger,
     write_new_character_component_ledger,
 )
+from .material_coverage import (
+    MaterialCoverageObservation,
+    MaterialCoverageUnionError,
+    build_material_coverage_union,
+    write_new_material_coverage_union,
+)
 from .character_source_export import (
     NUMERIC_FAMILIES,
     CharacterSourceExportError,
@@ -1177,6 +1183,57 @@ def cmd_character_component_ledger(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_character_material_coverage_union(args: argparse.Namespace) -> int:
+    try:
+        observations = []
+        inputs = {args.xpp.resolve(), args.texture_allowlist.resolve()}
+        for report, report_sha256, bundle, exclusion in args.observation:
+            report_path = Path(report)
+            bundle_path = Path(bundle)
+            exclusion_path = None if exclusion == "-" else Path(exclusion)
+            inputs.add(report_path.resolve())
+            inputs.add(bundle_path.resolve())
+            if exclusion_path is not None:
+                inputs.add(exclusion_path.resolve())
+            observations.append(
+                MaterialCoverageObservation(
+                    report=report_path,
+                    report_sha256=report_sha256,
+                    bundle=bundle_path,
+                    capture_key_exclusion=exclusion_path,
+                )
+            )
+        output = args.output.resolve()
+        if output in inputs or any(
+            output == observation.bundle.resolve()
+            or observation.bundle.resolve() in output.parents
+            for observation in observations
+        ):
+            raise MaterialCoverageUnionError(
+                "coverage union output must be new and outside every immutable input"
+            )
+        report = build_material_coverage_union(
+            args.xpp,
+            args.xpp_sha256,
+            args.texture_allowlist,
+            observations,
+            record_offset=args.record_offset,
+        )
+        write_new_material_coverage_union(args.output, report)
+    except (OSError, MaterialCoverageUnionError, ValueError) as exc:
+        print(f"character-material-coverage-union: {exc}", file=sys.stderr)
+        return 1
+    union = report["union"]
+    print(
+        "character material coverage union: "
+        f"{union['covered_retail_triangle_occurrences']} / "
+        f"{report['component']['retail_triangle_occurrences']} retail triangle "
+        f"occurrences across {union['observation_count']} observations"
+    )
+    print(f"wrote {args.output}")
+    return 0
+
+
 def cmd_character_material_export(args: argparse.Namespace) -> int:
     try:
         bundle = args.bundle.resolve()
@@ -2196,6 +2253,30 @@ def main(argv: list[str] | None = None) -> int:
         "--output", type=Path, required=True, help="new payload-free JSON ledger"
     )
     p_component_ledger.set_defaults(func=cmd_character_component_ledger)
+
+    p_material_coverage = sub.add_parser(
+        "character-material-coverage-union",
+        help="union exact material triangles across repeated draws of one source record",
+    )
+    p_material_coverage.add_argument("--xpp", type=Path, required=True)
+    p_material_coverage.add_argument("--xpp-sha256", required=True)
+    p_material_coverage.add_argument("--texture-allowlist", type=Path, required=True)
+    p_material_coverage.add_argument("--record-offset", type=int, required=True)
+    p_material_coverage.add_argument(
+        "--observation",
+        action="append",
+        nargs=4,
+        metavar=("REPORT", "REPORT_SHA256", "BUNDLE", "EXCLUSION_OR_DASH"),
+        required=True,
+        help=(
+            "exact observed-only report, its SHA-256, immutable bundle, and v4 "
+            "capture-key exclusion (use '-' for a nonpaged bundle); repeat as needed"
+        ),
+    )
+    p_material_coverage.add_argument(
+        "--output", type=Path, required=True, help="new payload-free JSON report"
+    )
+    p_material_coverage.set_defaults(func=cmd_character_material_coverage_union)
 
     p_material_export = sub.add_parser(
         "character-material-export",

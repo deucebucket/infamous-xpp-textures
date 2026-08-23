@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.31.0 - 2026-08-23
+
+- Added permanent `character-material-coverage-union` analysis for exact triangle-multiset coverage across repeated runtime draws of one retail character record and texture family.
+- Revalidates checksum-pinned observed-only material reports against the retail XPP, runtime bundle, paging exclusion, texture allowlist, UV identity, named texture family, and exact runtime index payload before unioning evidence.
+- Added deterministic input-order independence, duplicate/conflict/out-of-retail rejection, bounded payload-free reporting, atomic no-overwrite publication, a repeatable CLI contract, focused tests, and a durable operator card/tool-inventory entry.
+- The first Zeke page-one/page-two run proves that ordinary repeated views mostly redraw the same faces: jacket 493/1,002 (+1), head 185/404 (+31 over page one, +11 over page two), packs 170/302 (+0 over page one), and jacket detail 24/24 (duplicate full-coverage control).
+- Two final runs per component are byte-identical. Exact report hashes are `be2bd569...dde4` (jacket), `ae86a31d...1d0` (head), `e5f48730...ccf6` (packs), and `f7d0d39a...bd64a` (detail).
+- The result keeps full character, rig/skin, 4×, authored PBR, RPCS3 round trip, and native import false. It redirects capture work toward genuinely different pose/state/camera draws instead of redundant ordinary views.
+- Built the 214,881-byte 2.31.0 wheel twice with pinned `SOURCE_DATE_EPOCH=1787482208`; both have SHA-256 `4ce849b9f0528ba7404d056de93a20ee11f24fa23d5f77f87e5ddf28e09d94a0`.
+- All **234 tests** pass; changed-file Ruff and format checks plus Python compilation pass.
+
 ## 2.30.0 - 2026-08-23
 
 - Added permanent `character-component-ledger` reconciliation for repeatable checksum-pinned material-export reports and an optional payload-free visual-baseline receipt manifest.
