@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.24.0 - 2026-08-22
+
+- Added permanent `asset-completion-inventory` reconciliation for the checksum-pinned decomp tally, retail GLB manifest, gallery metadata, and first unfinished character/item census.
+- Corrected the declared 20-file gallery total into 19 unique asset renders plus one gameplay screenshot, retained one duplicate Drive entry, and kept character renders at zero.
+- Preserved 57 completed retail static exports and 19 existing renders as narrowly scoped skip decisions while refusing to promote any of them to complete, RPCS3-ready, or native-ready assets.
+- Emitted 68 records with exact 0 complete / 58 partial / 10 unknown status, nine conservative render-to-GLB joins, and ten unresolved render subjects instead of guessing identities.
+- Selected Zeke from cross-build census evidence as the first unfinished batch and defined independent near-term retail RPCS3 and long-term native-decomp exits on one canonical record.
+- Added strict input pins, schema/count/path/duplicate/candidate validation, private-path stripping, deterministic bounded no-overwrite output, tests, operator documentation, and permanent tool registration.
+
 ## 2.23.0 - 2026-08-22
 
 - Added permanent `character-asset-census` analysis for one character or item across two complete, checksum-pinned extracted profiles and two ordinal OID manifests.
