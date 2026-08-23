@@ -743,6 +743,33 @@ The v3 filter exists specifically to exclude enabled-but-unused texture slots
 before geometry is assembled. The existing vertex-transform census and
 position replay accept both v2 and v3 bundles.
 
+Version 2.16 adds the bounded fallback needed when captured vertex shaders use
+one combined world/view/projection transform that cannot be split honestly
+into a shared camera matrix plus per-draw model matrices:
+
+```console
+xpp-tool runtime-screen-position-replay-export \
+  --bundle /path/to/owned/texture-bound-topology-v3 \
+  --texture-allowlist /path/to/exact-targets.sha256 \
+  --events 1,2,3 \
+  --output /path/outside-the-bundle/screen-cluster.glb \
+  --json-out /path/outside-the-bundle/screen-cluster.json
+```
+
+The command replays the exact affine path from captured attribute zero to clip
+output zero, performs the checked homogeneous divide, and preserves each draw's
+normalized screen position and depth. It writes neutral per-event colors so a
+render can be compared directly with the exact gameplay screenshot.
+
+RR — Really Readable rundown: the GPU did not hand us one file called “Zeke.”
+It handed us separate draw calls, including his glasses and the book he was
+holding. This export puts those pieces back where they appeared on the captured
+screen, making it practical to classify them one by one. It does not turn the
+pieces into a body, prove that a draw belongs to Zeke, recover world space, or
+add UVs, textures, bones, weights, inverse binds, or editable game materials.
+A genuinely moddable character still requires those later gates and a verified
+reverse import/repack path.
+
 ## Typical HD texture pass
 
 1. `profile-extract` the protected retail install pair.

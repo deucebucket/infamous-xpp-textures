@@ -36,6 +36,7 @@ from .runtime_topology_export import (
     census_runtime_fragment_samplers,
     export_runtime_topology_glb,
 )
+from .screen_replay import ScreenReplayError, export_screen_replay_glb
 from .validation import ValidationError, compare_xpp, validate_xpp
 from .vertex_transform import (
     VertexTransformCensusError,
@@ -776,6 +777,52 @@ def cmd_runtime_position_replay_export(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_runtime_screen_position_replay_export(args: argparse.Namespace) -> int:
+    try:
+        selected_events = tuple(
+            int(value, 10) for value in args.events.split(",") if value
+        )
+        if (
+            not selected_events
+            or len(set(selected_events)) != len(selected_events)
+            or any(value <= 0 for value in selected_events)
+            or ",".join(map(str, selected_events)) != args.events
+        ):
+            raise ScreenReplayError(
+                "--events must be unique canonical comma-separated positive integers"
+            )
+        bundle = args.bundle.resolve()
+        destinations = (args.output.resolve(), args.json_out.resolve())
+        if len(set(destinations)) != 2:
+            raise ScreenReplayError("GLB and JSON outputs must differ")
+        if any(
+            destination == bundle or bundle in destination.parents
+            for destination in destinations
+        ):
+            raise ScreenReplayError(
+                "screen replay outputs must remain outside the immutable input bundle"
+            )
+        if any(path.is_symlink() or path.exists() for path in (args.output, args.json_out)):
+            raise ScreenReplayError("screen replay output exists; refusing to overwrite it")
+        result = export_screen_replay_glb(
+            args.bundle,
+            args.texture_allowlist,
+            selected_events,
+            args.output,
+        )
+        rendered = render_report(result)
+        args.json_out.parent.mkdir(parents=True, exist_ok=True)
+        with args.json_out.open("x", encoding="utf-8") as handle:
+            handle.write(rendered)
+            handle.flush()
+            os.fsync(handle.fileno())
+    except (OSError, ScreenReplayError, ValueError) as exc:
+        print(f"runtime-screen-position-replay-export: {exc}", file=sys.stderr)
+        return 1
+    print(rendered, end="")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         prog=Path(sys.argv[0]).name,
@@ -1174,6 +1221,21 @@ def main(argv: list[str] | None = None) -> int:
     p_position_replay.add_argument("--output", type=Path, required=True)
     p_position_replay.add_argument("--json-out", type=Path, required=True)
     p_position_replay.set_defaults(func=cmd_runtime_position_replay_export)
+
+    p_screen_replay = sub.add_parser(
+        "runtime-screen-position-replay-export",
+        help="replay selected draws into their screenshot-aligned NDC frame",
+    )
+    p_screen_replay.add_argument("--bundle", type=Path, required=True)
+    p_screen_replay.add_argument("--texture-allowlist", type=Path, required=True)
+    p_screen_replay.add_argument(
+        "--events",
+        required=True,
+        help="unique canonical comma-separated positive event numbers",
+    )
+    p_screen_replay.add_argument("--output", type=Path, required=True)
+    p_screen_replay.add_argument("--json-out", type=Path, required=True)
+    p_screen_replay.set_defaults(func=cmd_runtime_screen_position_replay_export)
 
     args = ap.parse_args(argv)
     return args.func(args)
