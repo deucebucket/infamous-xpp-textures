@@ -1,5 +1,43 @@
 # Changelog
 
+## 2.41.0 - 2026-08-23
+
+- Added explicit permanent `character-component-ledger`
+  `--group-cross-page-source-records` mode with stable inventory ID
+  `xpp-tool.character-component-ledger.v2`. The default v1 path and schema are
+  unchanged.
+- V2 groups only exact source-record matches across runtime pages: XPP hash and
+  size, record offset, vertex count, retail triangle/index identity, and UV
+  offset/payload must all agree. Page/event/draw identities and every distinct
+  position-payload hash remain in the individual observations.
+- Visual receipts must name a page+record admitted by material evidence.
+  Conflicting cross-page geometry/topology/UV, unknown render pages, malformed
+  flags, duplicate inputs, and occupied output still fail closed. One complete
+  observation is sufficient to prove source-component material completion;
+  older retained partial observations do not erase that proof.
+- The canonical Zeke v2 ledger remains **five source components** while storing
+  **six material observations**, including separate page-one and page-two head
+  poses. Hair is **290 / 294**; head retains both **174 / 404** and the current
+  **212 / 404** receipt; jacket is 492 / 1,002; packs are 167 / 302; jacket
+  detail remains complete at 24 / 24. Eight published renders are retained.
+- Normal and reversed real inputs produce the identical 38,655-byte ledger,
+  SHA-256
+  `2f74d3e4db3d51256053c39626ceea1a1fb1c5f9375b7bbd63e6b17552cd1c40`.
+  The extended visual receipt manifest is 5,004 bytes, SHA-256
+  `bd3440b805679e32b0637a438e366b1cca8bccd3c59001946e1a08282eba2957`.
+- The v1 compatibility run is byte-identical to the released 2.36 ledger:
+  30,923 bytes, SHA-256
+  `e61a78fbdc80cecaa97984cbc0cca3bd9a53df075134b0afbd7b5bba79a9553c`.
+- Added cross-page grouping, pose preservation, source/index/UV drift,
+  unknown-render-page, malformed-mode, pass-census linkage, compatibility, and
+  input-order coverage. All **286 tests** pass; changed-file Ruff format/check,
+  Python compilation, and diff validation pass.
+- Two builds with pinned `SOURCE_DATE_EPOCH=1787506200` produced the identical
+  257,033-byte 2.41.0 wheel, SHA-256
+  `880a589aa9b67b165e3b16eccb8a671763fd89febb4023460e7e869c65cbb82d`.
+  A fresh isolated environment installed that wheel and reproduced both the
+  exact v2 grouped ledger and the byte-compatible v1 ledger.
+
 ## 2.40.0 - 2026-08-23
 
 - Repaired permanent `character-material-coverage-export` validation for a

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 from pathlib import Path
@@ -27,8 +28,10 @@ def _material(
     *,
     event: int,
     record_offset: int,
+    page: int = 2,
     family: str = "Zeke_Hair",
     position_sha: str = "3" * 64,
+    index_sha: str | None = None,
     observed: int = 8,
     unobserved: int = 2,
 ) -> dict:
@@ -58,7 +61,7 @@ def _material(
             "texture_allowlist_sha256": "2" * 64,
         },
         "selection": {
-            "page": 2,
+            "page": page,
             "event": event,
             "draw_event": 100 + event,
             "record_offset": record_offset,
@@ -67,7 +70,7 @@ def _material(
             "nondegenerate_triangles": observed + unobserved,
             "material_observed_triangles": observed,
             "material_unobserved_triangles": unobserved,
-            "index_sha256": f"{event + 1:x}" * 64,
+            "index_sha256": index_sha or f"{event + 1:x}" * 64,
             "material_event_index_sha256": f"{event + 2:x}" * 64,
             "position_payload_sha256": position_sha,
             "uv_payload_sha256": "4" * 64,
@@ -323,6 +326,145 @@ def test_ledger_merges_runtime_aliases_and_keeps_completion_false(tmp_path: Path
     assert serialized == render_character_component_ledger(report)
 
 
+def test_v2_groups_exact_cross_page_source_record_and_preserves_poses(
+    tmp_path: Path,
+):
+    first = tmp_path / "page1.json"
+    second = tmp_path / "page2.json"
+    visual = tmp_path / "visual.json"
+    first_sha = _write_json(
+        first,
+        _material(event=1, page=1, record_offset=100),
+    )
+    second_sha = _write_json(
+        second,
+        _material(
+            event=2,
+            page=2,
+            record_offset=100,
+            position_sha="a" * 64,
+            index_sha="2" * 64,
+            observed=10,
+            unobserved=0,
+        ),
+    )
+    receipts = _receipts()
+    page_one_render = copy.deepcopy(receipts["renders"][0])
+    page_one_render["page"] = 1
+    page_one_render["variant"] = "published-page1-unlit-neg58"
+    page_one_render["accepted_visual_baseline"] = False
+    page_one_render["image"]["name"] = "zeke-hair-page1-unlit-neg58.png"
+    page_one_render["image"]["sha256"] = "e" * 64
+    receipts["renders"].append(page_one_render)
+    visual_sha = _write_json(visual, receipts)
+
+    grouped = build_character_component_ledger(
+        ((first, first_sha), (second, second_sha)),
+        title_id="infamous-1",
+        build_id="bcus98119-v0100",
+        candidate_id="zeke",
+        visual_receipts=(visual, visual_sha),
+        group_cross_page_source_records=True,
+    )
+    reverse = build_character_component_ledger(
+        ((second, second_sha), (first, first_sha)),
+        title_id="infamous-1",
+        build_id="bcus98119-v0100",
+        candidate_id="zeke",
+        visual_receipts=(visual, visual_sha),
+        group_cross_page_source_records=True,
+    )
+    legacy = build_character_component_ledger(
+        ((first, first_sha), (second, second_sha)),
+        title_id="infamous-1",
+        build_id="bcus98119-v0100",
+        candidate_id="zeke",
+    )
+
+    assert grouped == reverse
+    assert grouped["version"] == 2
+    assert grouped["tool_inventory_id"] == "xpp-tool.character-component-ledger.v2"
+    assert grouped["scope"]["cross_page_source_records_grouped"] is True
+    assert grouped["scope"]["runtime_pose_observations_preserved"] is True
+    assert grouped["counts"]["components"] == 1
+    assert grouped["counts"]["material_observations"] == 2
+    assert grouped["counts"]["published_render_receipts"] == 2
+    assert grouped["counts"]["full_material_coverage_components"] == 1
+    component = grouped["components"][0]
+    assert component["component_id"] == "infamous-1:bcus98119-v0100:zeke:r100"
+    assert component["runtime_pages"] == [1, 2]
+    assert "page" not in component
+    assert component["source"]["position_payload_sha256s"] == ["3" * 64, "a" * 64]
+    assert [row["page"] for row in component["observations"]] == [1, 2]
+    assert {row["page"] for row in component["renders"]} == {1, 2}
+    assert component["completion"]["full_material_coverage_proved"] is True
+
+    assert legacy["version"] == 1
+    assert legacy["tool_inventory_id"] == "xpp-tool.character-component-ledger.v1"
+    assert [row["component_id"] for row in legacy["components"]] == [
+        "infamous-1:bcus98119-v0100:zeke:p1:r100",
+        "infamous-1:bcus98119-v0100:zeke:p2:r100",
+    ]
+
+
+def test_v2_rejects_cross_page_source_drift_and_unknown_render_page(tmp_path: Path):
+    first_value = _material(event=1, page=1, record_offset=100)
+    second_template = _material(
+        event=2,
+        page=2,
+        record_offset=100,
+        position_sha="a" * 64,
+        index_sha="2" * 64,
+    )
+    first = tmp_path / "page1.json"
+    first_sha = _write_json(first, first_value)
+    with pytest.raises(CharacterComponentLedgerError, match="flag is not boolean"):
+        build_character_component_ledger(
+            ((first, first_sha),),
+            title_id="infamous-1",
+            build_id="bcus98119-v0100",
+            candidate_id="zeke",
+            group_cross_page_source_records="yes",  # type: ignore[arg-type]
+        )
+    drifted_values = []
+    vertex_drift = copy.deepcopy(second_template)
+    vertex_drift["selection"]["vertices"] = 13
+    drifted_values.append(("vertices", vertex_drift))
+    index_drift = copy.deepcopy(second_template)
+    index_drift["selection"]["index_sha256"] = "f" * 64
+    drifted_values.append(("index", index_drift))
+    uv_drift = copy.deepcopy(second_template)
+    uv_drift["selection"]["uv_payload_sha256"] = "e" * 64
+    drifted_values.append(("uv", uv_drift))
+    for label, drifted_value in drifted_values:
+        second = tmp_path / f"page2-{label}-drift.json"
+        second_sha = _write_json(second, drifted_value)
+        with pytest.raises(CharacterComponentLedgerError, match="immutable source"):
+            build_character_component_ledger(
+                ((first, first_sha), (second, second_sha)),
+                title_id="infamous-1",
+                build_id="bcus98119-v0100",
+                candidate_id="zeke",
+                group_cross_page_source_records=True,
+            )
+
+    valid_second = tmp_path / "valid-page2.json"
+    valid_second_sha = _write_json(valid_second, second_template)
+    receipts = _receipts()
+    receipts["renders"][0]["page"] = 3
+    visual = tmp_path / "unknown-page-visual.json"
+    visual_sha = _write_json(visual, receipts)
+    with pytest.raises(CharacterComponentLedgerError, match="without material"):
+        build_character_component_ledger(
+            ((first, first_sha), (valid_second, valid_second_sha)),
+            title_id="infamous-1",
+            build_id="bcus98119-v0100",
+            candidate_id="zeke",
+            visual_receipts=(visual, visual_sha),
+            group_cross_page_source_records=True,
+        )
+
+
 def test_ledger_rejects_hash_drift_conflicts_and_unknown_render(tmp_path: Path):
     first = tmp_path / "first.json"
     conflicting = tmp_path / "conflict.json"
@@ -483,6 +625,19 @@ def test_ledger_attaches_exact_material_pass_census_without_merging_pages(
     ]
     assert report["components"][0]["material_pass_census_receipts"] == [census_sha]
 
+    grouped = build_character_component_ledger(
+        ((material_path, material_sha),),
+        title_id="infamous-1",
+        build_id="bcus98119-v0100",
+        candidate_id="zeke",
+        material_pass_censuses=((census_path, census_sha),),
+        group_cross_page_source_records=True,
+    )
+    assert grouped["material_pass_censuses"][0]["linked_component_ids"] == [
+        "infamous-1:bcus98119-v0100:zeke:r100"
+    ]
+    assert grouped["components"][0]["material_pass_census_receipts"] == [census_sha]
+
     drifted = _pass_census()
     drifted["any_pass_union"]["covered_triangle_multiset_sha256"] = "f" * 64
     drift_path = tmp_path / "drifted-pass-census.json"
@@ -543,6 +698,7 @@ def test_cli_requires_paired_reports_and_builds_ledger(
             "bcus98119-v0100",
             "--candidate-id",
             "zeke",
+            "--group-cross-page-source-records",
             "--material-report",
             str(tmp_path / "material.json"),
             "--material-report-sha256",
@@ -554,6 +710,7 @@ def test_cli_requires_paired_reports_and_builds_ledger(
     assert exit_code == 0
     assert observed["title_id"] == "infamous-1"
     assert observed["candidate_id"] == "zeke"
+    assert observed["group_cross_page_source_records"] is True
     assert len(observed["material_reports"]) == 1
     assert observed["material_pass_censuses"] == ()
     assert "5 components" in capsys.readouterr().out

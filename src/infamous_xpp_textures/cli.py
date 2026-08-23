@@ -1298,6 +1298,7 @@ def cmd_character_component_ledger(args: argparse.Namespace) -> int:
             material_pass_censuses=tuple(
                 zip(pass_census_paths, pass_census_hashes, strict=True)
             ),
+            group_cross_page_source_records=args.group_cross_page_source_records,
         )
         write_new_character_component_ledger(args.output, report)
     except (OSError, CharacterComponentLedgerError, ValueError) as exc:
@@ -2638,6 +2639,14 @@ def main(argv: list[str] | None = None) -> int:
         "--material-pass-census-sha256",
         action="append",
         help="matching pass-census SHA-256 pin; repeat in census order",
+    )
+    p_component_ledger.add_argument(
+        "--group-cross-page-source-records",
+        action="store_true",
+        help=(
+            "emit v2 source-record components while preserving each admitted "
+            "runtime page and pose observation"
+        ),
     )
     p_component_ledger.add_argument(
         "--output", type=Path, required=True, help="new payload-free JSON ledger"
