@@ -896,6 +896,46 @@ validator; the JSON is capped at 256 KiB. Inputs must be regular immutable
 files/directories, output must be a new path outside every bundle and different
 from the XPP, and no raw source or runtime payload bytes enter the report.
 
+### Version 2.22 — proper-similarity decoder discriminator
+
+The same permanent `character-source-runtime-correlate` command now reports two
+narrower transform classes for every numeric family in addition to its
+unrestricted affine metrics:
+
+- **proper similarity:** rotation + translation + one positive uniform scale;
+- **mirrored similarity:** one fixed reflection followed by the same proper
+  rotation/translation/uniform-scale fit.
+
+The implementation uses a bounded standard-library symmetric-eigen/quaternion
+solver. It needs no NumPy, Blender, emulator, network, or game runtime, and it
+does not serialize the fitted rotation, translation, scale, or vertex values.
+
+On the independently proved 184-vertex hair record,
+`scale-offset-unsigned` preserves the near-exact source/runtime relationship
+under a proper transform (`R² 0.9999999971`, normalized RMSE
+`0.0000091454`). The next proper candidate falls to `R² 0.3620036761`, a
+margin of `0.6379963210`. The 26-vertex visible fragment independently ranks
+the same family first (`R² 0.9912978824`, normalized RMSE `0.0222147720`),
+ahead by `0.0192858807` R-squared.
+
+RR — Really Readable rundown: the earlier free affine fit could stretch each
+axis independently, so every formula could be made to look equally good. The
+new test ties the axes together: it allows the kind of rotation, movement, and
+single scale expected for a rigid component, but it does not allow arbitrary
+shape warping. Under that stricter rule, one formula wins on both records and
+is almost exact on proved hair. That makes `scale-offset-unsigned` the strongest
+decoder candidate so far. It is still a candidate—not a promoted semantic—until
+the executed retail arithmetic or another equally direct authority proves it.
+
+Operator card: the stable inventory ID remains
+`xpp-tool.character-source-runtime-correlate.v1`; the invocation and bounds are
+unchanged from 2.21. Reports are now schema version 2 and preserve all 2.21
+unrestricted-affine fields while adding proper/mirrored family fits, rankings,
+and margins. Numeric-family selection, position meaning, object space,
+ownership, UV, material, rigging, full-character, PBR, and injection gates stay
+false. This metric-only update creates no render and does not gate publication
+of any other evidence.
+
 ### Version 2.21 — permanent packed-source/runtime correlation
 
 The source/runtime decoder probe is now a permanent, payload-free command:

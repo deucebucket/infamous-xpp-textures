@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.22.0 - 2026-08-22
+
+- Extended permanent `character-source-runtime-correlate` reports with deterministic best-fit proper and mirrored rotation/translation/one-uniform-scale metrics for every numeric family while preserving the 2.21 unrestricted affine fields.
+- Added a standard-library symmetric-eigen/quaternion implementation with no NumPy, Blender, network, or runtime dependency and no serialized transform coefficients.
+- Broke the affine-family tie under the narrower proper-similarity constraint: `scale-offset-unsigned` ranks first for both owned stream-1 pairs, including near-exact proved hair (`R² 0.9999999971`) and the visible fragment (`R² 0.9912978824`).
+- Kept numeric-family selection and every semantic/model/injection gate false because proper-similarity ranking is strong candidate evidence rather than executed-decoder proof.
+- Added exact proper-versus-mirrored synthetic tests and reproduced both owned reports byte-identically within the existing immutable, hash-pinned, bounded, new-only contract.
+
 ## 2.21.0 - 2026-08-22
 
 - Added permanent `character-source-runtime-correlate` analysis for one exact proved retail character record, hash-pinned runtime topology, and hash-pinned contiguous runtime `float32x3` array.
