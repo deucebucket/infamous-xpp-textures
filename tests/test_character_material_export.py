@@ -57,14 +57,14 @@ def _fixture(tmp_path: Path, monkeypatch, *, four_maps: bool = False):
     bundle.mkdir()
     (bundle / "position.bin").write_bytes(position_payload)
     (bundle / "uv.bin").write_bytes(uv_payload)
-    runtime_indices = struct.pack(">6H", *indices) if four_maps else struct.pack(">3H", 0, 1, 2)
+    runtime_indices = (
+        struct.pack(">6H", *indices) if four_maps else struct.pack(">3H", 0, 1, 2)
+    )
     (bundle / "indices.bin").write_bytes(runtime_indices)
 
     texture_rows = [(20, "N", b"NNNN", 0x86)]
     if four_maps:
-        texture_rows.extend(
-            ((21, "A", b"AAAA", 0x88), (22, "S", b"SSSS", 0x86))
-        )
+        texture_rows.extend(((21, "A", b"AAAA", 0x88), (22, "S", b"SSSS", 0x86)))
     texture_rows.append((8, "C", b"CCCC", 0x88))
     binding_rows = list(enumerate(texture_rows))
     if four_maps:
@@ -240,6 +240,50 @@ def _fixture(tmp_path: Path, monkeypatch, *, four_maps: bool = False):
     return xpp_data, bundle, lineage_path, _sha(lineage_payload)
 
 
+def _union_receipt(xpp_data: bytes, lineage: Path, lineage_sha256: str) -> dict:
+    lineage_value = json.loads(lineage.read_text())
+    selection = lineage_value["selection"]
+    index_payload = xpp_data[:12]
+    return {
+        "format": "infamous-character-material-coverage-union",
+        "version": 1,
+        "tool_inventory_id": "xpp-tool.character-material-coverage-union.v1",
+        "status": "full-retail-material-coverage-proved",
+        "authorities": {
+            "xpp_bytes": len(xpp_data),
+            "xpp_sha256": _sha(xpp_data),
+            "texture_allowlist_sha256": "a" * 64,
+            "retail_index_sha256": _sha(index_payload),
+        },
+        "component": {
+            "record_offset": 100,
+            "vertices": 4,
+            "retail_triangle_occurrences": 2,
+            "uv_payload_sha256": selection["source_stream_sha256"],
+            "uv_byte_offset": 4,
+            "texture_family": "Zeke_Hair",
+            "texture_names": ["Hair_C.psd", "Hair_N.psd"],
+        },
+        "observations": [
+            {
+                "page": 2,
+                "event": 16,
+                "lineage_sha256": lineage_sha256,
+                "material_report_sha256": "b" * 64,
+            }
+        ],
+        "union": {
+            "observation_count": 1,
+            "covered_retail_triangle_occurrences": 2,
+            "unobserved_retail_triangle_occurrences": 0,
+            "full_retail_material_coverage_proved": True,
+            "covered_triangle_multiset_sha256": _sha(index_payload),
+            "unobserved_triangle_multiset_sha256": _sha(b""),
+        },
+        "payload_bytes_serialized": False,
+    }
+
+
 def test_builds_deterministic_material_glb_and_atomic_pair(tmp_path, monkeypatch):
     xpp_data, bundle, lineage, lineage_sha = _fixture(tmp_path, monkeypatch)
     glb, report = build_character_material_export(
@@ -308,6 +352,102 @@ def test_preview_mode_extrapolates_without_promoting_proof(tmp_path, monkeypatch
     assert report["limitations"]["unobserved_material_preview_extrapolated"] is True
 
 
+def test_exact_union_override_builds_strict_deterministic_glb(tmp_path, monkeypatch):
+    xpp_data, bundle, lineage, lineage_sha = _fixture(tmp_path, monkeypatch)
+    union = _union_receipt(xpp_data, lineage, lineage_sha)
+    union_payload = (json.dumps(union, indent=2, sort_keys=True) + "\n").encode()
+    indices = struct.unpack(">6H", xpp_data[:12])
+
+    first_glb, first_report = build_character_material_export(
+        xpp_data,
+        bundle,
+        tmp_path / "unused-allowlist",
+        None,
+        lineage,
+        lineage_sha,
+        material_indices_override=indices,
+        material_coverage_union_report=union,
+        material_coverage_union_sha256=_sha(union_payload),
+        tool_inventory_id="xpp-tool.character-material-coverage-export.v1",
+    )
+    second_glb, second_report = build_character_material_export(
+        xpp_data,
+        bundle,
+        tmp_path / "unused-allowlist",
+        None,
+        lineage,
+        lineage_sha,
+        material_indices_override=indices,
+        material_coverage_union_report=union,
+        material_coverage_union_sha256=_sha(union_payload),
+        tool_inventory_id="xpp-tool.character-material-coverage-export.v1",
+    )
+
+    assert (first_glb, first_report) == (second_glb, second_report)
+    assert first_report["presentation_mode"] == "observed-union"
+    assert first_report["tool_inventory_id"].endswith("coverage-export.v1")
+    assert first_report["selection"]["material_observed_triangles"] == 2
+    assert first_report["selection"]["material_unobserved_triangles"] == 0
+    assert first_report["proof"]["coverage_union_revalidated"] is True
+    assert first_report["proof"]["exact_union_triangle_material_subset"] is True
+    assert first_report["coverage_union"]["receipt_sha256"] == _sha(union_payload)
+    assert len(_glb_document(first_glb)["meshes"][0]["primitives"]) == 1
+
+    with pytest.raises(CharacterMaterialExportError, match="receipt SHA-256"):
+        build_character_material_export(
+            xpp_data,
+            bundle,
+            tmp_path / "unused-allowlist",
+            None,
+            lineage,
+            lineage_sha,
+            material_indices_override=indices,
+            material_coverage_union_report=union,
+            material_coverage_union_sha256="0" * 64,
+            tool_inventory_id="xpp-tool.character-material-coverage-export.v1",
+        )
+
+
+def test_union_uses_declared_texture_suffixes_not_filename_punctuation(
+    tmp_path, monkeypatch
+):
+    xpp_data, bundle, lineage, lineage_sha = _fixture(tmp_path, monkeypatch)
+    lineage_value = json.loads(lineage.read_text())
+    renamed = {
+        "C": "Hair.diffuse.asset",
+        "N": "Hair.normal.asset",
+    }
+    for binding in lineage_value["texture_bindings"]:
+        binding["name"] = renamed[binding["name_suffix"]]
+    lineage_payload = (json.dumps(lineage_value, sort_keys=True) + "\n").encode()
+    lineage.write_bytes(lineage_payload)
+    lineage_sha = _sha(lineage_payload)
+    union = _union_receipt(xpp_data, lineage, lineage_sha)
+    union["component"]["texture_names"] = [
+        "Hair.diffuse.asset",
+        "Hair.normal.asset",
+    ]
+    union_payload = (json.dumps(union, indent=2, sort_keys=True) + "\n").encode()
+
+    _glb, report = build_character_material_export(
+        xpp_data,
+        bundle,
+        tmp_path / "unused-allowlist",
+        None,
+        lineage,
+        lineage_sha,
+        material_indices_override=struct.unpack(">6H", xpp_data[:12]),
+        material_coverage_union_report=union,
+        material_coverage_union_sha256=_sha(union_payload),
+        tool_inventory_id="xpp-tool.character-material-coverage-export.v1",
+    )
+
+    assert [item["name"] for item in report["textures"]] == [
+        "Hair.normal.asset",
+        "Hair.diffuse.asset",
+    ]
+
+
 def test_embeds_four_map_family_without_assigning_extra_roles(tmp_path, monkeypatch):
     xpp_data, bundle, lineage, lineage_sha = _fixture(
         tmp_path, monkeypatch, four_maps=True
@@ -337,9 +477,10 @@ def test_embeds_four_map_family_without_assigning_extra_roles(tmp_path, monkeypa
     ]
     assert len(document["images"]) == 4
     assert document["materials"][0]["normalTexture"]["index"] == 0
-    assert document["materials"][0]["pbrMetallicRoughness"]["baseColorTexture"][
-        "index"
-    ] == 3
+    assert (
+        document["materials"][0]["pbrMetallicRoughness"]["baseColorTexture"]["index"]
+        == 3
+    )
     assert report["selection"]["texture_family"] == "Zeke_Jacket"
     assert report["selection"]["material_observed_triangles"] == 2
     assert report["selection"]["material_unobserved_triangles"] == 0

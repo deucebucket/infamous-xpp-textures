@@ -40,6 +40,8 @@ _COLOR_SUFFIX = "C"
 _NORMAL_SUFFIX = "N"
 _MAX_SHADER_TEXTURES = 8
 _MATERIAL_COVERAGE_MODES = ("observed-only", "preview-full-record")
+_SINGLE_EXPORT_TOOL = "xpp-tool.character-material-export.v1"
+_UNION_EXPORT_TOOL = "xpp-tool.character-material-coverage-export.v1"
 
 
 def _sha256(payload: bytes) -> str:
@@ -66,9 +68,7 @@ def _array(value, label: str) -> list:
 
 def _one(values: list, label: str):
     if len(values) != 1:
-        raise CharacterMaterialExportError(
-            f"expected one {label}, found {len(values)}"
-        )
+        raise CharacterMaterialExportError(f"expected one {label}, found {len(values)}")
     return values[0]
 
 
@@ -152,6 +152,157 @@ def _triangle_partition(
         index for triangle in unobserved_triangles for index in triangle
     )
     return observed_indices, unobserved_indices
+
+
+def _triangle_bytes(indices: tuple[int, ...]) -> bytes:
+    if len(indices) % 3:
+        raise CharacterMaterialExportError("triangle index counts do not reconcile")
+    return struct.pack(f">{len(indices)}H", *indices)
+
+
+def _valid_sha256(value: object) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 64
+        and value == value.lower()
+        and all(character in "0123456789abcdef" for character in value)
+    )
+
+
+def _validate_material_union_override(
+    report: dict,
+    receipt_sha256: str,
+    material_indices: tuple[int, ...],
+    unobserved_indices: tuple[int, ...],
+    *,
+    xpp_sha256: str,
+    xpp_bytes: int,
+    allowlist_sha256: str,
+    record_offset: int,
+    vertex_count: int,
+    retail_indices: tuple[int, ...],
+    retail_index_sha256: str,
+    uv_payload_sha256: str,
+    uv_byte_offset: int,
+    texture_family: str,
+    texture_identities: list[tuple[str, str]],
+    anchor_lineage_sha256: str,
+) -> dict:
+    """Reconcile a payload-free union receipt with its private exact indices."""
+
+    if not isinstance(report, dict) or not _valid_sha256(receipt_sha256):
+        raise CharacterMaterialExportError("material coverage union receipt is invalid")
+    rendered = (json.dumps(report, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    if _sha256(rendered) != receipt_sha256:
+        raise CharacterMaterialExportError(
+            "material coverage union receipt SHA-256 does not match its payload"
+        )
+    if (
+        report.get("format") != "infamous-character-material-coverage-union"
+        or report.get("version") != 1
+        or report.get("tool_inventory_id")
+        != "xpp-tool.character-material-coverage-union.v1"
+        or report.get("status")
+        not in (
+            "partial-retail-material-coverage-proved",
+            "full-retail-material-coverage-proved",
+        )
+        or report.get("payload_bytes_serialized") is not False
+    ):
+        raise CharacterMaterialExportError(
+            "material coverage union receipt has the wrong schema"
+        )
+    authorities = _object(report.get("authorities"), "coverage union authorities")
+    component = _object(report.get("component"), "coverage union component")
+    union = _object(report.get("union"), "coverage union result")
+    observations = _array(report.get("observations"), "coverage union observations")
+    if (
+        authorities.get("xpp_sha256") != xpp_sha256
+        or authorities.get("xpp_bytes") != xpp_bytes
+        or authorities.get("texture_allowlist_sha256") != allowlist_sha256
+        or authorities.get("retail_index_sha256") != retail_index_sha256
+    ):
+        raise CharacterMaterialExportError(
+            "material coverage union authorities drifted from the export"
+        )
+    if (
+        not 2 <= len(texture_identities) <= _MAX_SHADER_TEXTURES
+        or any(
+            not isinstance(suffix, str)
+            or not suffix
+            or len(suffix) > 8
+            or not suffix.isalnum()
+            or not isinstance(name, str)
+            or not name
+            or len(name) > 256
+            for suffix, name in texture_identities
+        )
+        or len({suffix for suffix, _name in texture_identities})
+        != len(texture_identities)
+        or len({name for _suffix, name in texture_identities})
+        != len(texture_identities)
+    ):
+        raise CharacterMaterialExportError(
+            "material texture identities are not bounded and unique"
+        )
+    expected_texture_names = [
+        name for _suffix, name in sorted(texture_identities, key=lambda row: row)
+    ]
+    if (
+        component.get("record_offset") != record_offset
+        or component.get("vertices") != vertex_count
+        or component.get("retail_triangle_occurrences") != len(retail_indices) // 3
+        or component.get("uv_payload_sha256") != uv_payload_sha256
+        or component.get("uv_byte_offset") != uv_byte_offset
+        or component.get("texture_family") != texture_family
+        or component.get("texture_names") != expected_texture_names
+    ):
+        raise CharacterMaterialExportError(
+            "material coverage union component drifted from the export"
+        )
+    covered = len(material_indices) // 3
+    missing = len(unobserved_indices) // 3
+    full = missing == 0
+    if (
+        union.get("observation_count") != len(observations)
+        or union.get("covered_retail_triangle_occurrences") != covered
+        or union.get("unobserved_retail_triangle_occurrences") != missing
+        or union.get("full_retail_material_coverage_proved") is not full
+        or union.get("covered_triangle_multiset_sha256")
+        != _sha256(_triangle_bytes(material_indices))
+        or union.get("unobserved_triangle_multiset_sha256")
+        != _sha256(_triangle_bytes(unobserved_indices))
+        or report.get("status")
+        != (
+            "full-retail-material-coverage-proved"
+            if full
+            else "partial-retail-material-coverage-proved"
+        )
+    ):
+        raise CharacterMaterialExportError(
+            "material coverage union counts or triangle identities do not reconcile"
+        )
+    anchor_matches = [
+        item
+        for item in observations
+        if isinstance(item, dict)
+        and item.get("lineage_sha256") == anchor_lineage_sha256
+    ]
+    if len(anchor_matches) != 1:
+        raise CharacterMaterialExportError(
+            "anchor lineage must identify exactly one union observation"
+        )
+    return {
+        "receipt_sha256": receipt_sha256,
+        "observation_count": len(observations),
+        "covered_retail_triangle_occurrences": covered,
+        "unobserved_retail_triangle_occurrences": missing,
+        "full_retail_material_coverage_proved": full,
+        "covered_triangle_multiset_sha256": union["covered_triangle_multiset_sha256"],
+        "unobserved_triangle_multiset_sha256": union[
+            "unobserved_triangle_multiset_sha256"
+        ],
+    }
 
 
 def _select_position_block(event, vertex_count: int):
@@ -268,7 +419,9 @@ def _retail_texture_images(
         start = record.heap_offset
         end = start + prefix_bytes
         if start < 0 or end > len(texels) or end <= start:
-            raise CharacterMaterialExportError("retail mip prefix leaves the texture heap")
+            raise CharacterMaterialExportError(
+                "retail mip prefix leaves the texture heap"
+            )
         prefix_sha256 = _sha256(texels[start:end])
         if prefix_sha256 != binding.get("runtime_prefix_sha256"):
             raise CharacterMaterialExportError(
@@ -321,6 +474,11 @@ def build_character_material_export(
     lineage_path: Path,
     lineage_sha256: str,
     material_coverage_mode: str = "observed-only",
+    *,
+    material_indices_override: tuple[int, ...] | None = None,
+    material_coverage_union_report: dict | None = None,
+    material_coverage_union_sha256: str | None = None,
+    tool_inventory_id: str = _SINGLE_EXPORT_TOOL,
 ) -> tuple[bytes, dict]:
     """Build one exact-UV retail-material GLB and payload-free receipt."""
 
@@ -330,6 +488,26 @@ def build_character_material_export(
         )
     if material_coverage_mode not in _MATERIAL_COVERAGE_MODES:
         raise CharacterMaterialExportError("material coverage mode is invalid")
+    union_values = (
+        material_indices_override,
+        material_coverage_union_report,
+        material_coverage_union_sha256,
+    )
+    union_export = all(value is not None for value in union_values)
+    if any(value is not None for value in union_values) != union_export:
+        raise CharacterMaterialExportError(
+            "material union override requires indices, report, and SHA-256 together"
+        )
+    if union_export:
+        if (
+            material_coverage_mode != "observed-only"
+            or tool_inventory_id != _UNION_EXPORT_TOOL
+        ):
+            raise CharacterMaterialExportError(
+                "material union override requires the strict union exporter"
+            )
+    elif tool_inventory_id != _SINGLE_EXPORT_TOOL:
+        raise CharacterMaterialExportError("material exporter tool identity is invalid")
     try:
         lineage, lineage_identity = _read_pinned_json(
             lineage_path, lineage_sha256, "shader-lineage report"
@@ -339,8 +517,7 @@ def build_character_material_export(
     if (
         lineage.get("format") != "infamous-character-uv-texture-binding"
         or lineage.get("version") != 1
-        or lineage.get("status")
-        != "exact-shader-lineage-with-unique-packed-layout"
+        or lineage.get("status") != "exact-shader-lineage-with-unique-packed-layout"
     ):
         raise CharacterMaterialExportError("shader-lineage report has the wrong schema")
     proof = _object(lineage.get("proof"), "shader-lineage proof")
@@ -388,10 +565,9 @@ def build_character_material_export(
     ):
         raise CharacterMaterialExportError("shader lineage texture family is invalid")
     xpp_identity = _sha256(xpp_data)
-    if (
-        xpp_identity != authorities.get("source_xpp_sha256")
-        or len(xpp_data) != authorities.get("source_xpp_bytes")
-    ):
+    if xpp_identity != authorities.get("source_xpp_sha256") or len(
+        xpp_data
+    ) != authorities.get("source_xpp_bytes"):
         raise CharacterMaterialExportError("retail XPP failed the lineage identity")
 
     try:
@@ -400,11 +576,12 @@ def build_character_material_export(
         )
     except RuntimeTopologyExportError as exc:
         raise CharacterMaterialExportError(str(exc)) from exc
-    if (
-        completion.get("format") != authorities.get("bundle_format")
-        or allowlist_identity != authorities.get("texture_allowlist_sha256")
-    ):
-        raise CharacterMaterialExportError("bundle authorities drifted from the lineage")
+    if completion.get("format") != authorities.get(
+        "bundle_format"
+    ) or allowlist_identity != authorities.get("texture_allowlist_sha256"):
+        raise CharacterMaterialExportError(
+            "bundle authorities drifted from the lineage"
+        )
     paging = _paged_capture_metadata(completion)
     if lineage.get("paging") != paging:
         raise CharacterMaterialExportError(
@@ -442,7 +619,12 @@ def build_character_material_export(
     ):
         raise CharacterMaterialExportError("retail index stream failed exact identity")
     indices = struct.unpack(f">{contract.index_count}H", index_bytes_be)
-    if not indices or len(indices) % 3 or min(indices) != 0 or max(indices) >= vertex_count:
+    if (
+        not indices
+        or len(indices) % 3
+        or min(indices) != 0
+        or max(indices) >= vertex_count
+    ):
         raise CharacterMaterialExportError("retail index topology is invalid")
 
     position_block = _select_position_block(event, vertex_count)
@@ -500,8 +682,34 @@ def build_character_material_export(
     if not runtime_indices or max(runtime_indices) >= vertex_count:
         raise CharacterMaterialExportError("runtime index topology is invalid")
     material_indices, unobserved_indices = _triangle_partition(
-        indices, runtime_indices
+        indices,
+        material_indices_override if union_export else runtime_indices,
     )
+    if not material_indices:
+        raise CharacterMaterialExportError("material export has no proved triangles")
+    coverage_union = None
+    if union_export:
+        coverage_union = _validate_material_union_override(
+            material_coverage_union_report,
+            material_coverage_union_sha256,
+            material_indices,
+            unobserved_indices,
+            xpp_sha256=xpp_identity,
+            xpp_bytes=len(xpp_data),
+            allowlist_sha256=allowlist_identity,
+            record_offset=record_offset,
+            vertex_count=vertex_count,
+            retail_indices=indices,
+            retail_index_sha256=contract.index_sha256,
+            uv_payload_sha256=uv_block.payload_sha256,
+            uv_byte_offset=uv_offset,
+            texture_family=texture_family,
+            texture_identities=[
+                (item["name_suffix"], item["name"]) for item in bindings
+            ],
+            anchor_lineage_sha256=lineage_identity,
+        )
+    presentation_mode = "observed-union" if union_export else material_coverage_mode
 
     positions, source_min, source_max, center = _decode_positions(
         position_payload, position_block.stride, vertex_count
@@ -546,9 +754,7 @@ def build_character_material_export(
         uv_max,
     )
     exported_material_indices = (
-        indices
-        if material_coverage_mode == "preview-full-record"
-        else material_indices
+        indices if material_coverage_mode == "preview-full-record" else material_indices
     )
     material_index_accessor = builder.add_accessor(
         struct.pack(f"<{len(exported_material_indices)}H", *exported_material_indices),
@@ -588,6 +794,8 @@ def build_character_material_export(
         "observedMaterialTriangles": len(material_indices) // 3,
         "unobservedMaterialTriangles": len(unobserved_indices) // 3,
         "fullTopologyMaterialCoverageProved": not unobserved_indices,
+        "materialCoveragePresentation": presentation_mode,
+        "coverageUnionRevalidated": union_export,
         "unobservedMaterialPreviewExtrapolated": (
             material_coverage_mode == "preview-full-record" and bool(unobserved_indices)
         ),
@@ -621,6 +829,8 @@ def build_character_material_export(
                 "materialBinding": (
                     "preview extrapolation across full retail record"
                     if material_coverage_mode == "preview-full-record"
+                    else "multi-observation exact triangle union"
+                    if union_export
                     else "runtime-observed exact triangle subset"
                 )
             },
@@ -637,9 +847,7 @@ def build_character_material_export(
                 "indices": unobserved_index_accessor,
                 "material": 1,
                 "mode": 4,
-                "extras": {
-                    "materialBinding": "unobserved diagnostic topology only"
-                },
+                "extras": {"materialBinding": "unobserved diagnostic topology only"},
             }
         )
     materials = [
@@ -647,6 +855,8 @@ def build_character_material_export(
             "name": (
                 f"{texture_family} retail C/N PROVISIONAL full-record preview"
                 if material_coverage_mode == "preview-full-record"
+                else f"{texture_family} retail C/N observed union"
+                if union_export
                 else f"{texture_family} retail C/N observed subset"
             ),
             "doubleSided": True,
@@ -684,7 +894,7 @@ def build_character_material_export(
     document = {
         "asset": {
             "version": "2.0",
-            "generator": "xpp-tool 2.28.0 character material exporter",
+            "generator": "xpp-tool 2.32.0 character material exporter",
             "extras": {"infamousMaterialEvidence": evidence},
         },
         "scene": 0,
@@ -698,7 +908,11 @@ def build_character_material_export(
         ],
         "meshes": [
             {
-                "name": f"Exact {texture_family} topology / observed material subset",
+                "name": (
+                    f"Exact {texture_family} topology / observed material union"
+                    if union_export
+                    else f"Exact {texture_family} topology / observed material subset"
+                ),
                 "primitives": primitives,
             }
         ],
@@ -749,9 +963,9 @@ def build_character_material_export(
     report = {
         "format": "infamous-character-material-export",
         "version": 1,
-        "tool_inventory_id": "xpp-tool.character-material-export.v1",
+        "tool_inventory_id": tool_inventory_id,
         "status": "retail-material-progress-glb-written",
-        "presentation_mode": material_coverage_mode,
+        "presentation_mode": presentation_mode,
         "authorities": {
             "xpp_sha256": xpp_identity,
             "xpp_bytes": len(xpp_data),
@@ -760,6 +974,11 @@ def build_character_material_export(
             "texture_allowlist_sha256": allowlist_identity,
             "capture_key_exclusion_sha256": (
                 paging["exclusion_manifest_sha256"] if paging is not None else None
+            ),
+            **(
+                {"coverage_union_sha256": material_coverage_union_sha256}
+                if union_export
+                else {}
             ),
         },
         "selection": {
@@ -774,6 +993,15 @@ def build_character_material_export(
             "nondegenerate_triangles": nondegenerate,
             "index_sha256": contract.index_sha256,
             "material_event_index_sha256": event.index_sha256,
+            **(
+                {
+                    "material_union_index_sha256": _sha256(
+                        _triangle_bytes(material_indices)
+                    )
+                }
+                if union_export
+                else {}
+            ),
             "position_payload_sha256": position_block.payload_sha256,
             "uv_payload_sha256": uv_block.payload_sha256,
             "uv_byte_offset": uv_offset,
@@ -788,6 +1016,7 @@ def build_character_material_export(
         "source_position_bounds": {"minimum": source_min, "maximum": source_max},
         "recentered_position_center": center,
         "glb": {"bytes": len(glb), "sha256": _sha256(glb)},
+        **({"coverage_union": coverage_union} if union_export else {}),
         "proof": {
             "exact_retail_topology": True,
             "exact_full_vertex_range": True,
@@ -798,6 +1027,8 @@ def build_character_material_export(
             "embedded_all_shader_bound_textures": True,
             "all_extra_texture_roles_left_unassigned": True,
             "exact_observed_triangle_material_subset": True,
+            "coverage_union_revalidated": union_export,
+            "exact_union_triangle_material_subset": union_export,
             "deterministic_material_glb": True,
         },
         "limitations": {
@@ -869,8 +1100,7 @@ def write_new_character_material_export(
     if (
         len(glb) > MAX_GLB_BYTES
         or len(report_payload) > MAX_REPORT_BYTES
-        or report.get("glb")
-        != {"bytes": len(glb), "sha256": _sha256(glb)}
+        or report.get("glb") != {"bytes": len(glb), "sha256": _sha256(glb)}
     ):
         raise CharacterMaterialExportError(
             "material output bytes do not reconcile with the bounded receipt"

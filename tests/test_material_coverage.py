@@ -15,6 +15,7 @@ from infamous_xpp_textures.material_coverage import (
     MaterialCoverageObservation,
     MaterialCoverageUnionError,
     build_material_coverage_union,
+    build_material_coverage_union_with_indices,
     render_material_coverage_union,
     write_new_material_coverage_union,
 )
@@ -220,6 +221,12 @@ def test_union_proves_full_multiset_coverage_deterministically(
     }
     assert report["payload_bytes_serialized"] is False
     assert b"indices-" not in render_material_coverage_union(report)
+
+    with_indices, covered_indices = build_material_coverage_union_with_indices(
+        xpp, xpp_sha, allowlist, observations, record_offset=100
+    )
+    assert with_indices == report
+    assert covered_indices == (0, 1, 2, 0, 2, 3, 0, 3, 1, 1, 2, 3)
 
 
 def test_union_rejects_duplicate_conflicting_and_overwritten_evidence(
