@@ -7,26 +7,28 @@ output where applicable, an operator card, and a maintained source location.
 
 ## `xpp-tool.character-source-runtime-correlate.v1`
 
-- Status: maintained; source-defined and callable as xpp-tool 2.21.0.
+- Status: maintained; source-defined and callable as xpp-tool 2.22.0.
 - Parent goal: recover Zeke's complete, textured, editable character model and
   a verified reverse-import path from the packed retail source rather than a
   single camera-projected GPU fragment.
 - Binary question: does one descriptor-backed packed XPP stream have a stable,
-  full-three-axis affine relationship with an exact topology-paired runtime
-  `float32x3` array?
-- Answer: yes for two independent owned records; stream 1 is strongest for the
-  184-vertex hair record (`R² 0.9999999972`) and the 26-vertex visible fragment
-  (`R² 0.9943533660`).
+  full-three-axis relationship with an exact topology-paired runtime
+  `float32x3` array, and does a narrower proper rotation/translation/uniform-
+  scale constraint distinguish the affine-equivalent numeric families?
+- Answer: yes for the two independent owned stream-1 records.
+  `scale-offset-unsigned` ranks first under proper similarity for the
+  184-vertex hair record (`R² 0.9999999971`) and the 26-vertex visible fragment
+  (`R² 0.9912978824`).
 - Entry point: `xpp-tool character-source-runtime-correlate` (the compatible
   `if1-tex` alias exposes the same command).
 - Implementation:
   `src/infamous_xpp_textures/character_source_correlation.py`, SHA-256
-  `6f7714e6f3af5fbd603c4964d48ad859c2cdd360be83b8f724eac13166727f01`;
+  `ca9dba6cdbc5cb86c6a22914f892b3acb3026c257fa699c8b1f7dd63e9e60a9d`;
   CLI wiring `src/infamous_xpp_textures/cli.py`, SHA-256
   `9489fe6f53ee728778a07d21dae34e293446c6e616051d2f713dd0696b607429`.
 - Tests: `tests/test_character_export.py`, SHA-256
-  `6006f64c49b2ea9885a8decdab8804439c76d6cdc1e4b475ec09d3e59ea96583`.
-- Operator card: [README — Version 2.21](README.md#version-221--permanent-packed-sourceruntime-correlation).
+  `6c6b7eb52815c07d3eada4b9b778ec45cb10f2b7c5d0e655ff1d08476e464180`.
+- Operator card: [README — Version 2.22](README.md#version-222--proper-similarity-decoder-discriminator).
 - Call shape:
 
   ```console
@@ -44,14 +46,17 @@ output where applicable, an operator card, and a maintained source location.
   seconds; immutable regular non-symlink inputs; new output only.
 - Proven capability: exact topology identity, whole-buffer runtime identity,
   explicit row-window identity, packed stream identity, source three-axis rank,
-  deterministic affine quality metrics, and cross-record stream ranking.
-- Limitations: affine-equivalent numeric families are deliberately not selected.
-  Position meaning, object/world space, component name, UVs, textures,
-  materials, bones, skinning, complete-character assembly, PBR, and injection
-  remain unproved.
+  deterministic unrestricted-affine metrics, proper and mirrored similarity
+  metrics, family margins, and cross-record stream/formula ranking.
+- Limitations: proper-similarity ranking supplies a strong candidate but does
+  not execute or prove the retail decoder, so the numeric family remains
+  deliberately unselected. Position meaning, object/world space, component
+  name, UVs, textures, materials, bones, skinning, complete-character
+  assembly, PBR, and injection remain unproved.
 - Return status: `returned-with-evidence`; the parent resumes by proving the
-  canonical numeric formula and coordinate space for stream 1, then decoding
-  UV and rig streams without relying on one flat-looking runtime view.
+  candidate against the executed decode arithmetic and coordinate space for
+  stream 1, then decoding UV and rig streams without relying on one
+  flat-looking runtime view.
 
 ## `xpp-tool.character-source-diagnostic-export.v1`
 

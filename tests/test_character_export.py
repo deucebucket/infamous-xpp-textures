@@ -21,6 +21,7 @@ from infamous_xpp_textures.character_source_export import (
 )
 from infamous_xpp_textures.character_source_correlation import (
     CharacterSourceCorrelationError,
+    _similarity_fit,
     correlate_character_source_runtime,
     write_new_correlation_report,
 )
@@ -528,9 +529,45 @@ def test_correlates_exact_source_and_runtime_without_assigning_semantics():
     assert stream["status"] == "fit-complete"
     assert stream["representative_fit"]["source_rank"] == 3
     assert math.isclose(stream["representative_fit"]["r_squared"], 1.0)
+    assert stream["proper_similarity_family_ranking"]
+    assert stream["mirrored_similarity_family_ranking"]
+    assert stream["top_proper_similarity_families"]
+    assert all(
+        result["transform_coefficients_serialized"] is False
+        for result in stream["proper_similarity_families"].values()
+        if result["status"] == "fit-complete"
+    )
     assert report["gates"]["numeric_family_selected"] is False
     assert report["gates"]["position_semantic"] is False
     assert report["gates"]["complete_character"] is False
+
+
+def test_similarity_fit_separates_proper_and_mirrored_orientation_classes():
+    source = (
+        (0.0, 0.0, 0.0),
+        (2.0, 0.0, 0.0),
+        (0.0, 3.0, 0.0),
+        (0.0, 0.0, 5.0),
+        (1.0, 2.0, 4.0),
+    )
+
+    def transformed(row, *, mirrored):
+        x_axis = -row[0] if mirrored else row[0]
+        rotated = (-row[1], x_axis, row[2])
+        return tuple(2.5 * value + offset for value, offset in zip(rotated, (7, -4, 9)))
+
+    proper_runtime = tuple(transformed(row, mirrored=False) for row in source)
+    mirrored_runtime = tuple(transformed(row, mirrored=True) for row in source)
+    proper = _similarity_fit(source, proper_runtime, mirrored=False)
+    wrong_mirrored = _similarity_fit(source, proper_runtime, mirrored=True)
+    mirrored = _similarity_fit(source, mirrored_runtime, mirrored=True)
+    wrong_proper = _similarity_fit(source, mirrored_runtime, mirrored=False)
+    assert math.isclose(proper["r_squared"], 1.0, abs_tol=1e-12)
+    assert math.isclose(mirrored["r_squared"], 1.0, abs_tol=1e-12)
+    assert proper["orientation"] == "proper"
+    assert mirrored["orientation"] == "mirrored"
+    assert wrong_mirrored["r_squared"] < 0.99
+    assert wrong_proper["r_squared"] < 0.99
 
 
 def test_source_runtime_correlation_rejects_hash_shape_and_topology_mismatch():

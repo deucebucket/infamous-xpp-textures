@@ -124,6 +124,206 @@ def _solve(matrix: list[list[float]], vector: list[float]) -> list[float] | None
     return [augmented[row][-1] for row in range(width)]
 
 
+def _largest_symmetric_eigenvector(matrix: list[list[float]]) -> list[float]:
+    """Return the deterministic largest-eigenvalue vector of a symmetric 4x4."""
+
+    size = len(matrix)
+    if size != 4 or any(len(row) != size for row in matrix):
+        raise CharacterSourceCorrelationError(
+            "similarity rotation requires a symmetric 4x4 matrix"
+        )
+    work = [row[:] for row in matrix]
+    vectors = [
+        [1.0 if row == column else 0.0 for column in range(size)] for row in range(size)
+    ]
+    for _ in range(128):
+        left, right = max(
+            ((row, column) for row in range(size) for column in range(row + 1, size)),
+            key=lambda pair: abs(work[pair[0]][pair[1]]),
+        )
+        diagonal_scale = max(1.0, *(abs(work[index][index]) for index in range(size)))
+        if abs(work[left][right]) <= diagonal_scale * _RANK_TOLERANCE:
+            break
+        angle = 0.5 * math.atan2(
+            2.0 * work[left][right],
+            work[right][right] - work[left][left],
+        )
+        cosine = math.cos(angle)
+        sine = math.sin(angle)
+        left_diagonal = work[left][left]
+        right_diagonal = work[right][right]
+        cross = work[left][right]
+        work[left][left] = (
+            cosine * cosine * left_diagonal
+            - 2.0 * sine * cosine * cross
+            + sine * sine * right_diagonal
+        )
+        work[right][right] = (
+            sine * sine * left_diagonal
+            + 2.0 * sine * cosine * cross
+            + cosine * cosine * right_diagonal
+        )
+        work[left][right] = 0.0
+        work[right][left] = 0.0
+        for index in range(size):
+            if index in (left, right):
+                continue
+            old_left = work[index][left]
+            old_right = work[index][right]
+            work[index][left] = cosine * old_left - sine * old_right
+            work[left][index] = work[index][left]
+            work[index][right] = sine * old_left + cosine * old_right
+            work[right][index] = work[index][right]
+        for index in range(size):
+            old_left = vectors[index][left]
+            old_right = vectors[index][right]
+            vectors[index][left] = cosine * old_left - sine * old_right
+            vectors[index][right] = sine * old_left + cosine * old_right
+    else:
+        raise CharacterSourceCorrelationError(
+            "similarity rotation eigenproblem did not converge"
+        )
+
+    largest = max(range(size), key=lambda index: work[index][index])
+    result = [vectors[index][largest] for index in range(size)]
+    length = math.sqrt(sum(value * value for value in result))
+    if not math.isfinite(length) or length <= _RANK_TOLERANCE:
+        raise CharacterSourceCorrelationError(
+            "similarity rotation eigenvector is nonfinite or empty"
+        )
+    return [value / length for value in result]
+
+
+def _rotate_quaternion(
+    row: tuple[float, float, float], quaternion: list[float]
+) -> tuple[float, float, float]:
+    scalar, x_axis, y_axis, z_axis = quaternion
+    rotation = (
+        (
+            1.0 - 2.0 * (y_axis * y_axis + z_axis * z_axis),
+            2.0 * (x_axis * y_axis - z_axis * scalar),
+            2.0 * (x_axis * z_axis + y_axis * scalar),
+        ),
+        (
+            2.0 * (x_axis * y_axis + z_axis * scalar),
+            1.0 - 2.0 * (x_axis * x_axis + z_axis * z_axis),
+            2.0 * (y_axis * z_axis - x_axis * scalar),
+        ),
+        (
+            2.0 * (x_axis * z_axis - y_axis * scalar),
+            2.0 * (y_axis * z_axis + x_axis * scalar),
+            1.0 - 2.0 * (x_axis * x_axis + y_axis * y_axis),
+        ),
+    )
+    return tuple(
+        sum(rotation[axis][component] * row[component] for component in range(3))
+        for axis in range(3)
+    )
+
+
+def _similarity_fit(
+    source: tuple[tuple[float, float, float], ...],
+    runtime: tuple[tuple[float, float, float], ...],
+    *,
+    mirrored: bool,
+) -> dict:
+    """Fit rotation, translation, and one positive uniform scale without outputting them."""
+
+    if len(source) != len(runtime) or len(source) < 4:
+        raise CharacterSourceCorrelationError(
+            "similarity correlation requires matching arrays with at least four rows"
+        )
+    source_mean = [sum(row[axis] for row in source) / len(source) for axis in range(3)]
+    runtime_mean = [
+        sum(row[axis] for row in runtime) / len(runtime) for axis in range(3)
+    ]
+    source_centered = [
+        tuple(row[axis] - source_mean[axis] for axis in range(3)) for row in source
+    ]
+    if mirrored:
+        source_centered = [(-row[0], row[1], row[2]) for row in source_centered]
+    runtime_centered = [
+        tuple(row[axis] - runtime_mean[axis] for axis in range(3)) for row in runtime
+    ]
+    source_covariance = [
+        [sum(row[left] * row[right] for row in source_centered) for right in range(3)]
+        for left in range(3)
+    ]
+    rank = _matrix_rank(source_covariance)
+    if rank != 3:
+        return {"status": "rank-deficient", "source_rank": rank}
+
+    cross = [
+        [
+            sum(
+                source_centered[index][left] * runtime_centered[index][right]
+                for index in range(len(source))
+            )
+            for right in range(3)
+        ]
+        for left in range(3)
+    ]
+    xx, xy, xz = cross[0]
+    yx, yy, yz = cross[1]
+    zx, zy, zz = cross[2]
+    quaternion = _largest_symmetric_eigenvector(
+        [
+            [xx + yy + zz, yz - zy, zx - xz, xy - yx],
+            [yz - zy, xx - yy - zz, xy + yx, zx + xz],
+            [zx - xz, xy + yx, -xx + yy - zz, yz + zy],
+            [xy - yx, zx + xz, yz + zy, -xx - yy + zz],
+        ]
+    )
+    rotated = tuple(_rotate_quaternion(row, quaternion) for row in source_centered)
+    source_squared = sum(sum(value * value for value in row) for row in source_centered)
+    if source_squared <= _RANK_TOLERANCE:
+        return {"status": "rank-deficient", "source_rank": rank}
+    scale = (
+        sum(
+            sum(
+                rotated[index][axis] * runtime_centered[index][axis]
+                for axis in range(3)
+            )
+            for index in range(len(source))
+        )
+        / source_squared
+    )
+    if not math.isfinite(scale) or scale <= _RANK_TOLERANCE:
+        return {"status": "nonpositive-scale", "source_rank": rank}
+
+    squared_error = 0.0
+    maximum_residual = 0.0
+    for index, row in enumerate(rotated):
+        point_error = sum(
+            (scale * row[axis] - runtime_centered[index][axis]) ** 2
+            for axis in range(3)
+        )
+        squared_error += point_error
+        maximum_residual = max(maximum_residual, math.sqrt(point_error))
+    total_variance = sum(
+        sum(value * value for value in row) for row in runtime_centered
+    )
+    runtime_min = [min(row[axis] for row in runtime) for axis in range(3)]
+    runtime_max = [max(row[axis] for row in runtime) for axis in range(3)]
+    diagonal = math.sqrt(
+        sum((runtime_max[axis] - runtime_min[axis]) ** 2 for axis in range(3))
+    )
+    if total_variance <= _RANK_TOLERANCE or diagonal <= _RANK_TOLERANCE:
+        return {"status": "runtime-low-diversity", "source_rank": rank}
+    rmse = math.sqrt(squared_error / (len(runtime) * 3))
+    return {
+        "status": "fit-complete",
+        "source_rank": rank,
+        "orientation": "mirrored" if mirrored else "proper",
+        "r_squared": 1.0 - squared_error / total_variance,
+        "rmse": rmse,
+        "normalized_rmse": rmse / diagonal,
+        "maximum_point_residual": maximum_residual,
+        "runtime_bounds_diagonal": diagonal,
+        "transform_coefficients_serialized": False,
+    }
+
+
 def _affine_fit(
     source: tuple[tuple[float, float, float], ...],
     runtime: tuple[tuple[float, float, float], ...],
@@ -241,6 +441,33 @@ def _runtime_rows(
     return rows[first_row : first_row + vertex_count], total_rows
 
 
+def _rank_fit_names(fits: dict[str, dict]) -> tuple[list[str], list[str], float | None]:
+    complete = [
+        name for name, result in fits.items() if result["status"] == "fit-complete"
+    ]
+    complete.sort(
+        key=lambda name: (
+            -fits[name]["r_squared"],
+            fits[name]["normalized_rmse"],
+            NUMERIC_FAMILIES.index(name),
+        )
+    )
+    if not complete:
+        return [], [], None
+    best = fits[complete[0]]["r_squared"]
+    top = [
+        name
+        for name in complete
+        if best - fits[name]["r_squared"] <= _FAMILY_METRIC_TOLERANCE
+    ]
+    margin = (
+        fits[complete[0]]["r_squared"] - fits[complete[1]]["r_squared"]
+        if len(complete) > 1
+        else None
+    )
+    return complete, top, margin
+
+
 def correlate_character_source_runtime(
     xpp_data: bytes,
     runtime_index: bytes,
@@ -336,11 +563,19 @@ def correlate_character_source_runtime(
             stream.component_count,
         )
         families = {}
+        proper_similarity_families = {}
+        mirrored_similarity_families = {}
         for family in NUMERIC_FAMILIES:
             source = _decode_hypothesis(
                 unpacked, stream.component_bit_widths, first, second, family
             )
             families[family] = _affine_fit(source, runtime)
+            proper_similarity_families[family] = _similarity_fit(
+                source, runtime, mirrored=False
+            )
+            mirrored_similarity_families[family] = _similarity_fit(
+                source, runtime, mirrored=True
+            )
         complete = [
             item for item in families.values() if item["status"] == "fit-complete"
         ]
@@ -363,6 +598,12 @@ def correlate_character_source_runtime(
             if complete
             else None
         )
+        proper_ranking, top_proper, proper_margin = _rank_fit_names(
+            proper_similarity_families
+        )
+        mirrored_ranking, top_mirrored, mirrored_margin = _rank_fit_names(
+            mirrored_similarity_families
+        )
         stream_reports.append(
             {
                 "stream_index": stream.envelope_stream_index,
@@ -373,6 +614,14 @@ def correlate_character_source_runtime(
                 if representative is not None
                 else "no-complete-fit",
                 "numeric_families": families,
+                "proper_similarity_families": proper_similarity_families,
+                "proper_similarity_family_ranking": proper_ranking,
+                "top_proper_similarity_families": top_proper,
+                "proper_similarity_r_squared_margin": proper_margin,
+                "mirrored_similarity_families": mirrored_similarity_families,
+                "mirrored_similarity_family_ranking": mirrored_ranking,
+                "top_mirrored_similarity_families": top_mirrored,
+                "mirrored_similarity_r_squared_margin": mirrored_margin,
                 "family_r_squared_spread": r_squared_spread,
                 "family_normalized_rmse_spread": normalized_rmse_spread,
                 "families_affine_indistinguishable": bool(
@@ -407,7 +656,7 @@ def correlate_character_source_runtime(
         ]
     return {
         "format": "infamous-character-source-runtime-affine-correlation",
-        "version": 1,
+        "version": 2,
         "record_offset": contract.record_offset,
         "vertex_count": contract.vertex_count,
         "triangle_count": contract.triangle_count,
@@ -435,8 +684,9 @@ def correlate_character_source_runtime(
             "injection": False,
         },
         "limitations": (
-            "topology and supplied runtime/source identities plus direct-order affine metrics only; "
-            "the report does not prove capture provenance, a numeric family, position meaning, "
+            "topology and supplied runtime/source identities plus direct-order affine and "
+            "proper/mirrored similarity metrics only; the report does not serialize transform "
+            "coefficients or prove capture provenance, a numeric family, position meaning, "
             "skinning, ownership, completeness, materials, or safe injection"
         ),
     }
