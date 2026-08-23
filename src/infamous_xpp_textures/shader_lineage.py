@@ -56,17 +56,22 @@ def _sha256(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
-def _read_pinned_json(
-    path: Path, expected_sha256: str, label: str
-) -> tuple[dict, str]:
+def _valid_sha256(value: object) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 64
+        and value == value.lower()
+        and all(character in "0123456789abcdef" for character in value)
+    )
+
+
+def _read_pinned_json(path: Path, expected_sha256: str, label: str) -> tuple[dict, str]:
     if (
         path.is_symlink()
         or not path.is_file()
         or path.stat().st_size > MAX_AUTHORITY_BYTES
     ):
-        raise ShaderLineageError(
-            f"{label} must be a regular file at most 2 MiB"
-        )
+        raise ShaderLineageError(f"{label} must be a regular file at most 2 MiB")
     payload = path.read_bytes()
     actual_sha256 = _sha256(payload)
     if actual_sha256 != expected_sha256:
@@ -92,8 +97,7 @@ def _source_tokens(
         base = temporary[register]
     elif register_type == 2:
         base = [
-            {f"input-{input_attribute:02d}.{component}"}
-            for component in _COMPONENTS
+            {f"input-{input_attribute:02d}.{component}"} for component in _COMPONENTS
         ]
     elif register_type == 3:
         base = [set() for _ in _COMPONENTS]
@@ -102,9 +106,7 @@ def _source_tokens(
     return [set(base[index]) for index in swizzle]
 
 
-def _vector_dependencies(
-    opcode: int, sources: list[list[set[str]]]
-) -> list[set[str]]:
+def _vector_dependencies(opcode: int, sources: list[list[set[str]]]) -> list[set[str]]:
     result = [set() for _ in _COMPONENTS]
     if opcode == 0:
         return result
@@ -175,7 +177,9 @@ def analyze_vertex_input_lineage(program: bytes) -> dict:
         vector_opcode = _field(d1, 22, 5)
         scalar_opcode = _field(d1, 27, 5)
         if scalar_opcode in _BRANCH_OPS or scalar_opcode == 12:
-            raise ShaderLineageError("vertex lineage rejects branch/call/return programs")
+            raise ShaderLineageError(
+                "vertex lineage rejects branch/call/return programs"
+            )
         condition = _field(d0, 10, 3)
         if condition == 0:
             continue
@@ -211,14 +215,10 @@ def analyze_vertex_input_lineage(program: bytes) -> dict:
                     )
 
         if scalar_opcode in _SCA_SOURCE_OPS:
-            scalar_source = _source_tokens(
-                raw_sources[2], input_attribute, temporary
-            )
+            scalar_source = _source_tokens(raw_sources[2], input_attribute, temporary)
             scalar_dependencies = set().union(*scalar_source)
             scalar_values = [set(scalar_dependencies) for _ in _COMPONENTS]
-            scalar_mask = tuple(
-                bool(_field(d3, bit, 1)) for bit in (20, 19, 18, 17)
-            )
+            scalar_mask = tuple(bool(_field(d3, bit, 1)) for bit in (20, 19, 18, 17))
             scalar_temp = _field(d3, 7, 6)
             if scalar_temp != 63:
                 _write_components(
@@ -315,7 +315,9 @@ def _finite_numeric_summary(
 def _reconstruct_attribute_layout(block, payload: bytes) -> dict:
     attributes = list(block.attributes)
     if not 1 <= len(attributes) <= 6:
-        raise ShaderLineageError("layout reconstruction accepts one through six attributes")
+        raise ShaderLineageError(
+            "layout reconstruction accepts one through six attributes"
+        )
     if any(item["frequency"] or item["modulo"] for item in attributes):
         raise ShaderLineageError("layout reconstruction requires per-vertex attributes")
     sizes = {item["attribute"]: _element_byte_count(item) for item in attributes}
@@ -362,7 +364,9 @@ def _reconstruct_attribute_layout(block, payload: bytes) -> dict:
     }
 
 
-def _texture_matches(character_census: dict, side: str, hashes: tuple[str, ...]) -> list[dict]:
+def _texture_matches(
+    character_census: dict, side: str, hashes: tuple[str, ...]
+) -> list[dict]:
     if character_census.get("format") != "infamous-character-asset-census":
         raise ShaderLineageError("character census has the wrong format")
     descriptors_by_side = character_census.get("target_texture_descriptors")
@@ -484,10 +488,48 @@ def build_character_uv_texture_binding(
         not source_event.get("same_xpp_source_record_proved")
         or not isinstance(mapping, dict)
         or mapping.get("record_offset") != record_offset
-        or mapping.get("range_count") != mapping.get("source_vertex_count")
-        or not mapping.get("full_vertex_range")
     ):
-        raise ShaderLineageError("source census does not prove the requested full record")
+        raise ShaderLineageError("source census does not prove the requested record")
+    range_first = mapping.get(
+        "range_first", 0 if mapping.get("full_vertex_range") is True else None
+    )
+    range_count = mapping.get("range_count")
+    range_end = mapping.get(
+        "range_end",
+        range_count
+        if mapping.get("full_vertex_range") is True and range_first == 0
+        else None,
+    )
+    source_vertex_count = mapping.get("source_vertex_count")
+    full_source_range = (
+        mapping.get("full_vertex_range") is True
+        and range_first == 0
+        and range_count == source_vertex_count
+        and range_end == source_vertex_count
+    )
+    runtime_coverage = mapping.get("runtime_index_coverage")
+    partial_source_range = (
+        not full_source_range
+        and mapping.get("full_vertex_range") is False
+        and isinstance(range_first, int)
+        and not isinstance(range_first, bool)
+        and isinstance(range_count, int)
+        and not isinstance(range_count, bool)
+        and isinstance(range_end, int)
+        and not isinstance(range_end, bool)
+        and isinstance(source_vertex_count, int)
+        and not isinstance(source_vertex_count, bool)
+        and 0 <= range_first < range_end <= source_vertex_count
+        and range_count == range_end - range_first
+        and isinstance(runtime_coverage, dict)
+        and runtime_coverage.get("status") == "retail-triangle-subset-proved"
+        and runtime_coverage.get("safe_for_retail_coverage_union") is True
+        and runtime_coverage.get("runtime_indices_within_mapped_vertex_range") is True
+    )
+    if not full_source_range and not partial_source_range:
+        raise ShaderLineageError(
+            "source census proves neither a full record nor a safe partial range"
+        )
     block_number = mapping.get("block")
     matching_blocks = [item for item in event.blocks if item.number == block_number]
     if len(matching_blocks) != 1:
@@ -497,12 +539,98 @@ def build_character_uv_texture_binding(
         mapping.get("matched_stream_slice_sha256") != block.payload_sha256
         or mapping.get("stream_zero_record_bytes") != block.stride
         or mapping.get("range_count") != block.range_count
+        or (partial_source_range and getattr(block, "range_first", None) != range_first)
     ):
         raise ShaderLineageError("source mapping and captured block identity drifted")
     block_payload = _read_payload(
         bundle, block.payload_file, block.payload_bytes, block.payload_sha256
     )
     packed_layout = _reconstruct_attribute_layout(block, block_payload)
+
+    partial_runtime_receipt = None
+    if partial_source_range:
+        source_records = source_census.get("source", {}).get("records", [])
+        source_record_matches = [
+            item
+            for item in source_records
+            if isinstance(item, dict) and item.get("record_offset") == record_offset
+        ]
+        if len(source_record_matches) != 1:
+            raise ShaderLineageError(
+                "source census does not select one partial-range retail record"
+            )
+        source_record = source_record_matches[0]
+        if (
+            source_record.get("vertex_count") != source_vertex_count
+            or source_record.get("index_count") != mapping.get("source_index_count")
+            or source_record.get("index_sha256") != mapping.get("source_index_sha256")
+            or not _valid_sha256(source_record.get("index_sha256"))
+            or source_record.get("index_count", 0) % 3
+        ):
+            raise ShaderLineageError(
+                "partial-range retail record identity does not reconcile"
+            )
+        try:
+            runtime_index_payload = _read_payload(
+                bundle,
+                event.index_payload_file,
+                event.index_bytes,
+                event.index_sha256,
+            )
+        except RuntimeTopologyExportError as exc:
+            raise ShaderLineageError(str(exc)) from exc
+        if (
+            event.index_bytes != event.index_count * 2
+            or event.index_count <= 0
+            or event.index_count % 3
+            or len(runtime_index_payload) != event.index_bytes
+            or runtime_coverage.get("runtime_index_sha256") != event.index_sha256
+            or runtime_coverage.get("runtime_triangle_occurrences")
+            != event.index_count // 3
+            or runtime_coverage.get("covered_retail_triangle_occurrences")
+            != event.index_count // 3
+            or runtime_coverage.get("unobserved_retail_triangle_occurrences")
+            != source_record["index_count"] // 3 - event.index_count // 3
+            or not _valid_sha256(
+                runtime_coverage.get("covered_triangle_multiset_sha256")
+            )
+            or not _valid_sha256(
+                runtime_coverage.get("unobserved_triangle_multiset_sha256")
+            )
+        ):
+            raise ShaderLineageError(
+                "partial-range runtime coverage receipt does not reconcile"
+            )
+        runtime_indices = struct.unpack(f">{event.index_count}H", runtime_index_payload)
+        if (
+            not runtime_indices
+            or min(runtime_indices) != runtime_coverage.get("runtime_min_vertex_index")
+            or max(runtime_indices) != runtime_coverage.get("runtime_max_vertex_index")
+            or min(runtime_indices) < range_first
+            or max(runtime_indices) >= range_end
+        ):
+            raise ShaderLineageError(
+                "partial-range runtime indices leave the captured source slice"
+            )
+        partial_runtime_receipt = {
+            "runtime_index_sha256": event.index_sha256,
+            "runtime_triangle_occurrences": event.index_count // 3,
+            "covered_retail_triangle_occurrences": runtime_coverage[
+                "covered_retail_triangle_occurrences"
+            ],
+            "unobserved_retail_triangle_occurrences": runtime_coverage[
+                "unobserved_retail_triangle_occurrences"
+            ],
+            "runtime_min_vertex_index": min(runtime_indices),
+            "runtime_max_vertex_index": max(runtime_indices),
+            "covered_triangle_multiset_sha256": runtime_coverage[
+                "covered_triangle_multiset_sha256"
+            ],
+            "unobserved_triangle_multiset_sha256": runtime_coverage[
+                "unobserved_triangle_multiset_sha256"
+            ],
+            "safe_for_material_coverage_union": True,
+        }
 
     targets = character_census.get("targets", {})
     target = targets.get(character_side) if isinstance(targets, dict) else None
@@ -512,11 +640,16 @@ def build_character_uv_texture_binding(
         or not isinstance(source, dict)
         or target.get("sha256") != source.get("source_sha256")
     ):
-        raise ShaderLineageError("character and source census target identities disagree")
+        raise ShaderLineageError(
+            "character and source census target identities disagree"
+        )
     named_textures = _texture_matches(
         character_census, character_side, event.target_texture_sha256s
     )
-    if any(item["faces"] != 1 or not item["width"] or not item["height"] for item in named_textures):
+    if any(
+        item["faces"] != 1 or not item["width"] or not item["height"]
+        for item in named_textures
+    ):
         raise ShaderLineageError("target texture is not one proved 2D descriptor")
 
     fragment = analyze_fragment_program_payload(fragment_program)
@@ -525,11 +658,9 @@ def build_character_uv_texture_binding(
         for item in fragment["texture_instructions"]
         if item["sampler"] in event.target_texture_slots
     ]
-    if (
-        {item["sampler"] for item in target_instructions}
-        != set(event.target_texture_slots)
-        or any(not item["coordinate_source_is_input"] for item in target_instructions)
-    ):
+    if {item["sampler"] for item in target_instructions} != set(
+        event.target_texture_slots
+    ) or any(not item["coordinate_source_is_input"] for item in target_instructions):
         raise ShaderLineageError(
             "target samplers do not all use one direct fragment input"
         )
@@ -538,7 +669,9 @@ def build_character_uv_texture_binding(
         raise ShaderLineageError("target samplers use different fragment inputs")
     fragment_input = fragment_inputs.pop()
     if fragment_input not in _FRAGMENT_TEXCOORD_TO_VERTEX_OUTPUT:
-        raise ShaderLineageError("target sampler source is not a texture-coordinate input")
+        raise ShaderLineageError(
+            "target sampler source is not a texture-coordinate input"
+        )
     vertex_output = _FRAGMENT_TEXCOORD_TO_VERTEX_OUTPUT[fragment_input]
     vertex = analyze_vertex_input_lineage(vertex_program)
     vertex_outputs = vertex.pop("_outputs")
@@ -553,25 +686,34 @@ def build_character_uv_texture_binding(
     expected_input_tokens = []
     for component_lineage in sampled_lineage:
         if len(component_lineage) != 1 or not component_lineage[0].startswith("input-"):
-            raise ShaderLineageError("sampled vertex output has ambiguous input lineage")
+            raise ShaderLineageError(
+                "sampled vertex output has ambiguous input lineage"
+            )
         expected_input_tokens.append(component_lineage[0])
     input_attributes = {
         int(token.removeprefix("input-").split(".", 1)[0])
         for token in expected_input_tokens
     }
     if len(input_attributes) != 1:
-        raise ShaderLineageError("sampled components derive from different vertex inputs")
+        raise ShaderLineageError(
+            "sampled components derive from different vertex inputs"
+        )
     vertex_input = input_attributes.pop()
     block_attributes = {
-        item["attribute"]: item for item in packed_layout["unique_complete_layout"] or []
+        item["attribute"]: item
+        for item in packed_layout["unique_complete_layout"] or []
     }
     selected_layout = block_attributes.get(vertex_input)
     if selected_layout is None or selected_layout["components"] < 2:
-        raise ShaderLineageError("sampled vertex input is absent from the source-bound block")
+        raise ShaderLineageError(
+            "sampled vertex input is absent from the source-bound block"
+        )
 
     texture_bindings = []
     by_hash = {item["runtime_prefix_sha256"]: item for item in named_textures}
-    for slot, target_hash in zip(event.target_texture_slots, event.target_texture_sha256s):
+    for slot, target_hash in zip(
+        event.target_texture_slots, event.target_texture_sha256s
+    ):
         instruction = [item for item in target_instructions if item["sampler"] == slot]
         if len(instruction) != 1:
             raise ShaderLineageError("target sampler does not have one instruction")
@@ -589,7 +731,11 @@ def build_character_uv_texture_binding(
         "format": "infamous-character-uv-texture-binding",
         "version": 1,
         "tool_inventory_id": "xpp-tool.character-uv-texture-binding.v1",
-        "status": "exact-shader-lineage-with-unique-packed-layout",
+        "status": (
+            "exact-shader-lineage-with-unique-packed-layout"
+            if full_source_range
+            else "exact-partial-shader-lineage-with-unique-packed-layout"
+        ),
         "authorities": {
             "bundle_format": completion["format"],
             "texture_allowlist_sha256": allowlist_sha256,
@@ -632,7 +778,7 @@ def build_character_uv_texture_binding(
         "texture_family": families.pop() if len(families) == 1 else None,
         "proof": {
             "same_xpp_source_record": True,
-            "full_source_vertex_range": True,
+            "full_source_vertex_range": full_source_range,
             "exact_source_stream_bytes": True,
             "exact_shader_payloads": True,
             "target_sampler_coordinate_input": True,
@@ -657,11 +803,35 @@ def build_character_uv_texture_binding(
         },
         "payload_bytes_serialized": False,
         "next_gate": (
-            "decode the uniquely bound half-float UV rows into a deterministic GLB "
-            "TEXCOORD_0 accessor, bind the exact retail color/normal family, and publish "
-            "the first material progress render without calling one hair piece full Zeke"
+            "admit this safe partial-range lineage to a strict material coverage union "
+            "anchored by one compatible full-range material export"
+            if partial_source_range
+            else (
+                "decode the uniquely bound half-float UV rows into a deterministic GLB "
+                "TEXCOORD_0 accessor, bind the exact retail color/normal family, and "
+                "publish the first material progress render without calling one hair "
+                "piece full Zeke"
+            )
         ),
     }
+    if partial_source_range:
+        result["selection"].update(
+            {
+                "source_vertex_count": source_vertex_count,
+                "source_range_first": range_first,
+                "source_range_count": range_count,
+                "source_range_end": range_end,
+            }
+        )
+        result["proof"].update(
+            {
+                "partial_source_vertex_range": True,
+                "runtime_indices_within_source_range": True,
+                "runtime_retail_triangle_subset": True,
+                "safe_for_material_coverage_union": True,
+            }
+        )
+        result["partial_runtime_coverage"] = partial_runtime_receipt
     paging = _paged_capture_metadata(completion)
     if paging is not None:
         result["paging"] = paging
@@ -682,14 +852,18 @@ def write_new_character_uv_texture_binding(path: Path, report: dict) -> None:
         raise ShaderLineageError("shader-lineage output already exists")
     payload = render_character_uv_texture_binding(report)
     path.parent.mkdir(parents=True, exist_ok=True)
-    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.", dir=path.parent
+    )
     try:
         with os.fdopen(descriptor, "wb") as handle:
             handle.write(payload)
             handle.flush()
             os.fsync(handle.fileno())
         if path.exists():
-            raise ShaderLineageError("shader-lineage output appeared during publication")
+            raise ShaderLineageError(
+                "shader-lineage output appeared during publication"
+            )
         os.link(temporary_name, path)
     finally:
         Path(temporary_name).unlink(missing_ok=True)

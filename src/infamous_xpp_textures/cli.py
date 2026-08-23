@@ -47,6 +47,7 @@ from .component_ledger import (
 from .material_coverage import (
     MaterialCoverageObservation,
     MaterialCoverageUnionError,
+    PartialMaterialCoverageObservation,
     build_material_coverage_union,
     write_new_material_coverage_union,
 )
@@ -1218,6 +1219,7 @@ def cmd_character_component_ledger(args: argparse.Namespace) -> int:
 def cmd_character_material_coverage_union(args: argparse.Namespace) -> int:
     try:
         observations = []
+        partial_observations = []
         inputs = {args.xpp.resolve(), args.texture_allowlist.resolve()}
         for report, report_sha256, bundle, exclusion in args.observation:
             report_path = Path(report)
@@ -1235,11 +1237,50 @@ def cmd_character_material_coverage_union(args: argparse.Namespace) -> int:
                     capture_key_exclusion=exclusion_path,
                 )
             )
+        for (
+            lineage,
+            lineage_sha256,
+            bundle,
+            exclusion,
+            source_census,
+            source_census_sha256,
+            character_census,
+            character_census_sha256,
+        ) in args.partial_observation or []:
+            lineage_path = Path(lineage)
+            bundle_path = Path(bundle)
+            exclusion_path = None if exclusion == "-" else Path(exclusion)
+            source_census_path = Path(source_census)
+            character_census_path = Path(character_census)
+            inputs.update(
+                (
+                    lineage_path.resolve(),
+                    bundle_path.resolve(),
+                    source_census_path.resolve(),
+                    character_census_path.resolve(),
+                )
+            )
+            if exclusion_path is not None:
+                inputs.add(exclusion_path.resolve())
+            partial_observations.append(
+                PartialMaterialCoverageObservation(
+                    lineage=lineage_path,
+                    lineage_sha256=lineage_sha256,
+                    bundle=bundle_path,
+                    capture_key_exclusion=exclusion_path,
+                    source_census=source_census_path,
+                    source_census_sha256=source_census_sha256,
+                    character_census=character_census_path,
+                    character_census_sha256=character_census_sha256,
+                )
+            )
         output = args.output.resolve()
         if output in inputs or any(
-            output == observation.bundle.resolve()
-            or observation.bundle.resolve() in output.parents
-            for observation in observations
+            output == bundle or bundle in output.parents
+            for bundle in (
+                *(item.bundle.resolve() for item in observations),
+                *(item.bundle.resolve() for item in partial_observations),
+            )
         ):
             raise MaterialCoverageUnionError(
                 "coverage union output must be new and outside every immutable input"
@@ -1250,6 +1291,7 @@ def cmd_character_material_coverage_union(args: argparse.Namespace) -> int:
             args.texture_allowlist,
             observations,
             record_offset=args.record_offset,
+            partial_observations=partial_observations,
         )
         write_new_material_coverage_union(args.output, report)
     except (OSError, MaterialCoverageUnionError, ValueError) as exc:
@@ -1269,6 +1311,7 @@ def cmd_character_material_coverage_union(args: argparse.Namespace) -> int:
 def cmd_character_material_coverage_export(args: argparse.Namespace) -> int:
     try:
         observations = []
+        partial_observations = []
         inputs = {
             args.xpp.resolve(),
             args.texture_allowlist.resolve(),
@@ -1289,8 +1332,48 @@ def cmd_character_material_coverage_export(args: argparse.Namespace) -> int:
                     capture_key_exclusion=exclusion_path,
                 )
             )
+        for (
+            lineage,
+            lineage_sha256,
+            bundle,
+            exclusion,
+            source_census,
+            source_census_sha256,
+            character_census,
+            character_census_sha256,
+        ) in args.partial_observation or []:
+            lineage_path = Path(lineage)
+            bundle_path = Path(bundle)
+            exclusion_path = None if exclusion == "-" else Path(exclusion)
+            source_census_path = Path(source_census)
+            character_census_path = Path(character_census)
+            inputs.update(
+                (
+                    lineage_path.resolve(),
+                    bundle_path.resolve(),
+                    source_census_path.resolve(),
+                    character_census_path.resolve(),
+                )
+            )
+            if exclusion_path is not None:
+                inputs.add(exclusion_path.resolve())
+            partial_observations.append(
+                PartialMaterialCoverageObservation(
+                    lineage=lineage_path,
+                    lineage_sha256=lineage_sha256,
+                    bundle=bundle_path,
+                    capture_key_exclusion=exclusion_path,
+                    source_census=source_census_path,
+                    source_census_sha256=source_census_sha256,
+                    character_census=character_census_path,
+                    character_census_sha256=character_census_sha256,
+                )
+            )
         outputs = {args.output_glb.resolve(), args.output_report.resolve()}
-        bundle_paths = [item.bundle.resolve() for item in observations]
+        bundle_paths = [
+            *(item.bundle.resolve() for item in observations),
+            *(item.bundle.resolve() for item in partial_observations),
+        ]
         if (
             len(outputs) != 2
             or outputs & inputs
@@ -1311,6 +1394,7 @@ def cmd_character_material_coverage_export(args: argparse.Namespace) -> int:
             record_offset=args.record_offset,
             anchor_lineage=args.anchor_lineage,
             anchor_lineage_sha256=args.anchor_lineage_sha256,
+            partial_observations=partial_observations,
         )
         write_new_material_coverage_export(
             args.output_glb, args.output_report, glb, report
@@ -2431,6 +2515,26 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     p_material_coverage.add_argument(
+        "--partial-observation",
+        action="append",
+        nargs=8,
+        metavar=(
+            "LINEAGE",
+            "LINEAGE_SHA256",
+            "BUNDLE",
+            "EXCLUSION_OR_DASH",
+            "SOURCE_CENSUS",
+            "SOURCE_CENSUS_SHA256",
+            "CHARACTER_CENSUS",
+            "CHARACTER_CENSUS_SHA256",
+        ),
+        help=(
+            "safe partial-range shader lineage, its SHA-256, immutable bundle, "
+            "optional exclusion, plus exact source- and character-census "
+            "authorities and SHA-256 pins"
+        ),
+    )
+    p_material_coverage.add_argument(
         "--output", type=Path, required=True, help="new payload-free JSON report"
     )
     p_material_coverage.set_defaults(func=cmd_character_material_coverage_union)
@@ -2458,6 +2562,26 @@ def main(argv: list[str] | None = None) -> int:
         help=(
             "exact observed-only report, SHA-256, immutable bundle, and optional "
             "capture-key exclusion ('-' for none); repeat for every union member"
+        ),
+    )
+    p_material_coverage_export.add_argument(
+        "--partial-observation",
+        action="append",
+        nargs=8,
+        metavar=(
+            "LINEAGE",
+            "LINEAGE_SHA256",
+            "BUNDLE",
+            "EXCLUSION_OR_DASH",
+            "SOURCE_CENSUS",
+            "SOURCE_CENSUS_SHA256",
+            "CHARACTER_CENSUS",
+            "CHARACTER_CENSUS_SHA256",
+        ),
+        help=(
+            "safe partial-range shader lineage, SHA-256, immutable bundle, "
+            "optional exclusion, plus exact source- and character-census "
+            "authorities and SHA-256 pins"
         ),
     )
     p_material_coverage_export.add_argument("--output-glb", type=Path, required=True)

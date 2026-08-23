@@ -896,6 +896,69 @@ validator; the JSON is capped at 256 KiB. Inputs must be regular immutable
 files/directories, output must be a new path outside every bundle and different
 from the XPP, and no raw source or runtime payload bytes enter the report.
 
+### Version 2.36 — strict partial-range material observations
+
+A safe partial-range source receipt can now join an existing strict material
+union without pretending that the capture contains every source vertex. Build
+the partial lineage with the existing `character-uv-texture-binding` command,
+then pass it to either union or export alongside at least one regular full-range
+material observation:
+
+```bash
+xpp-tool character-material-coverage-export \
+  --xpp ./retail/male_base_Zeke.xpp \
+  --xpp-sha256 XPP_SHA256 \
+  --texture-allowlist ./zeke-surface-identities.sha256 \
+  --record-offset 533752 \
+  --anchor-lineage ./page2-full-range-lineage.json \
+  --anchor-lineage-sha256 ANCHOR_LINEAGE_SHA256 \
+  --observation ./page2-material.json REPORT_SHA ./page2-bundle ./page1-keys.tsv \
+  --observation ./page3-material.json REPORT_SHA ./page3-bundle ./page1-plus-page2-keys.tsv \
+  --partial-observation \
+    ./page1-partial-lineage.json PARTIAL_LINEAGE_SHA \
+    ./page1-bundle - \
+    ./three-page-source-census.json SOURCE_CENSUS_SHA \
+    ./character-census.json CHARACTER_CENSUS_SHA \
+  --output-glb ./zeke-hair-288.glb \
+  --output-report ./zeke-hair-288.json
+```
+
+RR — Really Readable rundown: the page-one tray has 183 of the retail hair
+record's 184 vertex rows. That sounds incomplete, but its triangle tickets use
+only rows 0 through 182; the absent last row is never called. Version 2.36 does
+not take that on faith. It reopens the actual index and UV bytes, checks every
+triangle against retail, checks every index against the exact captured range,
+replays the vertex/fragment shader identity, and independently matches every
+named `Zeke_Hair_A/C/N/S` descriptor and mip prefix against the pinned character
+census. Only then may the draw contribute material-covered faces.
+
+The first owned result combines page one (**276** faces), page two (**11** new),
+and page three (**1** new) into **288 / 294** strict retail-material triangles.
+The deterministic GLB remains 179,204 bytes, SHA-256
+`f11dc2be73ccba0aaad2576b76ae8e904c7302e8e44f3a6aa18c1cbc81705e3b`.
+The six unproved triangles remain a separate orange audit primitive. The exact
+four-map names are retained as compatible pass evidence; the full-range `C/N`
+anchor still owns the exported display material, and `A`/`S` are not invented
+as PBR roles.
+
+Operator card: this extends stable IDs
+`xpp-tool.character-uv-texture-binding.v1`,
+`xpp-tool.character-material-coverage-union.v1`, and
+`xpp-tool.character-material-coverage-export.v1`. Every partial observation is
+the eight-value tuple shown above: pinned lineage, immutable bundle and optional
+exclusion, pinned source census, and pinned character census. One through 16
+total observations are accepted, but at least one regular full-range material
+export is mandatory as the texture/UV/export anchor. The command is offline and
+single-process; existing 64 MiB XPP/GLB, 1 MiB authority, inherited bundle, and
+256 KiB report bounds remain. Inputs are immutable regular files/directories;
+outputs are atomic, new-only, outside every bundle, and never overwritten.
+
+This proves a strict material assignment for 288 hair triangles. It does not
+prove the remaining six, a complete hair/head/body assembly, original
+normals/tangents, bones/weights, authored PBR, 4× textures, RPCS3 round trip, or
+native-decomp import. The approved matte/even-brown render remains the visual
+baseline; this capability changes evidence coverage, not its lighting recipe.
+
 ### Version 2.35 — safe retail coverage from partial-range runtime draws
 
 `runtime-xpp-source-census` now answers one more question before a useful old
