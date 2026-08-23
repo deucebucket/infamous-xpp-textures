@@ -1,5 +1,35 @@
 # Changelog
 
+## 2.33.0 - 2026-08-23
+
+- Added permanent `character-material-pass-census` support for comparing two
+  through 32 checksum-pinned, strict one-draw material observations from one
+  exact retail character record across different shader and texture passes.
+- Revalidates the retail XPP, record topology, texture allowlist, immutable
+  runtime bundles, page exclusions, shader programs, UV identity, named texture
+  families, and exact index payloads before classifying every pair as identical,
+  subset, superset, partial overlap, or disjoint.
+- The first Zeke hair result proves that the page-three four-map `A/C/N/S` pass
+  and page-three `C/N` pass are coextensive over the same 275 triangle
+  occurrences. They are distinct shader/material passes, not extra geometry.
+- Page two versus page three contributes seven unique triangles in each
+  direction; the exact any-pass union remains **282 / 294**, leaving the same
+  **12** unobserved triangles. A new capture is useful only if it exposes a
+  genuinely different draw rather than another layered pass over those 275.
+- Two final runs with reversed observation order are byte-identical: 13,180
+  bytes, SHA-256
+  `6b363998f495ea9e8bd318cff8da62a3e06c920088f8098f9b2c34cb8c280048`.
+  An occupied-output retry exited 1 and preserved that hash.
+- Built the 225,509-byte 2.33.0 wheel twice with pinned
+  `SOURCE_DATE_EPOCH=1787486400`; both have SHA-256
+  `0cfec335a3376de6d761a0a315ddc062eb9448087b03f0c1cc5d4301e3943633`.
+  A fresh isolated environment installed it and exposed the new command.
+- Added deterministic pass signatures, exact multiset relations and union,
+  strict authority and payload bounds, duplicate/conflict/out-of-retail
+  rejection, atomic no-overwrite publication, CLI coverage, and permanent
+  operator documentation. All **244 tests** pass; changed-file Ruff
+  format/check and Python compilation pass.
+
 ## 2.32.0 - 2026-08-23
 
 - Added permanent `character-material-coverage-export` support that revalidates one through 16 strict repeated-draw observations and carries their exact retail-ordered triangle union into a deterministic Blender GLB.

@@ -55,6 +55,11 @@ from .material_coverage_export import (
     build_material_coverage_export,
     write_new_material_coverage_export,
 )
+from .material_pass_census import (
+    MaterialPassCensusError,
+    build_material_pass_census,
+    write_new_material_pass_census,
+)
 from .character_source_export import (
     NUMERIC_FAMILIES,
     CharacterSourceExportError,
@@ -1303,6 +1308,56 @@ def cmd_character_material_coverage_export(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_character_material_pass_census(args: argparse.Namespace) -> int:
+    try:
+        observations = []
+        inputs = {args.xpp.resolve(), args.texture_allowlist.resolve()}
+        for report, report_sha256, bundle, exclusion in args.observation:
+            report_path = Path(report)
+            bundle_path = Path(bundle)
+            exclusion_path = None if exclusion == "-" else Path(exclusion)
+            inputs.update((report_path.resolve(), bundle_path.resolve()))
+            if exclusion_path is not None:
+                inputs.add(exclusion_path.resolve())
+            observations.append(
+                MaterialCoverageObservation(
+                    report=report_path,
+                    report_sha256=report_sha256,
+                    bundle=bundle_path,
+                    capture_key_exclusion=exclusion_path,
+                )
+            )
+        output = args.output.resolve()
+        if output in inputs or any(
+            output == observation.bundle.resolve()
+            or observation.bundle.resolve() in output.parents
+            for observation in observations
+        ):
+            raise MaterialPassCensusError(
+                "pass census output must be new and outside every immutable input"
+            )
+        report = build_material_pass_census(
+            args.xpp,
+            args.xpp_sha256,
+            args.texture_allowlist,
+            observations,
+            record_offset=args.record_offset,
+        )
+        write_new_material_pass_census(args.output, report)
+    except (OSError, MaterialPassCensusError, ValueError) as exc:
+        print(f"character-material-pass-census: {exc}", file=sys.stderr)
+        return 1
+    union = report["any_pass_union"]
+    print(
+        "character material pass census: "
+        f"{union['covered_retail_triangle_occurrences']} / "
+        f"{report['component']['retail_triangle_occurrences']} retail triangle "
+        f"occurrences across {union['pass_signature_count']} pass signatures"
+    )
+    print(f"wrote {args.output}")
+    return 0
+
+
 def cmd_character_material_export(args: argparse.Namespace) -> int:
     try:
         bundle = args.bundle.resolve()
@@ -2375,6 +2430,30 @@ def main(argv: list[str] | None = None) -> int:
     p_material_coverage_export.add_argument("--output-glb", type=Path, required=True)
     p_material_coverage_export.add_argument("--output-report", type=Path, required=True)
     p_material_coverage_export.set_defaults(func=cmd_character_material_coverage_export)
+
+    p_material_pass_census = sub.add_parser(
+        "character-material-pass-census",
+        help="compare exact triangle coverage across different character material passes",
+    )
+    p_material_pass_census.add_argument("--xpp", type=Path, required=True)
+    p_material_pass_census.add_argument("--xpp-sha256", required=True)
+    p_material_pass_census.add_argument("--texture-allowlist", type=Path, required=True)
+    p_material_pass_census.add_argument("--record-offset", type=int, required=True)
+    p_material_pass_census.add_argument(
+        "--observation",
+        action="append",
+        nargs=4,
+        metavar=("REPORT", "REPORT_SHA256", "BUNDLE", "EXCLUSION_OR_DASH"),
+        required=True,
+        help=(
+            "strict one-draw report, SHA-256, immutable bundle, and optional "
+            "capture-key exclusion ('-' for none); repeat for every pass"
+        ),
+    )
+    p_material_pass_census.add_argument(
+        "--output", type=Path, required=True, help="new payload-free JSON census"
+    )
+    p_material_pass_census.set_defaults(func=cmd_character_material_pass_census)
 
     p_material_export = sub.add_parser(
         "character-material-export",

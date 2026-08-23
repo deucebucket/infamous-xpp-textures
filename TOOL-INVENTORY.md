@@ -5,6 +5,59 @@ modding or reverse-engineering goal. A command enters this file only after it
 has a callable contract, rejection tests, no-overwrite behavior, deterministic
 output where applicable, an operator card, and a maintained source location.
 
+## `xpp-tool.character-material-pass-census.v1`
+
+- Status: maintained; introduced and callable in xpp-tool 2.33.0.
+- Parent goal: preserve every real texture/material possibility for each
+  character component while completing one editable asset for RPCS3 mods and
+  later native-decomp import, without mistaking a layered pass for a missing
+  mesh piece.
+- Binary question: across different exact shader/texture passes for one retail
+  character record, which triangle multisets are identical, subset, superset,
+  partially overlapping, or disjoint, and what does their any-pass union leave
+  unobserved?
+- First answer: Zeke hair has three exact pass signatures but only two distinct
+  runtime index payloads. Page-three `A/C/N/S` and `C/N` are coextensive over
+  275 triangles; page two versus page three overlaps on 268 and contributes
+  seven unique triangles per side. The union remains 282/294 with 12 unobserved.
+- Entry point: `xpp-tool character-material-pass-census` (also exposed by the
+  compatible `if1-tex` alias).
+- Implementation: `src/infamous_xpp_textures/material_pass_census.py`, SHA-256
+  `f96f5d15a8222087b5bda42b22339d6850763043d69df17b975a7e9729516ff4`;
+  CLI wiring `src/infamous_xpp_textures/cli.py`, SHA-256
+  `7dff6593dbe3fa184c28d0f4bde4c5a7db195bfb002f41b89bd2de1be2d60ac8`.
+- Tests: `tests/test_material_pass_census.py`, SHA-256
+  `a3bff3adc3326ea0a6f67b1053b55efbae98c17b256bd4d2bf1c157314778832`.
+  The complete repository suite passes **244 tests**.
+- Operator card: [README — Version 2.33](README.md#version-233--exact-cross-material-pass-census).
+- Inputs: exact retail XPP and SHA-256; exact texture allowlist; one record
+  offset; two through 32 checksum-pinned strict observed-only material reports,
+  their immutable v3/v4 bundles, and required v4 capture-key exclusions.
+- Output: deterministic, input-order-independent, payload-free JSON at a new
+  path. It preserves exact pass signatures, normalized authorities, pairwise
+  multiset relations, and the retail-ordered any-pass covered/unobserved hashes.
+- Bounds: 64 MiB XPP; 1 MiB per report; 32 observations; inherited bounded
+  bundles; 512 KiB output; one process; no runtime, network, symlink output, or
+  overwrite.
+- Proven capability: exact source/topology/bundle/page/index/shader/UV/texture
+  reconciliation; cross-signature coextensive-pass detection; deterministic
+  pairwise multiset classification and any-pass union; fail-closed duplicate,
+  drift, out-of-retail, bound, and occupied-output behavior.
+- First evidence: A/B 13,180-byte report, SHA-256
+  `6b363998f495ea9e8bd318cff8da62a3e06c920088f8098f9b2c34cb8c280048`;
+  occupied-output retry exited 1 and preserved the same hash.
+- Build proof: two builds with pinned `SOURCE_DATE_EPOCH=1787486400`
+  produced the identical 225,509-byte 2.33.0 wheel, SHA-256
+  `0cfec335a3376de6d761a0a315ddc062eb9448087b03f0c1cc5d4301e3943633`;
+  a fresh isolated environment installed it and exposed the command.
+- Limitations: this does not infer authored PBR roles or compositing order,
+  assign the twelve unobserved faces, find missing body pieces, recover original
+  normals/tangents or rigging, upscale textures, repack an RPCS3 mod, or import
+  into the native decomp. It creates no render; no image is withheld.
+- Return status: `returned-with-capability-and-evidence`. Preserve all three
+  pass signatures, keep the approved matte hair render as the visual baseline,
+  and capture again only for a genuinely different pose/state/draw.
+
 ## `xpp-tool.character-material-coverage-export.v1`
 
 - Status: maintained; introduced and callable in xpp-tool 2.32.0.
