@@ -111,6 +111,28 @@ def _material_report(
     }
 
 
+def _add_compatible_full_range_pass(report: dict) -> None:
+    """Add two shader-bound textures without assigning them display semantics."""
+
+    family = report["selection"]["texture_family"]
+    report["selection"]["display_assigned_texture_suffixes"] = ["C", "N"]
+    report["selection"]["unassigned_texture_suffixes"] = ["S", "A"]
+    report["selection"]["shader_bound_texture_count"] = 4
+    for descriptor, suffix, token in ((10, "A", "a"), (11, "S", "b")):
+        report["textures"].append(
+            {
+                "descriptor_index": descriptor,
+                "name": f"{family}_{suffix}.psd",
+                "suffix": suffix,
+                "width": 256,
+                "height": 256,
+                "decoded_rgba_sha256": token * 64,
+                "embedded_png_sha256": token * 64,
+                "runtime_prefix_sha256": token * 64,
+            }
+        )
+
+
 def _fixture(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     triangles = ((0, 1, 2), (0, 2, 3), (0, 3, 1), (1, 2, 3))
     xpp = b"".join(struct.pack(">3H", *triangle) for triangle in triangles)
@@ -228,6 +250,101 @@ def test_union_proves_full_multiset_coverage_deterministically(
     )
     assert with_indices == report
     assert covered_indices == (0, 1, 2, 0, 2, 3, 0, 3, 1, 1, 2, 3)
+
+
+def test_union_admits_compatible_full_range_texture_superset(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    xpp, xpp_sha, allowlist, observations = _fixture(tmp_path, monkeypatch)
+    compatible = json.loads(observations[1].report.read_text())
+    _add_compatible_full_range_pass(compatible)
+    for texture in compatible["textures"]:
+        if texture["suffix"] in ("C", "N"):
+            texture["embedded_png_sha256"] = "c" * 64
+    compatible_sha = _write_json(observations[1].report, compatible)
+    observations[1] = MaterialCoverageObservation(
+        observations[1].report,
+        compatible_sha,
+        observations[1].bundle,
+        None,
+    )
+
+    report = build_material_coverage_union(
+        xpp, xpp_sha, allowlist, observations, record_offset=100
+    )
+    reverse = build_material_coverage_union(
+        xpp,
+        xpp_sha,
+        allowlist,
+        tuple(reversed(observations)),
+        record_offset=100,
+    )
+
+    assert report == reverse
+    assert report["union"]["covered_retail_triangle_occurrences"] == 4
+    assert report["component"]["texture_names"] == [
+        "Zeke_Jacket_C.psd",
+        "Zeke_Jacket_N.psd",
+    ]
+    assert report["component"]["compatible_full_range_texture_names"] == [
+        "Zeke_Jacket_A.psd",
+        "Zeke_Jacket_C.psd",
+        "Zeke_Jacket_N.psd",
+        "Zeke_Jacket_S.psd",
+    ]
+    compatible_row = next(row for row in report["observations"] if row["page"] == 2)
+    assert compatible_row["evidence_kind"] == "full-range-compatible-material-pass"
+    assert compatible_row["compatible_texture_names"] == [
+        "Zeke_Jacket_A.psd",
+        "Zeke_Jacket_C.psd",
+        "Zeke_Jacket_N.psd",
+        "Zeke_Jacket_S.psd",
+    ]
+
+
+@pytest.mark.parametrize(
+    "failure", ("missing-anchor", "reassigned-anchor", "count", "extra-conflict")
+)
+def test_union_rejects_malformed_full_range_pass_assignments(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str
+):
+    xpp, xpp_sha, allowlist, observations = _fixture(tmp_path, monkeypatch)
+    compatible = json.loads(observations[1].report.read_text())
+    _add_compatible_full_range_pass(compatible)
+    if failure == "missing-anchor":
+        compatible["textures"] = [
+            row for row in compatible["textures"] if row["suffix"] != "N"
+        ]
+    elif failure == "reassigned-anchor":
+        compatible["selection"]["display_assigned_texture_suffixes"] = ["C", "A"]
+        compatible["selection"]["unassigned_texture_suffixes"] = ["N", "S"]
+    elif failure == "count":
+        compatible["selection"]["shader_bound_texture_count"] = 3
+    else:
+        second = json.loads(observations[0].report.read_text())
+        _add_compatible_full_range_pass(second)
+        second_sha = _write_json(observations[0].report, second)
+        observations[0] = MaterialCoverageObservation(
+            observations[0].report,
+            second_sha,
+            observations[0].bundle,
+            None,
+        )
+        next(row for row in compatible["textures"] if row["suffix"] == "A")[
+            "decoded_rgba_sha256"
+        ] = "d" * 64
+    compatible_sha = _write_json(observations[1].report, compatible)
+    observations[1] = MaterialCoverageObservation(
+        observations[1].report,
+        compatible_sha,
+        observations[1].bundle,
+        None,
+    )
+
+    with pytest.raises(MaterialCoverageUnionError, match="pass|conflict|inconsistent"):
+        build_material_coverage_union(
+            xpp, xpp_sha, allowlist, observations, record_offset=100
+        )
 
 
 def test_union_rejects_duplicate_conflicting_and_overwritten_evidence(

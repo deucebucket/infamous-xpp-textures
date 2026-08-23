@@ -117,6 +117,80 @@ def _expand_counter(
     return result
 
 
+def _full_range_texture_contract(
+    raw_report: dict, report: dict, *, index: int
+) -> tuple[list[dict], list[dict]]:
+    """Return the display anchor and complete compatible texture set for one pass."""
+
+    selection = raw_report.get("selection")
+    textures = report.get("textures")
+    if not isinstance(selection, dict) or not isinstance(textures, list):
+        raise MaterialCoverageUnionError(
+            f"material report {index} texture contract is malformed"
+        )
+    by_suffix = {item["suffix"]: item for item in textures}
+    display = selection.get("display_assigned_texture_suffixes")
+    unassigned = selection.get("unassigned_texture_suffixes")
+    if display is None and unassigned is None:
+        display = list(by_suffix)
+        unassigned = []
+    elif display is None or unassigned is None:
+        raise MaterialCoverageUnionError(
+            f"material report {index} pass assignments are incomplete"
+        )
+    if (
+        not isinstance(display, list)
+        or not isinstance(unassigned, list)
+        or not 1 <= len(display) <= 16
+        or len(unassigned) > 15
+        or not all(isinstance(item, str) and item for item in (*display, *unassigned))
+        or len(set(display)) != len(display)
+        or len(set(unassigned)) != len(unassigned)
+        or set(display) & set(unassigned)
+        or set(display) | set(unassigned) != set(by_suffix)
+    ):
+        raise MaterialCoverageUnionError(
+            f"material report {index} pass assignments do not partition its textures"
+        )
+    shader_bound = selection.get("shader_bound_texture_count")
+    if shader_bound is not None and (
+        isinstance(shader_bound, bool)
+        or not isinstance(shader_bound, int)
+        or shader_bound != len(textures)
+    ):
+        raise MaterialCoverageUnionError(
+            f"material report {index} shader-bound texture count is inconsistent"
+        )
+
+    def compatibility_identity(item: dict) -> dict:
+        # The same decoded retail image can have a different deterministic PNG
+        # container when exported beside a different number of pass images.
+        # Pin the decoded pixels and runtime/source identities; the anchor owns
+        # the display PNG that is ultimately embedded in the union GLB.
+        return {
+            key: item[key]
+            for key in (
+                "descriptor_index",
+                "name",
+                "suffix",
+                "width",
+                "height",
+                "decoded_rgba_sha256",
+                "runtime_prefix_sha256",
+            )
+        }
+
+    display_textures = sorted(
+        (compatibility_identity(by_suffix[suffix]) for suffix in display),
+        key=lambda row: (row["suffix"], row["name"]),
+    )
+    compatible_textures = sorted(
+        (compatibility_identity(item) for item in textures),
+        key=lambda row: (row["suffix"], row["name"]),
+    )
+    return display_textures, compatible_textures
+
+
 def _partial_material_observation(
     observation: PartialMaterialCoverageObservation,
     *,
@@ -649,6 +723,7 @@ def _build_material_coverage_union(
     normalized: list[dict] = []
     common: dict | None = None
     allowlist_identity: str | None = None
+    compatible_full_range_textures: dict[str, dict] = {}
     for index, observation in enumerate(observations):
         report_path = observation.report.resolve()
         if report_path in seen_report_paths:
@@ -673,6 +748,17 @@ def _build_material_coverage_union(
             raise MaterialCoverageUnionError(
                 "material report selects a different source record"
             )
+        display_textures, compatible_textures = _full_range_texture_contract(
+            raw_report, report, index=index
+        )
+        for item in compatible_textures:
+            name = item["name"]
+            prior = compatible_full_range_textures.get(name)
+            if prior is not None and prior != item:
+                raise MaterialCoverageUnionError(
+                    "compatible full-range texture identities conflict"
+                )
+            compatible_full_range_textures[name] = item
         report_common = {
             "xpp_sha256": report["source"]["xpp_sha256"],
             "xpp_bytes": report["source"]["xpp_bytes"],
@@ -682,7 +768,7 @@ def _build_material_coverage_union(
             "uv_payload_sha256": report["uv"]["payload_sha256"],
             "uv_byte_offset": report["uv"]["byte_offset"],
             "texture_family": report["texture_family"],
-            "textures": report["textures"],
+            "textures": display_textures,
         }
         if common is None:
             common = report_common
@@ -775,7 +861,20 @@ def _build_material_coverage_union(
                 "bundle_completion": _bundle_completion_receipt(observation.bundle),
                 "capture_key_exclusion_sha256": expected_exclusion,
                 "runtime_index_sha256": event.index_sha256,
-                "evidence_kind": "full-range-material-export",
+                "evidence_kind": (
+                    "full-range-compatible-material-pass"
+                    if compatible_textures != display_textures
+                    else "full-range-material-export"
+                ),
+                **(
+                    {
+                        "compatible_texture_names": [
+                            item["name"] for item in compatible_textures
+                        ]
+                    }
+                    if compatible_textures != display_textures
+                    else {}
+                ),
                 "observed_counts": observed_counts,
                 "observed_triangles": len(observed_triangles),
             }
@@ -916,6 +1015,12 @@ def _build_material_coverage_union(
                 "full_range_observation_count": len(observations),
                 "partial_range_observation_count": len(partial_observations),
             }
+        )
+    anchor_texture_names = {item["name"] for item in common["textures"]}
+    compatible_full_range_texture_names = set(compatible_full_range_textures)
+    if compatible_full_range_texture_names != anchor_texture_names:
+        report["component"]["compatible_full_range_texture_names"] = sorted(
+            compatible_full_range_texture_names
         )
     payload = render_material_coverage_union(report)
     if len(payload) > MAX_OUTPUT_BYTES:
