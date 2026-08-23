@@ -12,6 +12,7 @@ a separately validated deployment target:
 - extract and rebuild a complete install1/install2 profile with a byte audit
 - generate exact texture hash indexes for scene-coverage tracing
 - export **static** mesh sections to GLB
+- export one exact packed character record as a bounded diagnostic GLB
 
 Python 3.10+, standard library only. This repo does not include game files.
 
@@ -19,6 +20,7 @@ The game keeps reading XPP. PNG is the edit format. This tool does not make the 
 
 `xpp-tool` is the neutral command name. The original `if1-tex` entry point is
 kept as a fully compatible alias, including all existing commands and options.
+Durable diagnostic commands are registered in [TOOL-INVENTORY.md](TOOL-INVENTORY.md).
 
 ## How packages are laid out
 
@@ -892,6 +894,50 @@ page/event/comparison bounds are inherited from the strict page
 validator; the JSON is capped at 256 KiB. Inputs must be regular immutable
 files/directories, output must be a new path outside every bundle and different
 from the XPP, and no raw source or runtime payload bytes enter the report.
+
+### Version 2.20 — permanent packed-source diagnostic export
+
+The packed-source visual probe is now a permanent command instead of a
+disposable analysis script:
+
+```console
+timeout 60s xpp-tool character-source-diagnostic-export \
+  --xpp /path/to/owned/male_base_Zeke.xpp \
+  --record-offset 536488 \
+  --stream-index 1 \
+  --numeric-family endpoint-unsigned \
+  --output ./zeke-record-536488-source.glb \
+  --json-out ./zeke-record-536488-source.json
+```
+
+The command selects exactly one proved character record and one of its three
+descriptor-backed packed streams. It verifies the stream and triangle-list
+hashes, unpacks the exact MSB-first integers, applies only the explicitly named
+numeric hypothesis, requires finite nondegenerate geometry, and writes a
+deterministic GLB with the retail topology unchanged. A PSARC source is also
+accepted through `--psarc ARCHIVE --entry /path/to/package.xpp`.
+
+RR — Really Readable rundown: this is a permanent magnifying glass for packed
+character records. It lets us repeat the same source-space test on Zeke's
+glasses, book, clothing, or any later character record without rebuilding a
+throwaway script. The triangle connections and selected source bytes are
+proved. The formula used to turn packed integers into coordinates is still a
+hypothesis, so a recognizable shape is evidence—not yet an editable position
+stream. UVs, textures, bones, weights, a skeleton, full-body completeness,
+PBR, and reverse injection all remain separate gates.
+
+Operator card: stable ID `xpp-tool.character-source-diagnostic-export.v1`.
+Python 3.10+ is the only tool dependency; the command is offline and
+single-process. The XPP payload and GLB are each capped at 64 MiB. The copyable
+operator command uses a 60-second wall-clock bound. Inputs stay read-only;
+outputs must be new, distinct paths and are never overwritten. Exit status is
+zero only after the GLB is fully published and the deterministic JSON report
+is emitted; validation, identity, bounds, nonfinite values, degenerate
+topology, aliasing, and overwrite attempts fail nonzero. Repeated runs with the
+same input bytes and options produce byte-identical GLBs and JSON. The command
+does not prove position semantics, ownership, completeness, rigging,
+materials, PBR, Blender readiness beyond diagnostic import, or safe game
+injection.
 
 ## Typical HD texture pass
 

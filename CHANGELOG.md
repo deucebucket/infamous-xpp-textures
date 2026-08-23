@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.20.0 - 2026-08-22
+
+- Added the permanent `character-source-diagnostic-export` command for one exact proved XPP character record, packed stream, and caller-selected numeric hypothesis.
+- Preserved exact retail topology, stream identity, parameter identity, and deterministic GLB output while keeping position meaning, UVs, rigging, materials, completeness, and injection explicitly unproved.
+- Enforced 64 MiB input/output bounds, immutable inputs, fail-closed no-overwrite publication, finite float32 coordinates, and positive, rejection, bound, CLI, and deterministic-repeat tests.
+- Registered the command in the repository tool inventory with its operator card and return-to-goal contract.
+
 ## 2.19.0 - 2026-08-22
 
 - Added `runtime-xpp-source-census` to bind paged RSX draw blocks to one unique exact byte slice of a retail character XPP stream-zero record while preserving observed per-record strides.

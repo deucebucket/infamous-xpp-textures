@@ -19,6 +19,11 @@ from .character_export import (
     CharacterDiagnosticExportError,
     export_character_diagnostic_glb,
 )
+from .character_source_export import (
+    NUMERIC_FAMILIES,
+    CharacterSourceExportError,
+    export_character_source_diagnostic_glb,
+)
 from .cross_build import CrossBuildOracleError, build_cross_build_character_oracle
 from .decode import extract_package, load_xpp_bytes
 from .derive import derive_scaled
@@ -688,6 +693,51 @@ def cmd_character_diagnostic_export(args: argparse.Namespace) -> int:
     if args.json_out:
         args.json_out.parent.mkdir(parents=True, exist_ok=True)
         args.json_out.write_text(rendered, encoding="utf-8")
+    print(rendered, end="")
+    return 0
+
+
+def cmd_character_source_diagnostic_export(args: argparse.Namespace) -> int:
+    try:
+        source_paths = [path for path in (args.xpp, args.psarc) if path is not None]
+        destination_paths = [args.output]
+        if args.json_out is not None:
+            destination_paths.append(args.json_out)
+        if len({path.resolve() for path in destination_paths}) != len(
+            destination_paths
+        ):
+            raise CharacterSourceExportError(
+                "--output and --json-out must be different paths"
+            )
+        for destination in destination_paths:
+            if destination.is_symlink() or destination.exists():
+                raise CharacterSourceExportError(
+                    "diagnostic output already exists; refusing to overwrite it"
+                )
+            if any(
+                destination.resolve() == source.resolve() for source in source_paths
+            ):
+                raise CharacterSourceExportError(
+                    "diagnostic outputs must not overwrite an input"
+                )
+        data, _ = _load(args)
+        result = export_character_source_diagnostic_glb(
+            data,
+            args.output,
+            record_offset=args.record_offset,
+            stream_index=args.stream_index,
+            numeric_family=args.numeric_family,
+        )
+        rendered = render_report(result)
+        if args.json_out is not None:
+            args.json_out.parent.mkdir(parents=True, exist_ok=True)
+            with args.json_out.open("x", encoding="utf-8") as handle:
+                handle.write(rendered)
+                handle.flush()
+                os.fsync(handle.fileno())
+    except (OSError, CharacterSourceExportError, ValueError) as exc:
+        print(f"character-source-diagnostic-export: {exc}", file=sys.stderr)
+        return 1
     print(rendered, end="")
     return 0
 
@@ -1426,6 +1476,36 @@ def main(argv: list[str] | None = None) -> int:
         "--json-out", type=Path, help="also write the deterministic export report"
     )
     p_character_export.set_defaults(func=cmd_character_diagnostic_export)
+
+    p_character_source_export = sub.add_parser(
+        "character-source-diagnostic-export",
+        help="export exact XPP topology with an explicit packed-stream numeric hypothesis",
+    )
+    _add_source(p_character_source_export)
+    p_character_source_export.add_argument(
+        "--record-offset",
+        type=lambda value: int(value, 0),
+        required=True,
+        help="exact proved character record offset (decimal or 0x-prefixed)",
+    )
+    p_character_source_export.add_argument(
+        "--stream-index",
+        type=int,
+        choices=(1, 2, 3),
+        required=True,
+        help="descriptor-backed packed stream to inspect",
+    )
+    p_character_source_export.add_argument(
+        "--numeric-family",
+        choices=NUMERIC_FAMILIES,
+        required=True,
+        help="explicit unproved numeric family used only for diagnostic coordinates",
+    )
+    p_character_source_export.add_argument("--output", type=Path, required=True)
+    p_character_source_export.add_argument(
+        "--json-out", type=Path, help="also write the deterministic export report"
+    )
+    p_character_source_export.set_defaults(func=cmd_character_source_diagnostic_export)
 
     p_runtime_topology_export = sub.add_parser(
         "runtime-topology-diagnostic-export",
