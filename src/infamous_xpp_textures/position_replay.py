@@ -12,16 +12,15 @@ from .mesh import GlbBuilder
 from .runtime_topology_export import (
     RuntimeTopologyExportError,
     _load_bundle,
+    _paged_capture_metadata,
     _read_payload,
 )
 from .vertex_transform import (
     VertexTransformCensusError,
     _MAX_INSTRUCTIONS,
     _SCA_SOURCE_OPS,
-    _VEC_SOURCES,
     _field,
     _source_words,
-    _walk_reachable,
     analyze_vertex_program_payload,
 )
 
@@ -156,7 +155,9 @@ def _write_masked(destination, value, d3: int):
     return tuple(value[lane] if mask[lane] else destination[lane] for lane in range(4))
 
 
-def extract_output_affine(program: bytes, constants_payload: bytes) -> list[list[float]]:
+def extract_output_affine(
+    program: bytes, constants_payload: bytes
+) -> list[list[float]]:
     """Return output-register-zero as a 4x4 affine map of attribute zero."""
 
     try:
@@ -164,13 +165,13 @@ def extract_output_affine(program: bytes, constants_payload: bytes) -> list[list
     except VertexTransformCensusError as exc:
         raise PositionReplayError(str(exc)) from exc
     if census["indexed_constants"] or census["branch_instruction_count"]:
-        raise PositionReplayError("position replay requires straight-line fixed constants")
+        raise PositionReplayError(
+            "position replay requires straight-line fixed constants"
+        )
     if 0 not in census["output_registers_written"]:
         raise PositionReplayError("vertex program does not write output register zero")
     constants_flat = struct.unpack("<2048f", constants_payload)
-    constants = tuple(
-        constants_flat[index * 4 : index * 4 + 4] for index in range(512)
-    )
+    constants = tuple(constants_flat[index * 4 : index * 4 + 4] for index in range(512))
     words = struct.unpack(f"<{_MAX_INSTRUCTIONS * 4 + 1}I", program)[:-1]
     temporaries = [[_ZERO, _ZERO, _ZERO, _ZERO] for _ in range(64)]
     outputs = [[None, None, None, None] for _ in range(32)]
@@ -215,26 +216,32 @@ def extract_output_affine(program: bytes, constants_payload: bytes) -> list[list
                     outputs[destination] = [None, None, None, None]
 
     result = outputs[0]
-    if any(value is None or not all(math.isfinite(item) for item in value) for value in result):
+    if any(
+        value is None or not all(math.isfinite(item) for item in value)
+        for value in result
+    ):
         raise PositionReplayError(
             "output zero is not a finite affine function of attribute zero alone"
         )
     # Attribute zero is captured as float32x3. Its hardware-default W is one,
     # so the W coefficient folds into the homogeneous translation column.
-    return [
-        [value[0], value[1], value[2], value[3] + value[4]] for value in result
-    ]
+    return [[value[0], value[1], value[2], value[3] + value[4]] for value in result]
 
 
 def _matrix_multiply(left, right):
     return [
-        [sum(left[row][axis] * right[axis][column] for axis in range(4)) for column in range(4)]
+        [
+            sum(left[row][axis] * right[axis][column] for axis in range(4))
+            for column in range(4)
+        ]
         for row in range(4)
     ]
 
 
 def _matrix_vector(matrix, value):
-    return [sum(matrix[row][axis] * value[axis] for axis in range(4)) for row in range(4)]
+    return [
+        sum(matrix[row][axis] * value[axis] for axis in range(4)) for row in range(4)
+    ]
 
 
 def _matrix_inverse(matrix):
@@ -271,7 +278,9 @@ def _matrix_residual(left, right) -> float:
 
 def _constant_matrix(constants_payload: bytes, start: int):
     if not 0 <= start <= 464:
-        raise PositionReplayError("four-vector matrix start is outside usable constants")
+        raise PositionReplayError(
+            "four-vector matrix start is outside usable constants"
+        )
     values = struct.unpack_from("<16f", constants_payload, start * 16)
     return [[values[column * 4 + row] for column in range(4)] for row in range(4)]
 
@@ -281,7 +290,10 @@ def _event_payloads(bundle, event):
         raise PositionReplayError("v2 event is missing transform payloads")
     try:
         program = _read_payload(
-            bundle, event.vertex_program_file, _PROGRAM_BYTES, event.vertex_program_sha256
+            bundle,
+            event.vertex_program_file,
+            _PROGRAM_BYTES,
+            event.vertex_program_sha256,
         )
         constants = _read_payload(
             bundle,
@@ -349,6 +361,7 @@ def export_position_replay_glb(
     projection_event: int,
     model_constant_start: int,
     projection_constant_start: int,
+    capture_key_exclusion: Path | None = None,
 ) -> dict:
     """Export selected draws in one recovered pre-projection coordinate frame."""
 
@@ -357,15 +370,20 @@ def export_position_replay_glb(
     if not selected_events or len(set(selected_events)) != len(selected_events):
         raise PositionReplayError("selected events must be unique and non-empty")
     try:
-        completion, events, allowlist_sha256 = _load_bundle(bundle, texture_allowlist)
+        completion, events, allowlist_sha256 = _load_bundle(
+            bundle, texture_allowlist, capture_key_exclusion
+        )
     except RuntimeTopologyExportError as exc:
         raise PositionReplayError(str(exc)) from exc
     if completion["format"] not in (
         "if1-texture-bound-topology-v2",
         "if1-texture-bound-topology-v3",
+        "if1-texture-bound-topology-v4",
     ):
-        raise PositionReplayError("position replay requires a complete v2 or v3 bundle")
-    if projection_event not in events or any(item not in events for item in selected_events):
+        raise PositionReplayError("position replay requires a complete v2/v3/v4 bundle")
+    if projection_event not in events or any(
+        item not in events for item in selected_events
+    ):
         raise PositionReplayError("selected or projection event is absent")
 
     matrices = {}
@@ -388,7 +406,9 @@ def export_position_replay_glb(
     validation_residual = 0.0
     for number in sorted(events):
         model = _constant_matrix(constant_payloads[number], model_constant_start)
-        residual = _matrix_residual(matrices[number], _matrix_multiply(projection, model))
+        residual = _matrix_residual(
+            matrices[number], _matrix_multiply(projection, model)
+        )
         if residual <= 1e-3:
             validation_events.append(number)
             validation_residual = max(validation_residual, residual)
@@ -407,7 +427,9 @@ def export_position_replay_glb(
         for position in positions:
             value = _matrix_vector(view_matrix, (*position, 1.0))
             if not all(math.isfinite(item) for item in value) or abs(value[3]) < 1e-12:
-                raise PositionReplayError("replayed position is non-finite or has zero W")
+                raise PositionReplayError(
+                    "replayed position is non-finite or has zero W"
+                )
             view = tuple(value[index] / value[3] for index in range(3))
             view_positions.append(view)
             all_positions.append(view)
@@ -522,12 +544,22 @@ def export_position_replay_glb(
         "modelConstantStart": model_constant_start,
         "projectionValidationEvents": validation_events,
         "componentOwnershipProved": False,
-        "staticShaderReferenceProved": completion["format"] == "if1-texture-bound-topology-v3",
+        "staticShaderReferenceProved": completion["format"]
+        in ("if1-texture-bound-topology-v3", "if1-texture-bound-topology-v4"),
         "runtimeTextureSamplingProved": False,
         "fullCharacterProved": False,
         "rigged": False,
         "retailMaterialProved": False,
     }
+    paging = _paged_capture_metadata(completion)
+    if paging is not None:
+        evidence.update(
+            {
+                "excludedCaptureKeys": paging["excluded_capture_keys"],
+                "exclusionManifestSha256": paging["exclusion_manifest_sha256"],
+                "observedExcludedCaptureKeys": paging["observed_excluded_capture_keys"],
+            }
+        )
     document = {
         "asset": {
             "version": "2.0",
@@ -572,7 +604,7 @@ def export_position_replay_glb(
         ),
         default=0.0,
     )
-    return {
+    result = {
         "schema_version": 1,
         "kind": "if1-rsx-position-replay-export",
         "bundle_format": completion["format"],
@@ -604,7 +636,8 @@ def export_position_replay_glb(
             "inverse_projection_replay": True,
             "finite_nondegenerate_geometry": True,
             "attribute_zero_position_semantics": False,
-            "static_shader_reference": completion["format"] == "if1-texture-bound-topology-v3",
+            "static_shader_reference": completion["format"]
+            in ("if1-texture-bound-topology-v3", "if1-texture-bound-topology-v4"),
             "runtime_texture_sampling": False,
             "component_ownership": False,
             "full_character": False,
@@ -620,3 +653,7 @@ def export_position_replay_glb(
             "draws visibly form the character before adding proven UV/material data"
         ),
     }
+    paging = _paged_capture_metadata(completion)
+    if paging is not None:
+        result["paging"] = paging
+    return result

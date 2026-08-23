@@ -11,6 +11,7 @@ import struct
 from .runtime_topology_export import (
     RuntimeTopologyExportError,
     _load_bundle,
+    _paged_capture_metadata,
     _read_payload,
 )
 
@@ -139,14 +140,14 @@ def _source_words(d1: int, d2: int, d3: int) -> tuple[int, int, int]:
 
 
 def _jump_target(d0: int, d2: int, d3: int) -> int:
-    return (_field(d0, 23, 1) << 9) | (_field(d2, 0, 6) << 3) | _field(
-        d3, 29, 3
-    )
+    return (_field(d0, 23, 1) << 9) | (_field(d2, 0, 6) << 3) | _field(d3, 29, 3)
 
 
 def _walk_reachable(words: tuple[int, ...], entry: int) -> tuple[int, ...]:
     if entry >= _MAX_INSTRUCTIONS:
-        raise VertexTransformCensusError("vertex-program entry is outside 544 instructions")
+        raise VertexTransformCensusError(
+            "vertex-program entry is outside 544 instructions"
+        )
     reached: set[int] = set()
     pending: list[tuple[int, bool]] = [(entry, False)]
     has_branch = False
@@ -162,7 +163,9 @@ def _walk_reachable(words: tuple[int, ...], entry: int) -> tuple[int, ...]:
         while True:
             total_steps += 1
             if total_steps > _MAX_INSTRUCTIONS * 16:
-                raise VertexTransformCensusError("vertex-program control flow exceeded bound")
+                raise VertexTransformCensusError(
+                    "vertex-program control flow exceeded bound"
+                )
             if pc >= _MAX_INSTRUCTIONS:
                 raise VertexTransformCensusError(
                     "vertex-program control flow leaves the captured register image"
@@ -181,7 +184,9 @@ def _walk_reachable(words: tuple[int, ...], entry: int) -> tuple[int, ...]:
                 has_branch = True
                 target = _jump_target(d0, d2, d3)
                 if target >= _MAX_INSTRUCTIONS:
-                    raise VertexTransformCensusError("vertex-program jump is out of range")
+                    raise VertexTransformCensusError(
+                        "vertex-program jump is out of range"
+                    )
                 if sca in _CALL_OPS:
                     call_stack.append(pc + 1)
                     pc = target
@@ -265,7 +270,9 @@ def analyze_vertex_program_payload(program: bytes, constants: bytes) -> dict:
         for source_number in used_sources:
             register_type = raw_sources[source_number] & 3
             if register_type == 0:
-                raise VertexTransformCensusError("reachable source has invalid register type")
+                raise VertexTransformCensusError(
+                    "reachable source has invalid register type"
+                )
             if register_type == 2:
                 explicit_inputs.add(_field(d1, 8, 4))
             elif register_type == 3:
@@ -286,14 +293,14 @@ def analyze_vertex_program_payload(program: bytes, constants: bytes) -> dict:
             ):
                 output_registers.add(destination)
 
-    vector_payloads = [constants[item * 16 : (item + 1) * 16] for item in sorted(fixed_constants)]
+    vector_payloads = [
+        constants[item * 16 : (item + 1) * 16] for item in sorted(fixed_constants)
+    ]
     floats = [
-        value
-        for payload in vector_payloads
-        for value in struct.unpack("<4f", payload)
+        value for payload in vector_payloads for value in struct.unpack("<4f", payload)
     ]
     ranges = _ranges(fixed_constants)
-    return {
+    result = {
         "entry_instruction": entry,
         "reachable_instruction_count": len(reachable),
         "reachable_instruction_first": reachable[0],
@@ -319,27 +326,37 @@ def analyze_vertex_program_payload(program: bytes, constants: bytes) -> dict:
         "output_registers_written": sorted(output_registers),
         "referenced_constant_vector_count": len(vector_payloads),
         "referenced_constant_vectors_sha256": _sha256(b"".join(vector_payloads)),
-        "referenced_constant_finite_components": sum(math.isfinite(value) for value in floats),
+        "referenced_constant_finite_components": sum(
+            math.isfinite(value) for value in floats
+        ),
         "referenced_constant_nonzero_components": sum(value != 0.0 for value in floats),
         "_constant_vectors": {
             item: constants[item * 16 : (item + 1) * 16] for item in fixed_constants
         },
     }
+    return result
 
 
-def analyze_vertex_transform_bundle(bundle: Path, texture_allowlist: Path) -> dict:
-    """Validate a complete v2/v3 bundle and return a payload-free transform census."""
+def analyze_vertex_transform_bundle(
+    bundle: Path,
+    texture_allowlist: Path,
+    capture_key_exclusion: Path | None = None,
+) -> dict:
+    """Validate a complete v2/v3/v4 bundle and return a payload-free census."""
 
     try:
-        completion, events, allowlist_sha256 = _load_bundle(bundle, texture_allowlist)
+        completion, events, allowlist_sha256 = _load_bundle(
+            bundle, texture_allowlist, capture_key_exclusion
+        )
     except RuntimeTopologyExportError as exc:
         raise VertexTransformCensusError(str(exc)) from exc
     if completion["format"] not in (
         "if1-texture-bound-topology-v2",
         "if1-texture-bound-topology-v3",
+        "if1-texture-bound-topology-v4",
     ):
         raise VertexTransformCensusError(
-            "vertex-transform census requires if1-texture-bound-topology-v2 or v3"
+            "vertex-transform census requires if1-texture-bound-topology-v2/v3/v4"
         )
 
     event_reports: list[dict] = []
@@ -348,7 +365,10 @@ def analyze_vertex_transform_bundle(bundle: Path, texture_allowlist: Path) -> di
             raise VertexTransformCensusError("v2 event is missing transform payloads")
         try:
             program = _read_payload(
-                bundle, event.vertex_program_file, _PROGRAM_BYTES, event.vertex_program_sha256
+                bundle,
+                event.vertex_program_file,
+                _PROGRAM_BYTES,
+                event.vertex_program_sha256,
             )
             constants = _read_payload(
                 bundle,
@@ -384,9 +404,7 @@ def analyze_vertex_transform_bundle(bundle: Path, texture_allowlist: Path) -> di
         varying = []
         stable = []
         for constant_id in first_ids:
-            values = {
-                report["_constant_vectors"][constant_id] for report in reports
-            }
+            values = {report["_constant_vectors"][constant_id] for report in reports}
             (stable if len(values) == 1 else varying).append(constant_id)
         program_groups.append(
             {
@@ -397,8 +415,7 @@ def analyze_vertex_transform_bundle(bundle: Path, texture_allowlist: Path) -> di
                     item["index"] for item in reports[0]["input_attributes"]
                 ],
                 "explicit_input_attribute_indices": [
-                    item["index"]
-                    for item in reports[0]["explicit_input_attributes"]
+                    item["index"] for item in reports[0]["explicit_input_attributes"]
                 ],
                 "fixed_constant_ids": first_ids,
                 "indexed_constants": reports[0]["indexed_constants"],
@@ -415,7 +432,7 @@ def analyze_vertex_transform_bundle(bundle: Path, texture_allowlist: Path) -> di
     indexed_events = [
         report["event"] for report in event_reports if report["indexed_constants"]
     ]
-    return {
+    result = {
         "schema_version": 1,
         "kind": "if1-rsx-vertex-transform-census",
         "bundle_format": completion["format"],
@@ -455,3 +472,7 @@ def analyze_vertex_transform_bundle(bundle: Path, texture_allowlist: Path) -> di
             "without claiming bones or character ownership"
         ),
     }
+    paging = _paged_capture_metadata(completion)
+    if paging is not None:
+        result["paging"] = paging
+    return result

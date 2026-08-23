@@ -770,6 +770,56 @@ add UVs, textures, bones, weights, inverse binds, or editable game materials.
 A genuinely moddable character still requires those later gates and a verified
 reverse import/repack path.
 
+Version 2.17 pages past the 16-draw capture ceiling without changing what a
+capture key means. First, generate the exact exclusion manifest from the
+complete base v3 bundle:
+
+```console
+xpp-tool runtime-capture-key-exclusion \
+  --bundle /path/to/owned/page-1-v3 \
+  --texture-allowlist /path/to/exact-targets.sha256 \
+  --output /path/outside-the-bundle/page-1-keys.tsv \
+  --json-out /path/outside-the-bundle/page-1-keys.json
+```
+
+The private observer consumes that TSV and writes a v4 bundle. Every v4-aware
+validator command requires the same exact file through
+`--capture-key-exclusion`; a different byte sequence, count, or captured-key
+overlap fails closed. After page 2 validates, combine the two page selections:
+
+```console
+xpp-tool runtime-screen-position-page-merge \
+  --page-bundle /path/to/owned/page-1-v3 \
+  --page-events 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16 \
+  --page-capture-key-exclusion - \
+  --page-bundle /path/to/owned/page-2-v4 \
+  --page-events 1,2,3 \
+  --page-capture-key-exclusion /path/to/page-1-keys.tsv \
+  --texture-allowlist /path/to/exact-targets.sha256 \
+  --output /path/outside-the-bundles/pages-1-and-2.glb \
+  --json-out /path/outside-the-bundles/pages-1-and-2.json
+```
+
+RR — Really Readable rundown: page 1 is a tray that filled up after 16 GPU draw
+calls. The TSV is the exact list of pieces already on that tray. Page 2 tells
+the observer to ignore only those exact pieces, then catches the next unique
+ones. The merge tool checks that every later tray excludes the complete earlier
+set and that no piece appears twice before placing all selected pieces back at
+their captured screen coordinates. A new page may reveal Zeke's missing shoes,
+but it is not called footwear until its rendered shape visibly agrees with the
+foreground screenshot.
+
+Operator card: both commands are offline and single-process. Inputs must be
+complete caller-owned, non-symlink bundles and exact external manifests;
+bundles remain read-only. Outputs must be new paths outside every input bundle
+and are never overwritten. A page contains at most 16 draws, an exclusion
+contains at most 256 unique lowercase SHA-256 keys and 16,705 bytes, and a merge
+contains 2 through 17 pages, at most 1,048,576 selected vertices, and at most
+3,145,728 selected indices. Repeated runs over identical bytes are deterministic.
+The output is diagnostic NDC geometry only: it does not prove character
+ownership, feet, UVs, textures, world transforms, bones, weights, materials,
+PBR, or a reverse-import path.
+
 ## Typical HD texture pass
 
 1. `profile-extract` the protected retail install pair.

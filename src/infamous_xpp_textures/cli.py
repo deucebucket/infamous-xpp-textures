@@ -24,7 +24,12 @@ from .decode import extract_package, load_xpp_bytes
 from .derive import derive_scaled
 from .mesh import MeshExportError, export_glb, find_mesh_sections
 from .oracle import build_profile_oracle
-from .pack import PackError, pack_replacements, replacements_from_dir, replacements_from_scale
+from .pack import (
+    PackError,
+    pack_replacements,
+    replacements_from_dir,
+    replacements_from_scale,
+)
 from .pipeline import build_profile, extract_profile, validate_profile
 from .pngio import read_png
 from .position_replay import PositionReplayError, export_position_replay_glb
@@ -35,7 +40,9 @@ from .runtime_topology_export import (
     RuntimeTopologyExportError,
     census_runtime_fragment_samplers,
     export_runtime_topology_glb,
+    write_capture_key_exclusion,
 )
+from .screen_page_merge import export_screen_replay_pages_glb
 from .screen_replay import ScreenReplayError, export_screen_replay_glb
 from .validation import ValidationError, compare_xpp, validate_xpp
 from .vertex_transform import (
@@ -52,10 +59,20 @@ def _add_source(p: argparse.ArgumentParser, required: bool = True) -> None:
     p.add_argument("--entry", help="path inside the PSARC, e.g. /A16.xpp")
 
 
+def _add_capture_key_exclusion(p: argparse.ArgumentParser) -> None:
+    p.add_argument(
+        "--capture-key-exclusion",
+        type=Path,
+        help="required exact prior capture-key manifest for a paged v4 bundle",
+    )
+
+
 def _load(args: argparse.Namespace) -> tuple[bytes, str]:
     if getattr(args, "psarc", None) is not None and not args.entry:
         raise SystemExit("--psarc requires --entry")
-    return load_xpp_bytes(xpp=args.xpp, psarc=getattr(args, "psarc", None), entry=args.entry)
+    return load_xpp_bytes(
+        xpp=args.xpp, psarc=getattr(args, "psarc", None), entry=args.entry
+    )
 
 
 def cmd_list(args: argparse.Namespace) -> int:
@@ -92,7 +109,9 @@ def cmd_extract_all(args: argparse.Namespace) -> int:
         found, written = extract_package(data, stem, args.outdir, level=args.level)
         total_found += found
         total_written += written
-    print(f"\nall packages: {len(paths)} files, {total_found} textures, {total_written} PNGs")
+    print(
+        f"\nall packages: {len(paths)} files, {total_found} textures, {total_written} PNGs"
+    )
     return 0 if total_written else 1
 
 
@@ -137,8 +156,13 @@ def cmd_validate(args: argparse.Namespace) -> int:
             f"package: {report['package_delta_bytes']:+,}"
         )
         print(f"startup-path budget: {report['budget']['status']}")
-        print("scene coverage: REQUIRED; structural success does not prove a texture is safe when used")
-    if args.fail_on_budget and report["budget"]["status"] == "at-or-above-observed-startup-fail-range":
+        print(
+            "scene coverage: REQUIRED; structural success does not prove a texture is safe when used"
+        )
+    if (
+        args.fail_on_budget
+        and report["budget"]["status"] == "at-or-above-observed-startup-fail-range"
+    ):
         return 2
     return 0
 
@@ -250,7 +274,9 @@ def cmd_texture_rebase(args: argparse.Namespace) -> int:
             f"wrote {args.out}: {report['mapped_record_count']} exact retail-identity "
             f"mapping(s), {report['target_unchanged_records_verified']} untouched target records"
         )
-        print("target package remained the structural base; runtime proof is still required")
+        print(
+            "target package remained the structural base; runtime proof is still required"
+        )
     return 0
 
 
@@ -340,7 +366,9 @@ def cmd_profile_validate(args: argparse.Namespace) -> int:
             args.xpp_dir,
             known_pass_extra=args.known_pass_extra,
             known_fail_extra=args.known_fail_extra,
-            progress=(None if args.json else lambda message: print(message, flush=True)),
+            progress=(
+                None if args.json else lambda message: print(message, flush=True)
+            ),
         )
     except (OSError, ValueError) as error:
         print(f"profile-validate failed: {error}", file=sys.stderr)
@@ -357,7 +385,10 @@ def cmd_profile_validate(args: argparse.Namespace) -> int:
             f"startup-path budget: {report['budget']['status']}"
         )
         print("scene coverage: REQUIRED")
-    if args.fail_on_budget and report["budget"]["status"] == "at-or-above-observed-startup-fail-range":
+    if (
+        args.fail_on_budget
+        and report["budget"]["status"] == "at-or-above-observed-startup-fail-range"
+    ):
         return 2
     return 0
 
@@ -431,7 +462,9 @@ def cmd_runtime_index(args: argparse.Namespace) -> int:
             print(f"wrote {args.json_out}")
         if args.allowlist_out:
             print(f"wrote {args.allowlist_out}")
-    print("scene coverage: exact misses may also mean the game transformed texels before upload")
+    print(
+        "scene coverage: exact misses may also mean the game transformed texels before upload"
+    )
     return 0
 
 
@@ -486,7 +519,9 @@ def cmd_mesh_list(args: argparse.Namespace) -> int:
         print(f"mesh-list: {exc}", file=sys.stderr)
         return 1
     if not sections:
-        print("no static mesh sections (character/skinned packages are not this format)")
+        print(
+            "no static mesh sections (character/skinned packages are not this format)"
+        )
         return 1
     for s in sections:
         print(
@@ -501,7 +536,9 @@ def cmd_mesh_export(args: argparse.Namespace) -> int:
     data, _ = _load(args)
     offsets = set(args.record_offset) if args.record_offset else None
     try:
-        result = export_glb(data, args.output, record_offsets=offsets, texture_path=args.texture)
+        result = export_glb(
+            data, args.output, record_offsets=offsets, texture_path=args.texture
+        )
     except MeshExportError as exc:
         print(f"mesh-export: {exc}", file=sys.stderr)
         return 1
@@ -533,7 +570,9 @@ def cmd_character_report(args: argparse.Namespace) -> int:
 def cmd_character_oracle(args: argparse.Namespace) -> int:
     try:
         if args.left_xpp.resolve() == args.right_xpp.resolve():
-            raise CrossBuildOracleError("left and right XPP inputs must be different files")
+            raise CrossBuildOracleError(
+                "left and right XPP inputs must be different files"
+            )
         if args.json_out is not None:
             output = args.json_out.resolve()
             if output in {args.left_xpp.resolve(), args.right_xpp.resolve()}:
@@ -587,13 +626,20 @@ def cmd_character_diagnostic_export(args: argparse.Namespace) -> int:
     try:
         source_paths = [
             path
-            for path in (args.xpp, args.psarc, args.binding_report, args.attribute_payload)
+            for path in (
+                args.xpp,
+                args.psarc,
+                args.binding_report,
+                args.attribute_payload,
+            )
             if path is not None
         ]
         destination_paths = [args.output]
         if args.json_out is not None:
             destination_paths.append(args.json_out)
-        if len({path.resolve() for path in destination_paths}) != len(destination_paths):
+        if len({path.resolve() for path in destination_paths}) != len(
+            destination_paths
+        ):
             raise CharacterDiagnosticExportError(
                 "--output and --json-out must be different paths"
             )
@@ -667,6 +713,7 @@ def cmd_runtime_topology_diagnostic_export(args: argparse.Namespace) -> int:
             args.output,
             position_hypothesis_attribute=args.position_hypothesis_attribute,
             texture_allowlist=args.texture_allowlist,
+            capture_key_exclusion=args.capture_key_exclusion,
         )
     except (OSError, RuntimeTopologyExportError, ValueError) as exc:
         print(f"runtime-topology-diagnostic-export: {exc}", file=sys.stderr)
@@ -691,7 +738,9 @@ def cmd_runtime_vertex_transform_census(args: argparse.Namespace) -> int:
             raise VertexTransformCensusError(
                 "census output already exists; refusing to overwrite it"
             )
-        result = analyze_vertex_transform_bundle(args.bundle, args.texture_allowlist)
+        result = analyze_vertex_transform_bundle(
+            args.bundle, args.texture_allowlist, args.capture_key_exclusion
+        )
         rendered = render_report(result)
         args.json_out.parent.mkdir(parents=True, exist_ok=True)
         with args.json_out.open("x", encoding="utf-8") as handle:
@@ -718,7 +767,7 @@ def cmd_runtime_fragment_sampler_census(args: argparse.Namespace) -> int:
                 "census output already exists; refusing to overwrite it"
             )
         result = census_runtime_fragment_samplers(
-            args.bundle, args.texture_allowlist
+            args.bundle, args.texture_allowlist, args.capture_key_exclusion
         )
         rendered = render_report(result)
         args.json_out.parent.mkdir(parents=True, exist_ok=True)
@@ -728,6 +777,46 @@ def cmd_runtime_fragment_sampler_census(args: argparse.Namespace) -> int:
             os.fsync(handle.fileno())
     except (OSError, RuntimeTopologyExportError, ValueError) as exc:
         print(f"runtime-fragment-sampler-census: {exc}", file=sys.stderr)
+        return 1
+    print(rendered, end="")
+    return 0
+
+
+def cmd_runtime_capture_key_exclusion(args: argparse.Namespace) -> int:
+    try:
+        bundle = args.bundle.resolve()
+        destinations = (args.output.resolve(), args.json_out.resolve())
+        if len(set(destinations)) != 2:
+            raise RuntimeTopologyExportError(
+                "capture-key exclusion and JSON outputs must differ"
+            )
+        if any(
+            destination == bundle or bundle in destination.parents
+            for destination in destinations
+        ):
+            raise RuntimeTopologyExportError(
+                "capture-key outputs must remain outside the immutable input bundle"
+            )
+        if any(
+            path.is_symlink() or path.exists() for path in (args.output, args.json_out)
+        ):
+            raise RuntimeTopologyExportError(
+                "capture-key output exists; refusing to overwrite it"
+            )
+        result = write_capture_key_exclusion(
+            args.bundle,
+            args.texture_allowlist,
+            args.output,
+            args.capture_key_exclusion,
+        )
+        rendered = render_report(result)
+        args.json_out.parent.mkdir(parents=True, exist_ok=True)
+        with args.json_out.open("x", encoding="utf-8") as handle:
+            handle.write(rendered)
+            handle.flush()
+            os.fsync(handle.fileno())
+    except (OSError, RuntimeTopologyExportError, ValueError) as exc:
+        print(f"runtime-capture-key-exclusion: {exc}", file=sys.stderr)
         return 1
     print(rendered, end="")
     return 0
@@ -753,7 +842,9 @@ def cmd_runtime_position_replay_export(args: argparse.Namespace) -> int:
             raise PositionReplayError(
                 "replay outputs must remain outside the immutable input bundle"
             )
-        if any(path.is_symlink() or path.exists() for path in (args.output, args.json_out)):
+        if any(
+            path.is_symlink() or path.exists() for path in (args.output, args.json_out)
+        ):
             raise PositionReplayError("replay output exists; refusing to overwrite it")
         result = export_position_replay_glb(
             args.bundle,
@@ -763,6 +854,7 @@ def cmd_runtime_position_replay_export(args: argparse.Namespace) -> int:
             projection_event=args.projection_event,
             model_constant_start=args.model_constant_start,
             projection_constant_start=args.projection_constant_start,
+            capture_key_exclusion=args.capture_key_exclusion,
         )
         rendered = render_report(result)
         args.json_out.parent.mkdir(parents=True, exist_ok=True)
@@ -802,13 +894,18 @@ def cmd_runtime_screen_position_replay_export(args: argparse.Namespace) -> int:
             raise ScreenReplayError(
                 "screen replay outputs must remain outside the immutable input bundle"
             )
-        if any(path.is_symlink() or path.exists() for path in (args.output, args.json_out)):
-            raise ScreenReplayError("screen replay output exists; refusing to overwrite it")
+        if any(
+            path.is_symlink() or path.exists() for path in (args.output, args.json_out)
+        ):
+            raise ScreenReplayError(
+                "screen replay output exists; refusing to overwrite it"
+            )
         result = export_screen_replay_glb(
             args.bundle,
             args.texture_allowlist,
             selected_events,
             args.output,
+            args.capture_key_exclusion,
         )
         rendered = render_report(result)
         args.json_out.parent.mkdir(parents=True, exist_ok=True)
@@ -818,6 +915,71 @@ def cmd_runtime_screen_position_replay_export(args: argparse.Namespace) -> int:
             os.fsync(handle.fileno())
     except (OSError, ScreenReplayError, ValueError) as exc:
         print(f"runtime-screen-position-replay-export: {exc}", file=sys.stderr)
+        return 1
+    print(rendered, end="")
+    return 0
+
+
+def cmd_runtime_screen_position_page_merge(args: argparse.Namespace) -> int:
+    try:
+        if not (
+            len(args.page_bundle)
+            == len(args.page_events)
+            == len(args.page_capture_key_exclusion)
+        ):
+            raise ScreenReplayError(
+                "--page-bundle, --page-events, and --page-capture-key-exclusion "
+                "counts must match"
+            )
+        selections = []
+        for raw in args.page_events:
+            values = tuple(int(value, 10) for value in raw.split(",") if value)
+            if (
+                not values
+                or len(set(values)) != len(values)
+                or any(value <= 0 for value in values)
+                or ",".join(map(str, values)) != raw
+            ):
+                raise ScreenReplayError(
+                    "each --page-events value must be unique canonical "
+                    "comma-separated positive integers"
+                )
+            selections.append(values)
+        exclusions = tuple(
+            None if value == "-" else Path(value)
+            for value in args.page_capture_key_exclusion
+        )
+        bundle_roots = tuple(path.resolve() for path in args.page_bundle)
+        destinations = (args.output.resolve(), args.json_out.resolve())
+        if len(set(destinations)) != 2:
+            raise ScreenReplayError("paged GLB and JSON outputs must differ")
+        if any(
+            destination == bundle or bundle in destination.parents
+            for destination in destinations
+            for bundle in bundle_roots
+        ):
+            raise ScreenReplayError(
+                "paged outputs must remain outside every immutable input bundle"
+            )
+        if any(
+            path.is_symlink() or path.exists() for path in (args.output, args.json_out)
+        ):
+            raise ScreenReplayError("paged output exists; refusing to overwrite it")
+        result = export_screen_replay_pages_glb(
+            tuple(args.page_bundle),
+            args.texture_allowlist,
+            tuple(selections),
+            exclusions,
+            args.output,
+        )
+        rendered = render_report(result)
+        args.json_out.parent.mkdir(parents=True, exist_ok=True)
+        with args.json_out.open("x", encoding="utf-8") as handle:
+            handle.write(rendered)
+            handle.flush()
+            os.fsync(handle.fileno())
+    except (OSError, ScreenReplayError, ValueError) as exc:
+        print(f"runtime-screen-position-page-merge: {exc}", file=sys.stderr)
         return 1
     print(rendered, end="")
     return 0
@@ -859,17 +1021,27 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_validate.add_argument("--retail", type=Path, required=True)
     p_validate.add_argument("--candidate", type=Path, required=True)
-    p_validate.add_argument("--json", action="store_true", help="print a machine-readable report")
+    p_validate.add_argument(
+        "--json", action="store_true", help="print a machine-readable report"
+    )
     _add_budget_options(p_validate)
     p_validate.set_defaults(func=cmd_validate)
 
     p_pack = sub.add_parser("pack", help="encode PNGs back into an XPP")
     _add_source(p_pack)
     p_pack.add_argument("--out", type=Path, required=True, help="output .xpp")
-    p_pack.add_argument("--replace", action="append", help="INDEX=file.png (repeatable)")
-    p_pack.add_argument("--from-dir", type=Path, help="read STEM.N.mip0.png from this folder")
-    p_pack.add_argument("--stem", help="filename stem for --from-dir (default: xpp name)")
-    p_pack.add_argument("--scale", type=int, help="nearest-neighbor upscale every 2D texture")
+    p_pack.add_argument(
+        "--replace", action="append", help="INDEX=file.png (repeatable)"
+    )
+    p_pack.add_argument(
+        "--from-dir", type=Path, help="read STEM.N.mip0.png from this folder"
+    )
+    p_pack.add_argument(
+        "--stem", help="filename stem for --from-dir (default: xpp name)"
+    )
+    p_pack.add_argument(
+        "--scale", type=int, help="nearest-neighbor upscale every 2D texture"
+    )
     p_pack.add_argument(
         "--allow-resize",
         action="store_true",
@@ -881,8 +1053,12 @@ def main(argv: list[str] | None = None) -> int:
         "derive",
         help="losslessly derive a 1x/2x pack from an existing mixed 2x/4x XPP",
     )
-    p_derive.add_argument("--retail", type=Path, required=True, help="original retail XPP")
-    p_derive.add_argument("--source", type=Path, required=True, help="existing 2x/4x XPP")
+    p_derive.add_argument(
+        "--retail", type=Path, required=True, help="original retail XPP"
+    )
+    p_derive.add_argument(
+        "--source", type=Path, required=True, help="existing 2x/4x XPP"
+    )
     p_derive.add_argument("--out", type=Path, required=True, help="output XPP")
     p_derive.add_argument("--target-scale", type=int, choices=(1, 2, 4), default=2)
     selection = p_derive.add_mutually_exclusive_group()
@@ -942,15 +1118,21 @@ def main(argv: list[str] | None = None) -> int:
         "psarc-pack",
         help="rebuild an install PSARC with replacement XPPs",
     )
-    p_psarc.add_argument("--psarc", type=Path, required=True, help="retail source PSARC")
-    p_psarc.add_argument("--xpp-dir", type=Path, required=True, help="replacement XPP directory")
+    p_psarc.add_argument(
+        "--psarc", type=Path, required=True, help="retail source PSARC"
+    )
+    p_psarc.add_argument(
+        "--xpp-dir", type=Path, required=True, help="replacement XPP directory"
+    )
     p_psarc.add_argument("--out", type=Path, required=True, help="output PSARC")
     p_psarc.add_argument(
         "--include",
         action="append",
         help="replace only this XPP basename (repeatable)",
     )
-    p_psarc.add_argument("--compression-level", type=int, choices=range(1, 10), default=9)
+    p_psarc.add_argument(
+        "--compression-level", type=int, choices=range(1, 10), default=9
+    )
     p_psarc.set_defaults(func=cmd_psarc_pack)
 
     p_profile_extract = sub.add_parser(
@@ -1016,8 +1198,12 @@ def main(argv: list[str] | None = None) -> int:
         help="generate exact texture hashes for emulator scene-coverage tracing",
     )
     _add_source(p_runtime_index)
-    p_runtime_index.add_argument("--label", help="package/profile label stored in the report")
-    p_runtime_index.add_argument("--json-out", type=Path, help="write the full JSON index")
+    p_runtime_index.add_argument(
+        "--label", help="package/profile label stored in the report"
+    )
+    p_runtime_index.add_argument(
+        "--json-out", type=Path, help="write the full JSON index"
+    )
     p_runtime_index.add_argument(
         "--allowlist-out",
         type=Path,
@@ -1055,7 +1241,9 @@ def main(argv: list[str] | None = None) -> int:
         type=lambda v: int(v, 0),
         help="include this section (repeat to assemble parts)",
     )
-    p_me.add_argument("--texture", type=Path, help="PNG to embed; default: decode from the package")
+    p_me.add_argument(
+        "--texture", type=Path, help="PNG to embed; default: decode from the package"
+    )
     p_me.set_defaults(func=cmd_mesh_export)
 
     p_character = sub.add_parser(
@@ -1147,6 +1335,7 @@ def main(argv: list[str] | None = None) -> int:
         required=True,
         help="complete local topology-census or texture-bound-topology output directory",
     )
+    _add_capture_key_exclusion(p_runtime_topology_export)
     p_runtime_topology_export.add_argument(
         "--texture-allowlist",
         type=Path,
@@ -1169,14 +1358,15 @@ def main(argv: list[str] | None = None) -> int:
 
     p_vertex_transform = sub.add_parser(
         "runtime-vertex-transform-census",
-        help="decode exact RSX vertex inputs/constants from a complete v2/v3 bundle",
+        help="decode exact RSX vertex inputs/constants from a complete v2/v3/v4 bundle",
     )
     p_vertex_transform.add_argument(
         "--bundle",
         type=Path,
         required=True,
-        help="complete local if1-texture-bound-topology-v2 or v3 output directory",
+        help="complete local if1-texture-bound-topology-v2/v3/v4 output directory",
     )
+    _add_capture_key_exclusion(p_vertex_transform)
     p_vertex_transform.add_argument(
         "--texture-allowlist",
         type=Path,
@@ -1188,7 +1378,7 @@ def main(argv: list[str] | None = None) -> int:
 
     p_fragment_sampler = sub.add_parser(
         "runtime-fragment-sampler-census",
-        help="verify exact target sampler references in a complete v3 bundle",
+        help="verify exact target sampler references in a complete v3/v4 bundle",
     )
     p_fragment_sampler.add_argument("--bundle", type=Path, required=True)
     p_fragment_sampler.add_argument(
@@ -1197,8 +1387,22 @@ def main(argv: list[str] | None = None) -> int:
         required=True,
         help="exact target texture SHA-256 allowlist used by the capture",
     )
+    _add_capture_key_exclusion(p_fragment_sampler)
     p_fragment_sampler.add_argument("--json-out", type=Path, required=True)
     p_fragment_sampler.set_defaults(func=cmd_runtime_fragment_sampler_census)
+
+    p_capture_key_exclusion = sub.add_parser(
+        "runtime-capture-key-exclusion",
+        help="write the exact cumulative key manifest needed by the next page",
+    )
+    p_capture_key_exclusion.add_argument("--bundle", type=Path, required=True)
+    p_capture_key_exclusion.add_argument(
+        "--texture-allowlist", type=Path, required=True
+    )
+    _add_capture_key_exclusion(p_capture_key_exclusion)
+    p_capture_key_exclusion.add_argument("--output", type=Path, required=True)
+    p_capture_key_exclusion.add_argument("--json-out", type=Path, required=True)
+    p_capture_key_exclusion.set_defaults(func=cmd_runtime_capture_key_exclusion)
 
     p_position_replay = sub.add_parser(
         "runtime-position-replay-export",
@@ -1206,18 +1410,15 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_position_replay.add_argument("--bundle", type=Path, required=True)
     p_position_replay.add_argument("--texture-allowlist", type=Path, required=True)
+    _add_capture_key_exclusion(p_position_replay)
     p_position_replay.add_argument(
         "--events",
         required=True,
         help="canonical comma-separated event numbers, for example 1,2,3",
     )
     p_position_replay.add_argument("--projection-event", type=int, required=True)
-    p_position_replay.add_argument(
-        "--model-constant-start", type=int, default=256
-    )
-    p_position_replay.add_argument(
-        "--projection-constant-start", type=int, default=263
-    )
+    p_position_replay.add_argument("--model-constant-start", type=int, default=256)
+    p_position_replay.add_argument("--projection-constant-start", type=int, default=263)
     p_position_replay.add_argument("--output", type=Path, required=True)
     p_position_replay.add_argument("--json-out", type=Path, required=True)
     p_position_replay.set_defaults(func=cmd_runtime_position_replay_export)
@@ -1228,6 +1429,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_screen_replay.add_argument("--bundle", type=Path, required=True)
     p_screen_replay.add_argument("--texture-allowlist", type=Path, required=True)
+    _add_capture_key_exclusion(p_screen_replay)
     p_screen_replay.add_argument(
         "--events",
         required=True,
@@ -1236,6 +1438,25 @@ def main(argv: list[str] | None = None) -> int:
     p_screen_replay.add_argument("--output", type=Path, required=True)
     p_screen_replay.add_argument("--json-out", type=Path, required=True)
     p_screen_replay.set_defaults(func=cmd_runtime_screen_position_replay_export)
+
+    p_screen_page_merge = sub.add_parser(
+        "runtime-screen-position-page-merge",
+        help="combine one exact v3 page and chained v4 pages in screenshot space",
+    )
+    p_screen_page_merge.add_argument(
+        "--page-bundle", type=Path, action="append", required=True
+    )
+    p_screen_page_merge.add_argument("--page-events", action="append", required=True)
+    p_screen_page_merge.add_argument(
+        "--page-capture-key-exclusion",
+        action="append",
+        required=True,
+        help="exact page exclusion path, or - for the base v3 page",
+    )
+    p_screen_page_merge.add_argument("--texture-allowlist", type=Path, required=True)
+    p_screen_page_merge.add_argument("--output", type=Path, required=True)
+    p_screen_page_merge.add_argument("--json-out", type=Path, required=True)
+    p_screen_page_merge.set_defaults(func=cmd_runtime_screen_position_page_merge)
 
     args = ap.parse_args(argv)
     return args.func(args)

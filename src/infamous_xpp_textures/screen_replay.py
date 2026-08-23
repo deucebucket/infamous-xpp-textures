@@ -16,7 +16,11 @@ from .position_replay import (
     _matrix_vector,
     extract_output_affine,
 )
-from .runtime_topology_export import RuntimeTopologyExportError, _load_bundle
+from .runtime_topology_export import (
+    RuntimeTopologyExportError,
+    _load_bundle,
+    _paged_capture_metadata,
+)
 
 
 class ScreenReplayError(ValueError):
@@ -68,6 +72,7 @@ def export_screen_replay_glb(
     texture_allowlist: Path,
     selected_events: tuple[int, ...],
     output: Path,
+    capture_key_exclusion: Path | None = None,
 ) -> dict:
     """Export selected draws in their exact per-draw normalized-device frame."""
 
@@ -81,14 +86,17 @@ def export_screen_replay_glb(
     ):
         raise ScreenReplayError("selected events must be positive integers")
     try:
-        completion, events, allowlist_sha256 = _load_bundle(bundle, texture_allowlist)
+        completion, events, allowlist_sha256 = _load_bundle(
+            bundle, texture_allowlist, capture_key_exclusion
+        )
     except RuntimeTopologyExportError as exc:
         raise ScreenReplayError(str(exc)) from exc
     if completion["format"] not in (
         "if1-texture-bound-topology-v2",
         "if1-texture-bound-topology-v3",
+        "if1-texture-bound-topology-v4",
     ):
-        raise ScreenReplayError("screen replay requires a complete v2 or v3 bundle")
+        raise ScreenReplayError("screen replay requires a complete v2/v3/v4 bundle")
     if any(number not in events for number in selected_events):
         raise ScreenReplayError("selected event is absent")
 
@@ -102,7 +110,9 @@ def export_screen_replay_glb(
             _block, indices, positions = _event_geometry(bundle, event)
         except PositionReplayError as exc:
             raise ScreenReplayError(str(exc)) from exc
-        ndc_positions = [project_position_to_ndc(matrix, position) for position in positions]
+        ndc_positions = [
+            project_position_to_ndc(matrix, position) for position in positions
+        ]
         nondegenerate = sum(
             _cross_length_squared(
                 ndc_positions[indices[offset]],
@@ -113,7 +123,9 @@ def export_screen_replay_glb(
             for offset in range(0, len(indices), 3)
         )
         if not nondegenerate:
-            raise ScreenReplayError("screen-replayed event has only degenerate triangles")
+            raise ScreenReplayError(
+                "screen-replayed event has only degenerate triangles"
+            )
         minimum = [min(value[axis] for value in ndc_positions) for axis in range(3)]
         maximum = [max(value[axis] for value in ndc_positions) for axis in range(3)]
         center = [(minimum[axis] + maximum[axis]) / 2.0 for axis in range(3)]
@@ -208,7 +220,10 @@ def export_screen_replay_glb(
             }
         )
 
-    static_reference = completion["format"] == "if1-texture-bound-topology-v3"
+    static_reference = completion["format"] in (
+        "if1-texture-bound-topology-v3",
+        "if1-texture-bound-topology-v4",
+    )
     evidence = {
         "diagnosticOnly": True,
         "selectedEvents": list(selected_events),
@@ -224,6 +239,15 @@ def export_screen_replay_glb(
         "retailMaterialProved": False,
         "modReady": False,
     }
+    paging = _paged_capture_metadata(completion)
+    if paging is not None:
+        evidence.update(
+            {
+                "excludedCaptureKeys": paging["excluded_capture_keys"],
+                "exclusionManifestSha256": paging["exclusion_manifest_sha256"],
+                "observedExcludedCaptureKeys": paging["observed_excluded_capture_keys"],
+            }
+        )
     document = {
         "asset": {
             "version": "2.0",
@@ -260,7 +284,7 @@ def export_screen_replay_glb(
         }
         for item in transformed
     ]
-    return {
+    result = {
         "schema_version": 1,
         "kind": "if1-rsx-screen-position-replay-export",
         "bundle_format": completion["format"],
@@ -299,3 +323,7 @@ def export_screen_replay_glb(
             "classify prop versus character before any world-space or mod-ready claim"
         ),
     }
+    paging = _paged_capture_metadata(completion)
+    if paging is not None:
+        result["paging"] = paging
+    return result
