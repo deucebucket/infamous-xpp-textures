@@ -104,6 +104,9 @@ def _validate_coverage_union(
         not isinstance(texture_family, str)
         or not texture_family
         or len(texture_family) > 256
+        or "/" in texture_family
+        or "\\" in texture_family
+        or any(ord(character) < 0x20 for character in texture_family)
         or not 1 <= len(texture_names) <= 32
         or any(
             not isinstance(name, str)
@@ -122,7 +125,9 @@ def _validate_coverage_union(
         union.get("observation_count"), "observation count", minimum=1
     )
     covered = _integer(
-        union.get("covered_retail_triangle_occurrences"), "covered triangle count"
+        union.get("covered_retail_triangle_occurrences"),
+        "covered triangle count",
+        minimum=1,
     )
     unobserved = _integer(
         union.get("unobserved_retail_triangle_occurrences"),
@@ -133,6 +138,7 @@ def _validate_coverage_union(
     if (
         observation_count != len(observations)
         or observation_count > 16
+        or any(not isinstance(observation, dict) for observation in observations)
         or covered + unobserved != triangles
         or covered > triangles
         or full is not (unobserved == 0)
@@ -197,6 +203,10 @@ def compare_cross_build_material_gap(
     _integer(coverage_union_bytes, "coverage union byte count", minimum=1)
     _integer(left_source_bytes, "left XPP byte count", minimum=1)
     _integer(right_source_bytes, "right XPP byte count", minimum=1)
+    if coverage_union_bytes > MAX_COVERAGE_UNION_BYTES:
+        raise MaterialGapOracleError("coverage union exceeds the byte bound")
+    if left_source_bytes > MAX_XPP_BYTES or right_source_bytes > MAX_XPP_BYTES:
+        raise MaterialGapOracleError("an XPP exceeds the byte bound")
 
     union = _validate_coverage_union(
         coverage_union,
@@ -231,7 +241,11 @@ def compare_cross_build_material_gap(
         ),
         "cross-build character mapping",
     )
-    mapping = [row for row in mappings if row.get("left") == left_index]
+    mapping = [
+        row
+        for row in mappings
+        if isinstance(row, dict) and row.get("left") == left_index
+    ]
     if len(mapping) != 1:
         raise MaterialGapOracleError(
             "coverage union geometry contract has no unique target mapping"

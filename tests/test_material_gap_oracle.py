@@ -171,6 +171,37 @@ def test_coverage_counts_must_reconcile():
         )
 
 
+def test_non_object_observation_and_oversized_declared_input_reject():
+    union = _coverage_union()
+    union["observations"][0] = "not-an-object"
+    with pytest.raises(MaterialGapOracleError, match="counts do not reconcile"):
+        compare_cross_build_material_gap(
+            _character(1000),
+            _character(9000),
+            _cross_build(),
+            union,
+            coverage_union_sha256=UNION_SHA,
+            coverage_union_bytes=500,
+            left_source_sha256=LEFT_SHA,
+            left_source_bytes=100,
+            right_source_sha256=RIGHT_SHA,
+            right_source_bytes=120,
+        )
+    with pytest.raises(MaterialGapOracleError, match="coverage union exceeds"):
+        compare_cross_build_material_gap(
+            _character(1000),
+            _character(9000),
+            _cross_build(),
+            _coverage_union(),
+            coverage_union_sha256=UNION_SHA,
+            coverage_union_bytes=256 * 1024 + 1,
+            left_source_sha256=LEFT_SHA,
+            left_source_bytes=100,
+            right_source_sha256=RIGHT_SHA,
+            right_source_bytes=120,
+        )
+
+
 def test_cross_build_semantic_failure_rejects():
     cross_build = _cross_build()
     cross_build["audited_semantics_match"] = False
@@ -206,6 +237,21 @@ def test_output_labels_and_texture_names_cannot_serialize_paths():
         )
     union = _coverage_union()
     union["component"]["texture_names"][0] = "private/path.psd"
+    with pytest.raises(MaterialGapOracleError, match="texture family is malformed"):
+        compare_cross_build_material_gap(
+            _character(1000),
+            _character(9000),
+            _cross_build(),
+            union,
+            coverage_union_sha256=UNION_SHA,
+            coverage_union_bytes=500,
+            left_source_sha256=LEFT_SHA,
+            left_source_bytes=100,
+            right_source_sha256=RIGHT_SHA,
+            right_source_bytes=120,
+        )
+    union = _coverage_union()
+    union["component"]["texture_family"] = "private/family"
     with pytest.raises(MaterialGapOracleError, match="texture family is malformed"):
         compare_cross_build_material_gap(
             _character(1000),
