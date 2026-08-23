@@ -896,6 +896,66 @@ validator; the JSON is capped at 256 KiB. Inputs must be regular immutable
 files/directories, output must be a new path outside every bundle and different
 from the XPP, and no raw source or runtime payload bytes enter the report.
 
+### Version 2.27 — packed three-component character streams
+
+`character-uv-texture-binding` now distinguishes two byte counts that look
+similar but are not interchangeable: bytes in the original packed XPP vertex
+stream and bytes in a renderer's padded host upload. A three-component
+half-float row occupies six packed source bytes even when a host-side upload
+later expands it to eight. The source-binding path applies the same packed rule
+to three-component unorm8 rows; other formats retain their conservative sizing
+until independently proved.
+
+The command still refuses gaps, overlaps, non-finite float rows, and ambiguous
+descriptor ordering. It changed the source-storage width calculation; it did
+not weaken the existing complete-tiling proof.
+
+```console
+timeout 60s xpp-tool character-uv-texture-binding \
+  --bundle /path/to/owned/page-2-v4 \
+  --texture-allowlist /path/to/zeke-surface-identities.sha256 \
+  --capture-key-exclusion /path/to/page-1-keys.tsv \
+  --page 2 --event 5 --record-offset 536488 \
+  --source-census /path/to/source-census.json \
+  --source-census-sha256 SOURCE_CENSUS_SHA256 \
+  --character-census /path/to/character-census.json \
+  --character-census-sha256 CHARACTER_CENSUS_SHA256 \
+  --character-side left \
+  --output /new/path/zeke-jacket-event5-binding.json
+```
+
+The first owned 2.27 run proves one exact 26-vertex / 24-triangle component:
+
+- source record `536488`, stream zero, 26 rows × 10 bytes;
+- one valid complete layout: four-byte attribute 3 at byte 0, then six-byte
+  half3 attribute 9 at byte 4;
+- attribute 9 XY feeds vertex output 7 and fragment `TEX0`; its third stored
+  component is consistently `-1.0`, but this gate assigns no semantic to it;
+- samplers 0–3 select unique named `Zeke_Jacket_N`, `A`, `S`, and `C`
+  descriptors;
+- the runtime index list exactly equals the complete retail component: all 72
+  indices / 24 triangles are covered, with no hair-style unobserved remainder.
+
+RR — Really Readable rundown: the earlier tool tried to measure the original
+game bytes with the ruler RPCS3 uses after preparing them for the PC GPU. That
+made a real ten-byte row appear impossibly twelve bytes wide. We now use the
+packed-game-data ruler for the XPP and keep the padded-renderer ruler in its
+own lane. The result is a second real wire from Zeke triangles to UVs to named
+jacket textures, not a texture chosen because it looked close.
+
+This does not yet tell us whether the 24-triangle piece is a collar, jacket
+detail, book-adjacent prop, or another sub-piece. It creates no render and does
+not claim a full jacket or full Zeke. The next bounded gate extends the material
+exporter from a two-texture hair pair to this four-texture family while keeping
+retail name suffixes separate from authored PBR meanings; any progress render
+is published as soon as it exists.
+
+Operator card: stable ID `xpp-tool.character-uv-texture-binding.v1`, maintained
+in xpp-tool 2.27.0. Inputs, bounds, payload-free output, SHA-256 pins, atomic
+new-only publication, and no-runtime/no-network behavior remain unchanged from
+2.25. Packed source widths are now explicit and regression-tested; full
+character, PBR/4x, RPCS3 repack, and native-decomp import remain separate gates.
+
 ### Version 2.26 — permanent retail-material component GLB export
 
 `character-material-export` turns one checksum-pinned 2.25 lineage into a
