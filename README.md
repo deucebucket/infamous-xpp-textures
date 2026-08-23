@@ -896,6 +896,74 @@ validator; the JSON is capped at 256 KiB. Inputs must be regular immutable
 files/directories, output must be a new path outside every bundle and different
 from the XPP, and no raw source or runtime payload bytes enter the report.
 
+### Version 2.25 — permanent character UV-to-texture shader lineage
+
+`character-uv-texture-binding` closes one exact material-binding chain at a
+time. It consumes an immutable v3/v4 draw bundle plus checksum-pinned source
+and character censuses, follows the fragment sampler back through the vertex
+shader at component level, and reconciles the selected vertex input with the
+exact XPP source stream and named texture descriptors.
+
+```console
+timeout 60s xpp-tool character-uv-texture-binding \
+  --bundle /path/to/owned/page-2-v4 \
+  --texture-allowlist /path/to/zeke-surface-identities.sha256 \
+  --capture-key-exclusion /path/to/page-1-keys.tsv \
+  --page 2 --event 16 --record-offset 533752 \
+  --source-census /path/to/source-census.json \
+  --source-census-sha256 SOURCE_CENSUS_SHA256 \
+  --character-census /path/to/character-census.json \
+  --character-census-sha256 CHARACTER_CENSUS_SHA256 \
+  --character-side left \
+  --output /new/path/zeke-hair-uv-texture-binding.json
+```
+
+The first owned run proves this chain for the 184-vertex hair record:
+
+- exact XPP record `533752`, stream zero, 184 rows × 8 bytes;
+- one valid complete packed layout, with attribute 3 at byte 0 and two-component
+  half-float attribute 9 at byte 4;
+- vertex attribute 9 XY feeds vertex output register 7, which RPCS3 maps to
+  `TEX0`;
+- both target fragment `TXB` instructions read that `TEX0` coordinate;
+- sampler 0 resolves uniquely to the 174,760-byte mip prefix of
+  `Zeke_Hair_N.psd`, while sampler 2 resolves uniquely to the 87,376-byte mip
+  prefix of `Zeke_Hair_C.psd`;
+- observed UV bounds are U `0.0051002502–0.9941406250` and V
+  `0.0287017822–0.7763671875`.
+
+RR — Really Readable rundown: before this, we had the correct hair triangles
+and the correct hair textures sitting beside each other, but no proved wire
+between them. This command follows the wire the game actually uses: two packed
+numbers enter vertex attribute 9, the vertex shader passes their X and Y into
+`TEX0`, and the fragment shader uses `TEX0` to sample the named hair color and
+normal textures. That is why this is real progress toward a texturable Blender
+piece rather than another visual guess.
+
+The old capture did not directly store each descriptor's byte offset. The
+command says so. It reconstructs byte 4 because the two descriptors exactly
+tile the eight-byte stride and only one ordering has finite float components;
+the reversed order decodes the leading `0xff` bytes as non-finite half floats.
+This is a deterministic, fail-closed reconstruction—not a claim that the byte
+offset came directly from the capture log.
+
+This gate does not create a render. One hair mesh is not full Zeke, the `C`/`N`
+name suffixes are not presented as native PS3 PBR metadata, and 4x/PBR,
+remaining material slots, Blender assembly, RPCS3 repack, and native-decomp
+import stay separate. The next gate writes the proved half-float rows as
+`TEXCOORD_0`, attaches retail color/normal materials, and publishes the first
+correctly textured progress render immediately.
+
+Operator card: stable ID `xpp-tool.character-uv-texture-binding.v1`. The command
+is offline and single-process; each JSON authority and the output are capped at
+2 MiB and 256 KiB respectively, the bundle inherits the strict 16-event / 64
+MiB payload contract, every external authority is SHA-256 pinned, and output is
+new-only with atomic publication. It serializes hashes, counts, names, bounded
+numeric summaries, and lineage tokens—not shader, vertex, index, texture, or
+game bytes. The same report feeds the near-term RPCS3 material/repack path and
+the later native-decomp asset importer; neither delivery path is promoted by
+this evidence alone.
+
 ### Version 2.24 — canonical completion inventory and dual-output manifest
 
 `asset-completion-inventory` is the permanent gate before any corpus-wide
