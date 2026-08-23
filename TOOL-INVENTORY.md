@@ -163,7 +163,8 @@ output where applicable, an operator card, and a maintained source location.
 
 ## `xpp-tool.character-component-ledger.v1`
 
-- Status: maintained; introduced and callable in xpp-tool 2.30.0.
+- Status: maintained; introduced in 2.30.0 and extended with exact material-pass
+  receipts in xpp-tool 2.34.0.
 - Parent goal: recover every character/item component once, retain every useful
   render immediately, and assemble one canonical editable asset for near-term
   RPCS3 mods and later native-decomp import without confusing partial proof for
@@ -175,36 +176,45 @@ output where applicable, an operator card, and a maintained source location.
   jacket 534628, packs 535048, head 536280, and jacket detail 536488. Jacket
   detail alone has complete material coverage; the other four retain explicit
   unresolved face counts. Five images are receipted, with only the approved
-  matte/unlit hair look marked as an accepted visual baseline.
+  matte/unlit hair look marked as an accepted visual baseline. The 2.34 ledger
+  also preserves one exact hair pass census with three pass signatures, two
+  runtime index payloads, and the 282/12 any-pass split.
 - Entry point: `xpp-tool character-component-ledger` (also exposed by the
   compatible `if1-tex` alias).
 - Implementation: `src/infamous_xpp_textures/component_ledger.py`, SHA-256
-  `a0a040ca4dd862659b822d65934f20436242906eceb6f1518b964216560ca63e`;
+  `bbec0935e13eb3e13dccff670522740176628c0249f6a04e98fe4c1f60fe0a76`;
   CLI wiring `src/infamous_xpp_textures/cli.py`, SHA-256
-  `1a3c5c13c703e08fa361fd3f1232bd11f901773aed0bc8c678b8cc83ab8592e9`.
+  `687289ccf0a5fa9cd7fabd3144981fb547bd503d8a51a9070bbcc40348137e83`.
 - Tests: `tests/test_component_ledger.py`, SHA-256
-  `f329881cf80502199c270a10d126d94b48ec83f4801bf005464343087e054a43`.
-  The complete repository suite passes **240 tests**.
-- Operator card: [README — Version 2.30](README.md#version-230--canonical-multipart-character-component-ledger).
+  `9e90757be9d31463cc528eb5b40d81b2308ff2d0d71512e662512de407bccd57`.
+  The complete repository suite passes **245 tests**.
+- Operator card: [README — Version 2.34](README.md#version-234--preserve-material-passes-in-the-canonical-character-ledger).
 - Inputs: one through 256 exact material-export JSON files, each with a matching
   SHA-256 pin; canonical title/build/candidate tokens; optional exact visual-
-  baseline receipt manifest and pin.
+  baseline receipt manifest and pin; zero through 128 exact material-pass-census
+  JSON files, each with its matching SHA-256 pin.
 - Output: deterministic payload-free JSON at a new path. It preserves component,
   source, event, lineage, topology, coverage, GLB, retail texture, published
   image, and open-gate identities without serializing private paths or payloads.
-- Bounds: 1 MiB per material report; 256 KiB visual manifest; 256 observations;
-  128 components; 256 render receipts; 1 MiB output; one process; no runtime,
-  network, symlink input/output, or overwrite.
+- Bounds: 1 MiB per material report; 512 KiB per pass census; 256 KiB visual
+  manifest; 256 material observations; 128 pass censuses/components; 32 pass
+  observations per census; 256 render receipts; 1 MiB output; one process; no
+  runtime, network, symlink input/output, or overwrite.
 - Proven capability: exact hash validation; source-record component identity;
-  conservative alias merge; immutable-geometry conflict, duplicate, schema,
-  texture-family, triangle-coverage, and unknown-render rejection; deterministic
-  28,843-byte A/B/C output SHA-256 `755fb441…e6046`.
-- Build proof: the 2.30.0 wheel is 209,114 bytes, SHA-256
-  `685e5f2fe633f0c53419727e8b980d0d154b692b93a03cd72fde34c15b17b215`.
+  conservative alias merge; strict cross-pass receipt normalization and union-
+  export reconciliation; immutable-geometry conflict, duplicate, schema,
+  texture-family, triangle-coverage, relationship, group, and unknown-evidence
+  rejection; deterministic 44,794-byte A/B output SHA-256
+  `d64a613f6be9a165537493c98f730d77945108a7969524207dcc7fd748e7f44e`.
+- Build proof: two builds with pinned `SOURCE_DATE_EPOCH=1787488800`
+  produced the identical 230,065-byte 2.34.0 wheel, SHA-256
+  `81f68fcc6ccd4005c03a6302c8d2e184c5e867367eaa34d9f926473db05e303c`;
+  a fresh isolated environment installed it and exposed both pass-census inputs.
 - Limitations: a visual baseline protects appearance only. It cannot prove
   unresolved material faces, assembly placement, missing body pieces, original
   normals/tangents, bones/weights, 4×, authored PBR, RPCS3 repack/gameplay, or
-  native import. Every one of those gates remains independently false.
+  native import. A pass receipt preserves possibilities but does not infer PBR
+  roles or compositing order. Every delivery gate remains independently false.
 - Return status: `returned-with-capability-and-evidence`. Continue with the four
   exact incomplete material-coverage component IDs before widening to the next
   page; never redo the completed jacket-detail component.
