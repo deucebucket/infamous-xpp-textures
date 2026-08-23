@@ -13,6 +13,7 @@ a separately validated deployment target:
 - generate exact texture hash indexes for scene-coverage tracing
 - export **static** mesh sections to GLB
 - export one exact packed character record as a bounded diagnostic GLB
+- correlate exact packed character streams with a topology-paired runtime draw
 
 Python 3.10+, standard library only. This repo does not include game files.
 
@@ -894,6 +895,54 @@ page/event/comparison bounds are inherited from the strict page
 validator; the JSON is capped at 256 KiB. Inputs must be regular immutable
 files/directories, output must be a new path outside every bundle and different
 from the XPP, and no raw source or runtime payload bytes enter the report.
+
+### Version 2.21 — permanent packed-source/runtime correlation
+
+The source/runtime decoder probe is now a permanent, payload-free command:
+
+```console
+timeout 60s xpp-tool character-source-runtime-correlate \
+  --xpp /path/to/owned/male_base_Zeke.xpp \
+  --record-offset 536488 \
+  --runtime-index ./exact-index.bin \
+  --runtime-index-sha256 EXACT_INDEX_SHA256 \
+  --runtime-positions ./exact-float32x3.bin \
+  --runtime-positions-sha256 EXACT_POSITIONS_SHA256 \
+  --runtime-byte-order big \
+  --runtime-first-row 0 \
+  --output ./source-runtime-correlation.json
+```
+
+The command proves the selected runtime index bytes are exactly the chosen XPP
+record's triangle list, hashes the complete runtime position buffer, records an
+explicit contiguous row window, and compares every eligible packed
+three-component stream with those rows. Each result reports source rank,
+R-squared, RMSE, normalized RMSE, maximum point residual, and cross-stream
+ranking. It does not write source or runtime vertex values into the JSON.
+
+Two independent owned records now select stream 1. The 184-vertex hair record
+is an effectively exact affine match (`R² 0.9999999972`, normalized RMSE
+`0.0000089894`); the 26-vertex visible fragment is a strong but imperfect match
+(`R² 0.9943533660`, normalized RMSE `0.0178946912`). Both source streams have
+full three-axis rank.
+
+RR — Really Readable rundown: the flat-looking side image was a thin captured
+draw viewed after the game had transformed it, not proof that Zeke is stored in
+one dimension. This new test walks backward to the packed XPP. The hair result
+shows that one packed stream contains a real three-axis shape which maps almost
+perfectly to what the GPU used. That is a major bridge toward an editable model,
+but it is not yet the whole character: we still must prove the canonical
+scale/offset formula, coordinate space, UV stream, material bindings, bones,
+weights, assembly, and reverse import.
+
+Operator card: stable ID
+`xpp-tool.character-source-runtime-correlate.v1`. The command is offline and
+single-process; XPP input is capped at 64 MiB, each runtime payload at 16 MiB,
+and JSON at 256 KiB. Inputs must be immutable regular non-symlink files with
+exact SHA-256 pins. Output must be a new path and atomic publication preserves
+a concurrent writer. Numeric families that differ only by affine scale/offset
+remain intentionally indistinguishable, so all semantic, ownership, UV,
+material, rigging, full-character, PBR, and injection gates remain false.
 
 ### Version 2.20 — permanent packed-source diagnostic export
 

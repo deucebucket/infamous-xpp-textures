@@ -6,7 +6,11 @@ import struct
 import pytest
 
 import infamous_xpp_textures.character_source_export as character_source_export
-from infamous_xpp_textures.character import build_xpp_character_report
+import infamous_xpp_textures.character_source_correlation as character_source_correlation
+from infamous_xpp_textures.character import (
+    build_xpp_character_report,
+    find_skinned_geometry_contracts,
+)
 from infamous_xpp_textures.character_export import (
     CharacterDiagnosticExportError,
     export_character_diagnostic_glb,
@@ -15,7 +19,13 @@ from infamous_xpp_textures.character_source_export import (
     CharacterSourceExportError,
     export_character_source_diagnostic_glb,
 )
+from infamous_xpp_textures.character_source_correlation import (
+    CharacterSourceCorrelationError,
+    correlate_character_source_runtime,
+    write_new_correlation_report,
+)
 from infamous_xpp_textures.cli import main
+from infamous_xpp_textures.xpp import parse_xpp
 
 
 def _character_xpp() -> bytes:
@@ -86,6 +96,16 @@ def _payload(positions=None) -> bytes:
         positions = ((10, 20, 30), (11, 20, 30), (10, 21, 30), (10, 20, 31))
     body = b"".join(struct.pack(">3f", *value) for value in positions)
     return body + bytes(12)
+
+
+def _correlation_inputs():
+    xpp = _character_xpp()
+    parsed = parse_xpp(xpp, len(xpp))
+    contract = find_skinned_geometry_contracts(xpp, parsed)[0]
+    start = parsed.data_offset + contract.index_offset
+    index = xpp[start : start + contract.index_byte_count]
+    positions = _payload()[: contract.vertex_count * 12]
+    return xpp, index, positions
 
 
 def _binding_report(xpp: bytes, payload: bytes) -> dict:
@@ -487,3 +507,164 @@ def test_packed_source_cli_writes_new_report_and_refuses_alias(tmp_path, capsys)
     )
     assert result == 1
     assert "must be different paths" in capsys.readouterr().err
+
+
+def test_correlates_exact_source_and_runtime_without_assigning_semantics():
+    xpp, index, positions = _correlation_inputs()
+    report = correlate_character_source_runtime(
+        xpp,
+        index,
+        positions,
+        record_offset=0x20,
+        runtime_index_sha256=hashlib.sha256(index).hexdigest(),
+        runtime_positions_sha256=hashlib.sha256(positions).hexdigest(),
+        runtime_byte_order="big",
+    )
+    assert report["topology_pair_proved"] is True
+    assert report["runtime_array_identity_proved"] is True
+    assert report["payload_values_serialized"] is False
+    assert 1 in report["stream_ranking"]
+    stream = next(item for item in report["streams"] if item["stream_index"] == 1)
+    assert stream["status"] == "fit-complete"
+    assert stream["representative_fit"]["source_rank"] == 3
+    assert math.isclose(stream["representative_fit"]["r_squared"], 1.0)
+    assert report["gates"]["numeric_family_selected"] is False
+    assert report["gates"]["position_semantic"] is False
+    assert report["gates"]["complete_character"] is False
+
+
+def test_source_runtime_correlation_rejects_hash_shape_and_topology_mismatch():
+    xpp, index, positions = _correlation_inputs()
+    kwargs = {
+        "record_offset": 0x20,
+        "runtime_index_sha256": hashlib.sha256(index).hexdigest(),
+        "runtime_positions_sha256": hashlib.sha256(positions).hexdigest(),
+        "runtime_byte_order": "big",
+    }
+    with pytest.raises(CharacterSourceCorrelationError, match="positions SHA-256"):
+        correlate_character_source_runtime(
+            xpp, index, positions, **{**kwargs, "runtime_positions_sha256": "0" * 64}
+        )
+    with pytest.raises(CharacterSourceCorrelationError, match="whole contiguous rows"):
+        correlate_character_source_runtime(
+            xpp,
+            index,
+            positions[:-4],
+            **{
+                **kwargs,
+                "runtime_positions_sha256": hashlib.sha256(positions[:-4]).hexdigest(),
+            },
+        )
+    changed_index = bytes((index[0] ^ 1,)) + index[1:]
+    with pytest.raises(CharacterSourceCorrelationError, match="runtime index SHA-256"):
+        correlate_character_source_runtime(xpp, changed_index, positions, **kwargs)
+
+
+def test_source_runtime_correlation_records_an_explicit_row_window():
+    xpp, index, positions = _correlation_inputs()
+    prefixed = struct.pack(">3f", -20.0, -30.0, -40.0) + positions
+    report = correlate_character_source_runtime(
+        xpp,
+        index,
+        prefixed,
+        record_offset=0x20,
+        runtime_index_sha256=hashlib.sha256(index).hexdigest(),
+        runtime_positions_sha256=hashlib.sha256(prefixed).hexdigest(),
+        runtime_byte_order="big",
+        runtime_first_row=1,
+    )
+    assert report["runtime_total_row_count"] == 5
+    assert report["runtime_selected_first_row"] == 1
+    assert report["runtime_selected_row_count"] == 4
+    stream = next(item for item in report["streams"] if item["stream_index"] == 1)
+    assert math.isclose(stream["representative_fit"]["r_squared"], 1.0)
+
+    with pytest.raises(CharacterSourceCorrelationError, match="does not cover"):
+        correlate_character_source_runtime(
+            xpp,
+            index,
+            prefixed,
+            record_offset=0x20,
+            runtime_index_sha256=hashlib.sha256(index).hexdigest(),
+            runtime_positions_sha256=hashlib.sha256(prefixed).hexdigest(),
+            runtime_byte_order="big",
+            runtime_first_row=2,
+        )
+
+
+def test_source_runtime_correlation_publication_race_preserves_racer(
+    tmp_path, monkeypatch
+):
+    xpp, index, positions = _correlation_inputs()
+    report = correlate_character_source_runtime(
+        xpp,
+        index,
+        positions,
+        record_offset=0x20,
+        runtime_index_sha256=hashlib.sha256(index).hexdigest(),
+        runtime_positions_sha256=hashlib.sha256(positions).hexdigest(),
+        runtime_byte_order="big",
+    )
+    output = tmp_path / "correlation.json"
+    real_link = character_source_correlation.os.link
+
+    def racing_link(source, destination):
+        output.write_bytes(b"racer")
+        return real_link(source, destination)
+
+    monkeypatch.setattr(character_source_correlation.os, "link", racing_link)
+    with pytest.raises(FileExistsError):
+        write_new_correlation_report(output, report)
+    assert output.read_bytes() == b"racer"
+
+
+def test_source_runtime_correlation_cli_is_deterministic_and_refuses_overwrite(
+    tmp_path, capsys
+):
+    xpp, index, positions = _correlation_inputs()
+    xpp_path = tmp_path / "character.xpp"
+    index_path = tmp_path / "runtime-index.bin"
+    positions_path = tmp_path / "runtime-positions.bin"
+    xpp_path.write_bytes(xpp)
+    index_path.write_bytes(index)
+    positions_path.write_bytes(positions)
+
+    def arguments(output):
+        return [
+            "character-source-runtime-correlate",
+            "--xpp",
+            str(xpp_path),
+            "--record-offset",
+            "0x20",
+            "--runtime-index",
+            str(index_path),
+            "--runtime-index-sha256",
+            hashlib.sha256(index).hexdigest(),
+            "--runtime-positions",
+            str(positions_path),
+            "--runtime-positions-sha256",
+            hashlib.sha256(positions).hexdigest(),
+            "--runtime-byte-order",
+            "big",
+            "--output",
+            str(output),
+        ]
+
+    first = tmp_path / "correlation-a.json"
+    second = tmp_path / "correlation-b.json"
+    assert main(arguments(first)) == 0
+    capsys.readouterr()
+    assert main(arguments(second)) == 0
+    capsys.readouterr()
+    assert first.read_bytes() == second.read_bytes()
+    preserved = first.read_bytes()
+    assert main(arguments(first)) == 1
+    assert first.read_bytes() == preserved
+    assert "refusing to overwrite" in capsys.readouterr().err
+
+    linked_xpp = tmp_path / "linked-character.xpp"
+    linked_xpp.symlink_to(xpp_path)
+    linked_arguments = arguments(tmp_path / "linked-output.json")
+    linked_arguments[linked_arguments.index(str(xpp_path))] = str(linked_xpp)
+    assert main(linked_arguments) == 1
+    assert "regular non-symlink" in capsys.readouterr().err
