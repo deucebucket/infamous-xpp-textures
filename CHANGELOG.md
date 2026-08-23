@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.23.0 - 2026-08-22
+
+- Added permanent `character-asset-census` analysis for one character or item across two complete, checksum-pinned extracted profiles and two ordinal OID manifests.
+- Bound all 31 Zeke descriptors to their recovered names, proved multipart package references, retained the 16/16 packed geometry-contract count, and kept name-to-geometry plus geometry-to-material binding gates false.
+- Verified all 2,296 BCUS and 2,742 NPUA packages: every substantial Zeke texture is self-contained in the named target package; only one 8-byte 1×1 utility texture is shared outside it, with no substantive partial mip/prefix sharing.
+- Confirmed 31/31 location-independent texture identities across builds despite 31/31 descriptor reorderings, so descriptor indices remain build-local.
+- Added explicit all-asset completeness, emulator-mod round-trip, native-decomp import, and completion-inventory gates so a partial render or name hit cannot masquerade as a finished reusable asset.
+- Added strict workspace/package/manifest hashes, profile and report bounds, deterministic output, no-overwrite publication, synthetic failures, and permanent inventory documentation.
+
 ## 2.22.0 - 2026-08-22
 
 - Extended permanent `character-source-runtime-correlate` reports with deterministic best-fit proper and mirrored rotation/translation/one-uniform-scale metrics for every numeric family while preserving the 2.21 unrestricted affine fields.
