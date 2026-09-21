@@ -5,6 +5,24 @@ modding or reverse-engineering goal. A command enters this file only after it
 has a callable contract, rejection tests, no-overwrite behavior, deterministic
 output where applicable, an operator card, and a maintained source location.
 
+## `xpp-tool.runtime-fragment-sampler-census.v5-reader`
+
+- Status: maintained reader extension; v5 is explicit opt-in and is not accepted by exporters.
+- Entry point: `xpp-tool runtime-fragment-sampler-census`; implementation:
+  `src/infamous_xpp_textures/runtime_topology_export.py`.
+- Inputs: complete paged v5 bundle, exact texture allowlist, and exact cumulative
+  capture-key exclusion. Draw-state payloads must be regular files named
+  `topology-N-draw-state-<sha16>.bin` and be 65,564 bytes.
+- Output: deterministic payload-free sampler JSON with draw-state hash/size/format
+  and header summary only; register words are never emitted.
+- Proven capability: strict v4 paging/accounting plus v5 magic, version, count,
+  enum, event, filename-prefix, size, hash, regular-file, duplicate, missing,
+  extra, and unreferenced-file checks. Synthetic test coverage currently runs in
+  `tests/test_runtime_topology_export.py`.
+- Limits: hash-bound register bytes cannot establish register semantic correctness,
+  texture/surface contents, material ownership, world-space meaning, or native
+  rendering. No live/end-to-end producer proof is claimed in this checkout.
+
 ## `xpp-tool.character-material-gap-locator.v1`
 
 - Status: maintained; introduced and callable in xpp-tool 2.38.0.

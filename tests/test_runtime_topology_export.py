@@ -17,6 +17,7 @@ from infamous_xpp_textures.runtime_topology_export import (
     census_runtime_fragment_samplers,
     export_runtime_topology_glb,
     write_capture_key_exclusion,
+    _load_bundle,
 )
 
 
@@ -1086,3 +1087,309 @@ def test_cli_refuses_existing_texture_bound_report_before_glb_write(tmp_path, ca
     assert "refusing to overwrite" in capsys.readouterr().err
     assert report.read_text(encoding="ascii") == "keep"
     assert not output.exists()
+
+
+def _rewrite_completion(bundle, key, value):
+    path = bundle / "capture.complete"
+    path.write_text(
+        "\n".join(
+            f"{key}\t{value}" if line.startswith(key + "\t") else line
+            for line in path.read_text(encoding="ascii").splitlines()
+        ) + "\n",
+        encoding="ascii",
+    )
+
+
+def _rewrite_v5_binding(bundle, updates, *, row_index=None):
+    path = bundle / "topology-01-binding.tsv"
+    with path.open(encoding="ascii", newline="") as handle:
+        rows = list(csv.DictReader(handle, delimiter="\t"))
+    selected = rows if row_index is None else [rows[row_index]]
+    for row in selected:
+        row.update(updates)
+    with path.open("w", encoding="ascii", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=tuple(rows[0]), delimiter="\t")
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def _coherent_v5_state_mutation(bundle, mutate):
+    binding = bundle / "topology-01-binding.tsv"
+    with binding.open(encoding="ascii", newline="") as handle:
+        rows = list(csv.DictReader(handle, delimiter="\t"))
+    old = bundle / rows[0]["draw_state_file"]
+    state = bytearray(old.read_bytes())
+    mutate(state)
+    payload = bytes(state)
+    digest = _sha(payload)
+    name = f"topology-01-draw-state-{digest[:16]}.bin"
+    old.unlink()
+    (bundle / name).write_bytes(payload)
+    for row in rows:
+        row.update(draw_state_file=name, draw_state_sha256=digest, draw_state_bytes=str(len(payload)))
+    with binding.open("w", encoding="ascii", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=tuple(rows[0]), delimiter="\t")
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def _make_full_v5(bundle, tmp_path):
+    allowlist, exclusion = _make_paged_fragment_bound_v4(bundle, tmp_path)
+    with (bundle / "topology-01-binding.tsv").open(encoding="ascii", newline="") as handle:
+        template_rows = list(csv.DictReader(handle, delimiter="\t"))
+    index_name = template_rows[0]["index_payload_file"]
+    index_payload = (bundle / index_name).read_bytes()
+    position_row = next(row for row in template_rows if row["block"] == "1")
+    position_payload = (bundle / position_row["payload_file"]).read_bytes()
+    vertex_payload = (bundle / template_rows[0]["vertex_program_file"]).read_bytes()
+    constants_payload = (bundle / template_rows[0]["transform_constants_file"]).read_bytes()
+    fragment_payload = (bundle / template_rows[0]["fragment_program_file"]).read_bytes()
+    for path in bundle.glob("topology-01-*"):
+        if path.name != "topology-01-binding.tsv":
+            path.unlink()
+    rows = []
+    for event in range(1, 17):
+        draw_event = 100 + event
+        event_index = struct.pack(">6H", 0, 1, 2, 2, 3, 0)
+        index_digest = _sha(event_index)
+        index_file = f"topology-{event:02d}-index-{index_digest[:16]}.bin"
+        (bundle / index_file).write_bytes(event_index)
+        state = b"IF1DSV5\0" + struct.pack(">5I", 5, 16384, 1, 1, draw_event) + bytes(16384 * 4)
+        state_digest = _sha(state)
+        state_file = f"topology-{event:02d}-draw-state-{state_digest[:16]}.bin"
+        (bundle / state_file).write_bytes(state)
+        event_fragment = fragment_payload[:-1] + bytes([event])
+        fragment_digest = _sha(event_fragment)
+        fragment_file = f"topology-{event:02d}-fragment-program-{fragment_digest[:16]}.bin"
+        (bundle / fragment_file).write_bytes(event_fragment)
+        vertex_digest = _sha(vertex_payload)
+        vertex_file = f"topology-{event:02d}-vertex-program-{vertex_digest[:16]}.bin"
+        (bundle / vertex_file).write_bytes(vertex_payload)
+        constants_digest = _sha(constants_payload)
+        constants_file = f"topology-{event:02d}-transform-constants-{constants_digest[:16]}.bin"
+        (bundle / constants_file).write_bytes(constants_payload)
+        for block in range(1, 17):
+            payload_digest = _sha(position_payload)
+            payload_file = f"topology-{event:02d}-block-{block:02d}-{payload_digest[:16]}.bin"
+            (bundle / payload_file).write_bytes(position_payload)
+            row = dict(position_row)
+            attribute = block - 1
+            descriptor = _descriptor(((attribute, 2, 3, 12, 0, 0),))
+            row.update(
+                event=f"{event}", draw_event=f"{draw_event}", block=f"{block:02d}",
+                attribute=str(attribute), attribute_mask=str(1 << attribute), descriptor_sha256=descriptor,
+                index_sha256=index_digest, index_bytes=str(len(event_index)),
+                index_count="6", index_payload_file=index_file,
+                index_payload_sha256=index_digest, index_payload_bytes=str(len(event_index)),
+                payload_file=payload_file, payload_sha256=payload_digest,
+                payload_bytes=str(len(position_payload)),
+                vertex_program_sha256=vertex_digest, vertex_program_file=vertex_file,
+                vertex_program_bytes=str(len(vertex_payload)), transform_constants_sha256=constants_digest,
+                transform_constants_file=constants_file, transform_constants_bytes=str(len(constants_payload)),
+                fragment_program_sha256=fragment_digest, fragment_program_file=fragment_file,
+                fragment_program_bytes=str(len(event_fragment)), fragment_referenced_textures_mask=str(1 << 3),
+                capture_key=_sha(f"{index_digest}:3:{'d' * 64}:{fragment_digest}".encode("ascii")),
+                draw_state_file=state_file, draw_state_sha256=state_digest,
+                draw_state_bytes=str(len(state)), draw_state_format="if1-texture-bound-topology-v5",
+            )
+            rows.append(row)
+    binding_paths = []
+    for event in range(1, 17):
+        event_rows = [row for row in rows if int(row["event"]) == event]
+        path = bundle / f"topology-{event:02d}-binding.tsv"
+        with path.open("w", encoding="ascii", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=_TEXTURE_FRAGMENT_BINDING_FIELDS + ("draw_state_file", "draw_state_sha256", "draw_state_bytes", "draw_state_format"), delimiter="\t")
+            writer.writeheader(); writer.writerows(event_rows)
+        binding_paths.append(path)
+    payloads = list(bundle.glob("*.bin"))
+    completion = bundle / "capture.complete"
+    text = completion.read_text(encoding="ascii")
+    text = text.replace("format\tif1-texture-bound-topology-v4", "format\tif1-texture-bound-topology-v5")
+    replacements = {"captured_draws": "16", "payload_files": "336", "observed_uploads": "16", "target_uploads": "16"}
+    lines = []
+    for line in text.splitlines():
+        key = line.split("\t", 1)[0]
+        if key in replacements:
+            line = f"{key}\t{replacements[key]}"
+        if key == "payload_bytes":
+            line = f"payload_bytes\t{sum(path.stat().st_size for path in payloads)}"
+        lines.append(line)
+    completion.write_text("\n".join(lines) + "\n", encoding="ascii")
+    return allowlist, exclusion
+
+
+def test_v5_full_16_event_353_entry_boundary_and_v4_337_guard(tmp_path):
+    bundle = _write_bundle(tmp_path)
+    allowlist, exclusion = _make_full_v5(bundle, tmp_path)
+    completion, events, _ = _load_bundle(bundle, allowlist, exclusion, allow_v5=True)
+    assert completion["format"] == "if1-texture-bound-topology-v5"
+    assert len(events) == 16
+    assert len(list(bundle.iterdir())) == 353
+    assert all(len(event.blocks) == 16 for event in events.values())
+
+    legacy_root = tmp_path / "legacy"
+    legacy_root.mkdir()
+    legacy_bundle = _write_bundle(legacy_root)
+    for index in range(333):
+        (legacy_bundle / f"extra-{index:03d}.bin").write_bytes(b"x")
+    with pytest.raises(RuntimeTopologyExportError, match="too many entries"):
+        _load_bundle(legacy_bundle, None)
+
+
+def test_v5_rejects_354th_entry(tmp_path):
+    bundle = _write_bundle(tmp_path)
+    allowlist, exclusion = _make_full_v5(bundle, tmp_path)
+    (bundle / "extra.bin").write_bytes(b"x")
+    with pytest.raises(RuntimeTopologyExportError, match="regular non-symlink"):
+        _load_bundle(bundle, allowlist, exclusion, allow_v5=True)
+
+
+@pytest.mark.parametrize(
+    ("mutate", "message"),
+    (
+        (lambda state: state.__setitem__(11, 4), "header"),
+        (lambda state: state.__setitem__(15, 1), "header"),
+        (lambda state: state.__setitem__(19, 0), "header"),
+        (lambda state: state.__setitem__(23, 4), "header"),
+        (lambda state: state.__setitem__(27, 43), "header"),
+    ),
+)
+def test_v5_coherently_rehashed_invalid_header_is_rejected(tmp_path, mutate, message):
+    bundle = _write_bundle(tmp_path)
+    allowlist, exclusion = _make_v5(bundle, tmp_path)
+    _coherent_v5_state_mutation(bundle, mutate)
+    with pytest.raises(RuntimeTopologyExportError, match=message):
+        _load_bundle(bundle, allowlist, exclusion, allow_v5=True)
+
+
+@pytest.mark.parametrize(
+    ("updates", "message"),
+    (({"draw_state_format": "wrong"}, "manifest"),
+     ({"draw_state_file": "topology-01-draw-state-0000000000000000.bin"}, "manifest"),
+     ({"draw_state_sha256": "f" * 64}, "conflicting event-level fields")),
+)
+def test_v5_manifest_and_repeated_row_mismatch_refused(tmp_path, updates, message):
+    bundle = _write_bundle(tmp_path)
+    allowlist, exclusion = _make_v5(bundle, tmp_path)
+    _rewrite_v5_binding(bundle, updates, row_index=1 if any("sha256" in key for key in updates) else None)
+    with pytest.raises(RuntimeTopologyExportError, match=message):
+        _load_bundle(bundle, allowlist, exclusion, allow_v5=True)
+
+
+@pytest.mark.parametrize(
+    "setup",
+    (
+        lambda bundle, allowlist, exclusion: next(bundle.glob("topology-01-draw-state-*.bin")).unlink(),
+        lambda bundle, allowlist, exclusion: (bundle / "extra.bin").symlink_to(next(bundle.glob("*.bin")).name),
+        lambda bundle, allowlist, exclusion: _rewrite_completion(bundle, "payload_files", "338"),
+    ),
+)
+def test_v5_missing_symlink_and_accounting_tamper_refuse(tmp_path, setup):
+    bundle = _write_bundle(tmp_path)
+    allowlist, exclusion = _make_v5(bundle, tmp_path)
+    setup(bundle, allowlist, exclusion)
+    with pytest.raises(RuntimeTopologyExportError):
+        _load_bundle(bundle, allowlist, exclusion, allow_v5=True)
+
+
+def test_v4_exclusion_omitted_zero_and_hash_mismatch_refuse(tmp_path):
+    bundle = _write_bundle(tmp_path)
+    allowlist, exclusion = _make_paged_fragment_bound_v4(bundle, tmp_path)
+    with pytest.raises(RuntimeTopologyExportError, match="requires --capture-key"):
+        _load_bundle(bundle, allowlist, None)
+    _rewrite_completion(bundle, "excluded_capture_keys", "0")
+    with pytest.raises(RuntimeTopologyExportError, match="bounded contract"):
+        _load_bundle(bundle, allowlist, exclusion)
+    _rewrite_completion(bundle, "excluded_capture_keys", "1")
+    _rewrite_completion(bundle, "exclusion_manifest_sha256", "f" * 64)
+    with pytest.raises(RuntimeTopologyExportError, match="does not match"):
+        _load_bundle(bundle, allowlist, exclusion)
+
+
+@pytest.mark.parametrize("allow_v5", (False, 0, None, "yes"))
+def test_v5_opt_in_is_explicit_boolean(tmp_path, allow_v5):
+    bundle = _write_bundle(tmp_path)
+    allowlist, exclusion = _make_v5(bundle, tmp_path)
+    with pytest.raises(RuntimeTopologyExportError, match="opt-in|boolean"):
+        _load_bundle(bundle, allowlist, exclusion, allow_v5=allow_v5)
+
+
+def test_v5_unrelated_exporters_remain_refused(tmp_path):
+    bundle = _write_bundle(tmp_path)
+    allowlist, exclusion = _make_v5(bundle, tmp_path)
+    with pytest.raises(RuntimeTopologyExportError, match="explicit opt-in"):
+        export_runtime_topology_glb(
+            bundle, 1, tmp_path / "v5.glb", position_hypothesis_attribute=0,
+            texture_allowlist=allowlist, capture_key_exclusion=exclusion,
+        )
+    with pytest.raises(RuntimeTopologyExportError, match="explicit opt-in"):
+        write_capture_key_exclusion(bundle, allowlist, tmp_path / "next.tsv")
+
+
+def test_v5_event_object_is_immutable_and_registers_stay_internal(tmp_path):
+    from dataclasses import FrozenInstanceError
+    bundle = _write_bundle(tmp_path)
+    allowlist, exclusion = _make_v5(bundle, tmp_path)
+    _, events, _ = _load_bundle(bundle, allowlist, exclusion, allow_v5=True)
+    with pytest.raises(FrozenInstanceError):
+        events[1].draw_event = 99
+    census = census_runtime_fragment_samplers(bundle, allowlist, exclusion)
+    assert "draw_state_register_bytes" not in json.dumps(census)
+
+
+def _make_v5(bundle, tmp_path):
+    allowlist, exclusion = _make_paged_fragment_bound_v4(bundle, tmp_path)
+    state = b"IF1DSV5\0" + struct.pack(">5I", 5, 16384, 1, 1, 42) + bytes(16384 * 4)
+    state_sha = _sha(state)
+    state_name = f"topology-01-draw-state-{state_sha[:16]}.bin"
+    (bundle / state_name).write_bytes(state)
+    binding = bundle / "topology-01-binding.tsv"
+    with binding.open(encoding="ascii", newline="") as handle:
+        rows = list(csv.DictReader(handle, delimiter="\t"))
+    for row in rows:
+        row.update({"draw_state_file": state_name, "draw_state_sha256": state_sha,
+                    "draw_state_bytes": str(len(state)),
+                    "draw_state_format": "if1-texture-bound-topology-v5"})
+    with binding.open("w", encoding="ascii", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=_TEXTURE_FRAGMENT_BINDING_FIELDS + ("draw_state_file", "draw_state_sha256", "draw_state_bytes", "draw_state_format"), delimiter="\t")
+        writer.writeheader(); writer.writerows(rows)
+    completion = bundle / "capture.complete"
+    text = completion.read_text(encoding="ascii").replace("format\tif1-texture-bound-topology-v4", "format\tif1-texture-bound-topology-v5")
+    text = text.replace("payload_files\t6", "payload_files\t7")
+    text = "\n".join(
+        f"payload_bytes\t{sum(path.stat().st_size for path in bundle.glob('*.bin'))}" if line.startswith("payload_bytes\t") else line
+        for line in text.splitlines()
+    ) + "\n"
+    completion.write_text(text, encoding="ascii")
+    return allowlist, exclusion
+
+
+def test_v5_requires_opt_in_and_census_reports_header_only(tmp_path):
+    bundle = _write_bundle(tmp_path)
+    allowlist, exclusion = _make_v5(bundle, tmp_path)
+    with pytest.raises(RuntimeTopologyExportError, match="explicit opt-in"):
+        _load_bundle(bundle, allowlist, exclusion)
+    completion, events, _ = _load_bundle(bundle, allowlist, exclusion, allow_v5=True)
+    assert completion["format"] == "if1-texture-bound-topology-v5"
+    assert events[1].draw_state_register_bytes == bytes(16384 * 4)
+    report = census_runtime_fragment_samplers(bundle, allowlist, exclusion)
+    row = report["events"][0]
+    assert row["draw_state_header"] == {"version": 5, "register_count": 16384, "primitive": 1, "draw_command": 1, "draw_event": 42}
+    assert "draw_state_register_bytes" not in row
+    assert report["gates"]["draw_ownership"] is False
+    assert report["gates"]["material_semantic"] is False
+
+
+def test_cli_v5_sampler_route_is_opt_in_consumer(tmp_path, capsys):
+    bundle = _write_bundle(tmp_path)
+    allowlist, exclusion = _make_v5(bundle, tmp_path)
+    output = tmp_path / "v5-census.json"
+    assert main([
+        "runtime-fragment-sampler-census", "--bundle", str(bundle),
+        "--texture-allowlist", str(allowlist), "--capture-key-exclusion", str(exclusion),
+        "--json-out", str(output),
+    ]) == 0
+    report = json.loads(output.read_text(encoding="utf-8"))
+    assert report["bundle_format"] == "if1-texture-bound-topology-v5"
+    assert report["events"][0]["draw_state_sha256"] == _sha((bundle / report["events"][0]["draw_state_file"]).read_bytes())
+    assert json.loads(capsys.readouterr().out) == report

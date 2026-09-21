@@ -71,6 +71,12 @@ _TEXTURE_FRAGMENT_BINDING_FIELDS = _TEXTURE_TRANSFORM_BINDING_FIELDS + (
     "fragment_program_bytes",
     "fragment_referenced_textures_mask",
 )
+_V5_BINDING_FIELDS = _TEXTURE_FRAGMENT_BINDING_FIELDS + (
+    "draw_state_file",
+    "draw_state_sha256",
+    "draw_state_bytes",
+    "draw_state_format",
+)
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 _BINDING_NAME = re.compile(r"topology-(\d+)-binding\.tsv")
 _PAYLOAD_NAME = re.compile(r"topology-(\d+)-(?:index|block-(\d+))-[0-9a-f]{16}\.bin")
@@ -81,13 +87,22 @@ _TRANSFORM_CONSTANTS_NAME = re.compile(
 _FRAGMENT_PROGRAM_NAME = re.compile(
     r"topology-(\d+)-fragment-program-([0-9a-f]{16})\.bin"
 )
+_DRAW_STATE_NAME = re.compile(
+    r"topology-(\d+)-draw-state-([0-9a-f]{16})\.bin"
+)
+_DRAW_STATE_MAGIC = b"IF1DSV5\0"
+_DRAW_STATE_BYTES = 8 + 5 * 4 + 16384 * 4
 _MAX_TARGETS = 16
 _MAX_TEXTURE_HASHES = 512
 _MAX_BOUND_ADDRESSES = 256
 _MAX_TEXTURE_ALLOWLIST_BYTES = 40 * 1024
 _MAX_EXCLUDED_CAPTURE_KEYS = 256
 _MAX_CAPTURE_KEY_EXCLUSION_BYTES = (_MAX_EXCLUDED_CAPTURE_KEYS + 1) * 65
-_MAX_BUNDLE_FILES = 1 + _MAX_TARGETS + _MAX_TARGETS * 20
+_MAX_BUNDLE_FILES_LEGACY = 1 + _MAX_TARGETS + _MAX_TARGETS * 20
+_MAX_BUNDLE_FILES_V5 = 1 + _MAX_TARGETS + _MAX_TARGETS * 21
+# A coarse pre-parse bound admits only the largest known format.  The
+# format-specific bound below keeps legacy v1-v4 at 337 entries.
+_MAX_BUNDLE_FILES_COARSE = _MAX_BUNDLE_FILES_V5
 _MAX_INDEX_BYTES = 4 * 1024 * 1024
 _MAX_BLOCK_BYTES = 8 * 1024 * 1024
 _MAX_PAYLOAD_BYTES = 64 * 1024 * 1024
@@ -137,6 +152,12 @@ class _Event:
     binding_scope: str | None = None
     shader_reference_proven: bool = False
     capture_key: str | None = None
+    draw_state_file: str | None = None
+    draw_state_sha256: str | None = None
+    draw_state_bytes: int = 0
+    draw_state_format: str | None = None
+    draw_state_header: tuple[int, int, int, int, int] | None = None
+    draw_state_register_bytes: bytes = b""
 
 
 def _sha256(payload: bytes) -> str:
@@ -365,21 +386,22 @@ def _parse_completion(path: Path) -> dict[str, int | str]:
         "if1-texture-bound-topology-v2",
         "if1-texture-bound-topology-v3",
         "if1-texture-bound-topology-v4",
+        "if1-texture-bound-topology-v5",
     ) or set(rows) != (
         paged_texture_fields
-        if capture_format == "if1-texture-bound-topology-v4"
+        if capture_format in ("if1-texture-bound-topology-v4", "if1-texture-bound-topology-v5")
         else texture_fields
     ):
         raise RuntimeTopologyExportError("capture.complete schema or format is invalid")
     result = {"format": capture_format, "binding_scope": rows["binding_scope"]}
-    if capture_format == "if1-texture-bound-topology-v4":
+    if capture_format in ("if1-texture-bound-topology-v4", "if1-texture-bound-topology-v5"):
         result["exclusion_manifest_sha256"] = _sha(
             rows["exclusion_manifest_sha256"], "exclusion manifest SHA-256"
         )
     nonzero_names = {"target_texture_hashes", "capture_limit"}
     numeric_names = (
         paged_texture_fields
-        if capture_format == "if1-texture-bound-topology-v4"
+        if capture_format in ("if1-texture-bound-topology-v4", "if1-texture-bound-topology-v5")
         else texture_fields
     ) - {"format", "binding_scope", "exclusion_manifest_sha256"}
     for name in numeric_names:
@@ -387,6 +409,7 @@ def _parse_completion(path: Path) -> dict[str, int | str]:
     fragment_bound = capture_format in (
         "if1-texture-bound-topology-v3",
         "if1-texture-bound-topology-v4",
+        "if1-texture-bound-topology-v5",
     )
     expected_scope = (
         "fragment-program-static-texture-reference"
@@ -411,13 +434,13 @@ def _parse_completion(path: Path) -> dict[str, int | str]:
             result["capture_limit_reached"] == 1
             and result["captured_draws"] != _MAX_TARGETS
         )
-        or result["payload_files"] > _MAX_TARGETS * (20 if fragment_bound else 19)
+        or result["payload_files"] > _MAX_TARGETS * (21 if capture_format == "if1-texture-bound-topology-v5" else 20 if fragment_bound else 19)
         or result["payload_bytes"] > _MAX_PAYLOAD_BYTES
         or result["bound_addresses"] > _MAX_BOUND_ADDRESSES
         or result["target_uploads"] > result["observed_uploads"]
         or result["address_replacements"] > result["observed_uploads"]
         or (
-            capture_format == "if1-texture-bound-topology-v4"
+            capture_format in ("if1-texture-bound-topology-v4", "if1-texture-bound-topology-v5")
             and (
                 not 1 <= result["excluded_capture_keys"] <= _MAX_EXCLUDED_CAPTURE_KEYS
                 or result["observed_excluded_capture_keys"]
@@ -438,7 +461,7 @@ def _parse_completion(path: Path) -> dict[str, int | str]:
 
 
 def _paged_capture_metadata(completion: dict[str, int | str]) -> dict | None:
-    if completion["format"] != "if1-texture-bound-topology-v4":
+    if completion["format"] not in ("if1-texture-bound-topology-v4", "if1-texture-bound-topology-v5"):
         return None
     return {
         "excluded_capture_keys": completion["excluded_capture_keys"],
@@ -465,18 +488,24 @@ def _parse_binding(
             "if1-texture-bound-topology-v2",
             "if1-texture-bound-topology-v3",
             "if1-texture-bound-topology-v4",
+            "if1-texture-bound-topology-v5",
         )
         transform_bound = capture_format in (
             "if1-texture-bound-topology-v2",
             "if1-texture-bound-topology-v3",
             "if1-texture-bound-topology-v4",
+            "if1-texture-bound-topology-v5",
         )
         fragment_bound = capture_format in (
             "if1-texture-bound-topology-v3",
             "if1-texture-bound-topology-v4",
+            "if1-texture-bound-topology-v5",
         )
+        v5_bound = capture_format == "if1-texture-bound-topology-v5"
         expected_fields = (
-            _TEXTURE_FRAGMENT_BINDING_FIELDS
+            _V5_BINDING_FIELDS
+            if v5_bound
+            else _TEXTURE_FRAGMENT_BINDING_FIELDS
             if fragment_bound
             else _TEXTURE_TRANSFORM_BINDING_FIELDS
             if transform_bound
@@ -533,6 +562,13 @@ def _parse_binding(
             "fragment_program_bytes",
             "fragment_referenced_textures_mask",
         )
+    if v5_bound:
+        common_names += (
+            "draw_state_file",
+            "draw_state_sha256",
+            "draw_state_bytes",
+            "draw_state_format",
+        )
     common = {name: rows[0][name] for name in common_names}
     if any(row[name] != value for row in rows for name, value in common.items()):
         raise RuntimeTopologyExportError(
@@ -571,6 +607,24 @@ def _parse_binding(
     fragment_program_file: str | None = None
     fragment_program_bytes = 0
     fragment_referenced_textures_mask = 0
+    draw_state_file = None
+    draw_state_sha256 = None
+    draw_state_bytes = 0
+    draw_state_format = None
+    if v5_bound:
+        draw_state_file = _plain_filename(common["draw_state_file"], "draw-state filename")
+        draw_state_match = _DRAW_STATE_NAME.fullmatch(draw_state_file)
+        draw_state_sha256 = _sha(common["draw_state_sha256"], "draw-state SHA-256")
+        draw_state_bytes = _integer(common["draw_state_bytes"], "draw-state bytes", allow_zero=False)
+        draw_state_format = common["draw_state_format"]
+        if (
+            draw_state_match is None
+            or int(draw_state_match.group(1), 10) != event
+            or draw_state_match.group(2) != draw_state_sha256[:16]
+            or draw_state_bytes != _DRAW_STATE_BYTES
+            or draw_state_format != "if1-texture-bound-topology-v5"
+        ):
+            raise RuntimeTopologyExportError("draw-state manifest is outside the fixed v5 contract")
     if texture_bound:
         if allowed_texture_hashes is None:
             raise RuntimeTopologyExportError(
@@ -819,6 +873,10 @@ def _parse_binding(
         binding_scope=binding_scope,
         shader_reference_proven=fragment_bound,
         capture_key=capture_key,
+        draw_state_file=draw_state_file,
+        draw_state_sha256=draw_state_sha256,
+        draw_state_bytes=draw_state_bytes,
+        draw_state_format=draw_state_format,
     )
 
 
@@ -826,33 +884,51 @@ def _load_bundle(
     bundle: Path,
     texture_allowlist: Path | None,
     capture_key_exclusion: Path | None = None,
+    *,
+    allow_v5: bool = False,
 ) -> tuple[dict[str, int | str], dict[int, _Event], str | None]:
+    if not isinstance(allow_v5, bool):
+        raise RuntimeTopologyExportError("allow_v5 must be a boolean opt-in")
     if bundle.is_symlink() or not bundle.is_dir():
         raise RuntimeTopologyExportError(
             "bundle must be an existing non-symlink directory"
         )
     entries = list(bundle.iterdir())
-    if len(entries) > _MAX_BUNDLE_FILES or any(
+    if len(entries) > _MAX_BUNDLE_FILES_COARSE or any(
         entry.is_symlink() or not entry.is_file() for entry in entries
     ):
         raise RuntimeTopologyExportError(
             "bundle entries must be regular non-symlink files"
         )
     completion = _parse_completion(bundle / "capture.complete")
+    entry_limit = (
+        _MAX_BUNDLE_FILES_V5
+        if completion["format"] == "if1-texture-bound-topology-v5"
+        else _MAX_BUNDLE_FILES_LEGACY
+    )
+    if len(entries) > entry_limit:
+        raise RuntimeTopologyExportError(
+            "bundle has too many entries for its capture format"
+        )
+    if completion["format"] == "if1-texture-bound-topology-v5" and not allow_v5:
+        raise RuntimeTopologyExportError("v5 draw-state bundles require explicit opt-in")
     texture_bound = completion["format"] in (
         "if1-texture-bound-topology-v1",
         "if1-texture-bound-topology-v2",
         "if1-texture-bound-topology-v3",
         "if1-texture-bound-topology-v4",
+        "if1-texture-bound-topology-v5",
     )
     transform_bound = completion["format"] in (
         "if1-texture-bound-topology-v2",
         "if1-texture-bound-topology-v3",
         "if1-texture-bound-topology-v4",
+        "if1-texture-bound-topology-v5",
     )
     fragment_bound = completion["format"] in (
         "if1-texture-bound-topology-v3",
         "if1-texture-bound-topology-v4",
+        "if1-texture-bound-topology-v5",
     )
     allowed_texture_hashes: set[str] | None = None
     allowlist_sha256: str | None = None
@@ -873,10 +949,10 @@ def _load_bundle(
             "--texture-allowlist is only valid for a texture-bound bundle"
         )
     excluded_capture_keys: set[str] = set()
-    if completion["format"] == "if1-texture-bound-topology-v4":
+    if completion["format"] in ("if1-texture-bound-topology-v4", "if1-texture-bound-topology-v5"):
         if capture_key_exclusion is None:
             raise RuntimeTopologyExportError(
-                "paged v4 bundle requires --capture-key-exclusion"
+                "paged v4/v5 bundle requires --capture-key-exclusion"
             )
         excluded_capture_keys, exclusion_sha256 = _parse_capture_key_exclusion(
             capture_key_exclusion
@@ -1001,6 +1077,24 @@ def _load_bundle(
                     fragment_report["branch_instruction_count"]
                 ),
             )
+        if completion["format"] == "if1-texture-bound-topology-v5":
+            event_index = next(i for i, item in enumerate(events) if item.number == event.number)
+            event = events[event_index]
+            if event.draw_state_file in payload_sizes:
+                raise RuntimeTopologyExportError("one draw-state file is referenced more than once")
+            state = _read_payload(
+                bundle, event.draw_state_file, event.draw_state_bytes, event.draw_state_sha256
+            )
+            if state[:8] != _DRAW_STATE_MAGIC:
+                raise RuntimeTopologyExportError("draw-state magic is invalid")
+            header = struct.unpack(">5I", state[8:28])
+            version, register_count, primitive, command, draw_event = header
+            if (version, register_count) != (5, 16384) or not 1 <= primitive <= 10 or not 1 <= command <= 3 or draw_event != event.draw_event:
+                raise RuntimeTopologyExportError("draw-state header is outside the fixed v5 contract")
+            events[event_index] = replace(
+                event, draw_state_header=header, draw_state_register_bytes=state[28:]
+            )
+            payload_sizes[event.draw_state_file] = len(state)
         referenced.add(event.index_payload_file)
         referenced.update(block.payload_file for block in event.blocks)
         if transform_bound:
@@ -1008,6 +1102,8 @@ def _load_bundle(
             referenced.add(event.transform_constants_file)
         if fragment_bound:
             referenced.add(event.fragment_program_file)
+        if completion["format"] == "if1-texture-bound-topology-v5":
+            referenced.add(event.draw_state_file)
     if {entry.name for entry in entries} != referenced:
         raise RuntimeTopologyExportError(
             "bundle has missing or unreferenced extra files"
@@ -1111,17 +1207,18 @@ def census_runtime_fragment_samplers(
     texture_allowlist: Path,
     capture_key_exclusion: Path | None = None,
 ) -> dict:
-    """Validate a complete v3/v4 bundle and emit a payload-free sampler census."""
+    """Validate an authorized v3/v4/v5 bundle and emit a payload-free sampler census."""
 
     completion, events, allowlist_sha256 = _load_bundle(
-        bundle, texture_allowlist, capture_key_exclusion
+        bundle, texture_allowlist, capture_key_exclusion, allow_v5=True
     )
     if completion["format"] not in (
         "if1-texture-bound-topology-v3",
         "if1-texture-bound-topology-v4",
+        "if1-texture-bound-topology-v5",
     ):
         raise RuntimeTopologyExportError(
-            "fragment sampler census requires if1-texture-bound-topology-v3/v4"
+            "fragment sampler census requires if1-texture-bound-topology-v3/v4/v5"
         )
     rows = []
     for event in events.values():
@@ -1138,6 +1235,19 @@ def census_runtime_fragment_samplers(
                 "sampler_slots": list(event.fragment_sampler_slots),
                 "texture_instruction_count": event.fragment_texture_instruction_count,
                 "branch_instruction_count": event.fragment_branch_instruction_count,
+                **({
+                    "draw_state_file": event.draw_state_file,
+                    "draw_state_sha256": event.draw_state_sha256,
+                    "draw_state_bytes": event.draw_state_bytes,
+                    "draw_state_format": event.draw_state_format,
+                    "draw_state_header": {
+                        "version": event.draw_state_header[0],
+                        "register_count": event.draw_state_header[1],
+                        "primitive": event.draw_state_header[2],
+                        "draw_command": event.draw_state_header[3],
+                        "draw_event": event.draw_state_header[4],
+                    } if event.draw_state_header else None,
+                } if event.draw_state_file is not None else {}),
                 "target_slots_statically_referenced": True,
                 "runtime_branch_execution_proved": False,
                 "draw_ownership_proved": False,
@@ -1223,6 +1333,7 @@ def export_runtime_topology_glb(
             f"event {event_number} is not present in the bundle"
         )
     event = events[event_number]
+    # v5 is consumed only by the sampler census; the GLB exporter remains v1-v4.
     index_payload = _read_payload(
         bundle, event.index_payload_file, event.index_bytes, event.index_sha256
     )
