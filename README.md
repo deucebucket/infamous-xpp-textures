@@ -2056,6 +2056,20 @@ injection.
 Do not commit or distribute game files or transformed textures. The tool and
 presets can be distributed; each owner builds the mod from their own dump.
 
+## Opt-in v5 draw-state intake
+
+`if1-texture-bound-topology-v5` is accepted only by the explicit internal
+`_load_bundle(..., allow_v5=True)` path used by `runtime-fragment-sampler-census`.
+All geometry, native, material, replay, and other exporters continue to refuse
+v5. The reader validates the v4 paged exclusion contract plus each regular
+`topology-N-draw-state-<sha16>.bin` payload: `IF1DSV5\0`, version 5, 16,384
+registers, primitive 1–10, command 1–3, matching positive draw event, exact
+65,564-byte size, full SHA-256, and complete bundle accounting. Census output
+contains only the payload hash/size/format and header summary; register words
+are never reported. This is register evidence only: it does not prove register
+semantics, texture/surface contents, material ownership, world-space meaning,
+or native rendering.
+
 ## License
 
 [CC0 1.0](LICENSE). The code is public domain. The game is not.
