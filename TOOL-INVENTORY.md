@@ -1,9 +1,125 @@
 # xpp-tool durable tool inventory
 
 This inventory registers bounded commands that were added to unblock a parent
-modding or reverse-engineering goal. A command enters this file only after it
-has a callable contract, rejection tests, no-overwrite behavior, deterministic
-output where applicable, an operator card, and a maintained source location.
+modding or reverse-engineering goal. A command enters the durable diagnostic
+registry only after it has a callable contract, rejection tests, no-overwrite
+behavior, deterministic output where applicable, an operator card, and a
+maintained source location. The separate legacy support register below records
+local modules and operator commands without claiming those guarantees.
+Historical source pins, test totals, and evidence hashes are release receipts,
+not checksums or test results for the current merged tree.
+
+## Legacy local support register (not durable diagnostic tools)
+
+These registrations describe the local texture/static-mesh/UI path. They do
+**not** promote it to the bounded, checksum-pinned, atomic no-overwrite contract
+of the versioned diagnostic entries below. Legacy file writers overwrite
+existing destinations; use disposable copies and separate output directories.
+No general input-size, report-size, symlink, or input/output-alias protection is
+claimed. Module tests listed here are coverage references, not a new test-run
+receipt or proof of a retail round trip.
+
+### Shared actions and desktop entrypoint
+
+- Status: legacy local support; not a diagnostic receipt producer.
+- Parent goal: inspect packages, extract pictures, pack HD textures, and export
+  static models without typing commands.
+- Entry points: `if1-tex-ui [PATH ...] [--web]` and `xpp-tool ui` (compatible
+  `if1-tex ui`). `packaging/if1-tex.desktop` launches `if1-tex-ui %F`;
+  console-script wiring belongs to `pyproject.toml`, CLI wiring to
+  `src/infamous_xpp_textures/cli.py`. The desktop file is a launcher template,
+  not evidence of desktop installation.
+- Implementation: `src/infamous_xpp_textures/ui.py` provides GTK 3 with a local
+  browser fallback; `src/infamous_xpp_textures/actions.py` provides shared
+  `inspect_path`, `pull_pictures`, `pack_hd`, and `save_model` jobs without GUI
+  imports. Automatic HD scale is 4× for positive maximum 2D dimensions up to
+  512, otherwise 2×; this is resizing, not recovered texture detail.
+- Inputs/outputs: local XPP paths or browser uploads; PNG pictures, replacement
+  XPP, static GLB, and optional derived PBR maps. Default work directories are
+  named `<stem>_if1tex` beside the input.
+- Safety/limits: shared jobs and exporters overwrite destinations. The browser
+  fallback runs a threaded HTTP server on `127.0.0.1` and an ephemeral port;
+  uploaded basenames are written under `~/if1-tex-out` and can overwrite prior
+  uploads. It is not a no-network, single-process bounded diagnostic command.
+- Tests: `tests/test_actions.py` covers the scale rule, synthetic texture-only
+  inspection, PNG extraction, and the window job's explicit legacy-fitting HD
+  pack path. `tests/test_cli_merge_reachability.py` covers command routing and
+  UI entrypoint dispatch without opening a window. These tests do not establish
+  GUI/browser safety, overwrite rejection, or retail HD/model correctness.
+- Operator card: [README — Window (no typing)](README.md#window-no-typing).
+
+### Static assembly, naming, and derived materials
+
+- Status: legacy selectors and export support, not evidence of complete assets.
+- Parent goal: select static sections for an editable GLB rather than stacking
+  intact, wrecked, and breakaway copies indiscriminately.
+- Entry points: `xpp-tool mesh-list` and `xpp-tool mesh-export` (also `if1-tex`);
+  assembly/contact/PBR options are wired in `src/infamous_xpp_textures/cli.py`
+  and consumed by `src/infamous_xpp_textures/mesh.py`.
+- Implementation: `src/infamous_xpp_textures/assemble.py` selects all sections,
+  first/largest per OID, explicit record offsets, or stem-specific helicopter,
+  spy-drone, and bus recipes. `src/infamous_xpp_textures/names.py` loads OID CSV
+  names and contact JSON, derives include/exclude/glass roles, and reads optional
+  game-space translations. These recipes and name rules are not general
+  completeness or placement proofs.
+- Material support: `src/infamous_xpp_textures/pbr.py:derive_pbr` returns albedo,
+  invented normal, and ORM bytes from image luminance/color heuristics. These
+  are derived preview maps, **not recovered retail normal/PBR semantics** and
+  not substitutes for strict runtime-bound character material evidence.
+- Inputs/outputs: static XPP sections, optional OID CSV/contact JSON and image
+  overrides; contact JSON, GLB, and optional PNG maps. Selectors/map derivation
+  operate in memory; the CLI contact writer and mesh/map exporters overwrite
+  files. No new-only publication contract is supplied by these helpers.
+- Tests: `tests/test_assemble.py` covers recipes, per-OID selection, contact
+  conversion/include precedence and role rules; `tests/test_pbr.py` checks map
+  sizes and heuristic paint/metal behavior. `tests/test_mesh.py` covers stride
+  helpers and texture-only export rejection, not full asset correctness.
+- Operator card: [README — Static meshes](README.md#static-meshes).
+
+### Static GLB reader and reverse compiler
+
+- Status: legacy experimental editing support; not a validated game injector.
+- Parent goal: write supported static GLB edits into an existing XPP layout.
+- Entry point: `xpp-tool mesh-compile` (also `if1-tex`); implementation
+  `src/infamous_xpp_textures/compile.py:compile_glb` / `compile_files`, using
+  `src/infamous_xpp_textures/glbread.py:parse_glb`.
+- Inputs/outputs: original static XPP and edited GLB; replacement XPP plus a
+  section summary. The compiler matches `if1RecordOffset` (or a sole primitive
+  to a sole section), checks vertex/index counts, converts axes, optionally
+  inverts joint placement, and writes positions, supplied UVs, indices, and
+  bounds. Counts/layout stay fixed; index connectivity may change. Skinned/EDGE
+  reconstruction, materials, normals, and arbitrary new topology are not this
+  path.
+- Safety/limits: `compile_files` uses `write_bytes`, overwriting its destination
+  with no source-alias guard. The minimal GLB reader assumes tightly packed
+  float position/UV arrays and supported unsigned indices; it is not a general
+  glTF validator or scene-transform importer. Count checks alone do not prove
+  a safe retail round trip.
+- Tests: `tests/test_assemble.py:test_axis_roundtrip` checks axis inversion only;
+  that test is not full compiler/reader round-trip or rejection-suite coverage.
+- Operator card: [README — Static meshes](README.md#static-meshes).
+
+### Package inspection and EDGE record recognition
+
+- Status: legacy read-only analysis helpers; not bounded diagnostic authorities.
+- Parent goal: distinguish texture/static packages from recognized packed or
+  hollow skinned geometry records without inventing decoded vertices.
+- Entry points: `xpp-tool inspect` and the no-static-section branch of
+  `xpp-tool mesh-list` (also `if1-tex`).
+- Implementation: `src/infamous_xpp_textures/inspect.py:inspect_bytes` /
+  `format_report` reports segments, chunks, textures, layout counts, and static
+  sections; `src/infamous_xpp_textures/edge.py:describe_skinned` recognizes
+  paired-stream envelopes, hollow count/AABB headers, and geometry wrappers.
+- Inputs/outputs: package bytes and parsed metadata; in-memory summaries and
+  CLI text/JSON on stdout. These helpers do not write files. Read-only behavior
+  is not a checksum pin, resource bound, payload-privacy guarantee, or proof
+  that recognition heuristics recovered geometry, skinning, or component names.
+- Tests: `tests/test_edge.py` checks acceptance of a synthetic hollow header and
+  rejection of filled static pointers. `tests/test_actions.py` covers the
+  separate shared-action inspector, not this detailed report formatter.
+- Operator card: [README — Package inspection](README.md#package-inspection).
+
+## Durable diagnostic registry
 
 ## `xpp-tool.character-material-gap-locator.v1`
 

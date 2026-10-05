@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "infamous-xpp-textures"
 version = "2.41.0"
-description = "XPP extract/repack tools and audited inFAMOUS PSARC profile building."
+description = "XPP texture/static-mesh tools, audited inFAMOUS PSARC profile building, and a click-and-go UI."
 readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.10"
@@ -20,6 +20,7 @@ classifiers = [
 [project.scripts]
 if1-tex = "infamous_xpp_textures.cli:main"
 xpp-tool = "infamous_xpp_textures.cli:main"
+if1-tex-ui = "infamous_xpp_textures.ui:main"
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]

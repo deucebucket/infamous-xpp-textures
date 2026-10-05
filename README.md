@@ -21,7 +21,32 @@ The game keeps reading XPP. PNG is the edit format. This tool does not make the 
 
 `xpp-tool` is the neutral command name. The original `if1-tex` entry point is
 kept as a fully compatible alias, including all existing commands and options.
-Durable diagnostic commands are registered in [TOOL-INVENTORY.md](TOOL-INVENTORY.md).
+Durable diagnostic commands and supporting modules are registered in
+[TOOL-INVENTORY.md](TOOL-INVENTORY.md).
+
+## Window (no typing)
+
+```bash
+if1-tex
+```
+
+or `if1-tex ui`, or `if1-tex-ui`. Drop an `.xpp` on the window, or click the big box and pick one.
+
+Three buttons:
+
+1. Get the pictures out (PNG)
+2. Make them HD and pack a new `.xpp` the game can still read
+3. Save the 3D model (GLB)
+
+Same jobs as the commands below. The window is the easy front. The CLI is for scripts.
+
+If the desktop toolkit is missing, `if1-tex ui --web` opens a local page instead.
+`xpp-tool ui` opens the same window; both command aliases accept the complete
+command set below. GTK is optional, not a Python package dependency. The desktop
+launcher is provided in `packaging/if1-tex.desktop`.
+
+HD packing increases texture memory requirements; it is not a gameplay-safety
+claim. Use the retail comparison and profile preflight below before deployment.
 
 ## How packages are laid out
 
@@ -57,6 +82,7 @@ source .venv/bin/activate
 pip install -e .
 xpp-tool --help
 if1-tex --help  # compatibility alias
+if1-tex ui      # window (also: if1-tex-ui, or either CLI with no arguments)
 ```
 
 ```bash
@@ -102,7 +128,18 @@ if1-tex pack --xpp /path/to/package.xpp --out ./edited.xpp --scale 4
 ```
 
 `--scale` implies a size change. Cubemaps are left alone (the packer only
-replaces 2D textures). The package must have **one** texel-heap chunk.
+replaces 2D textures). Extra unused texel-heap chunks are preserved; if textures
+actually occupy more than one heap, packing refuses instead of dropping texels.
+A final chain may omit alignment padding, but never required texel bytes.
+Payload-relative addresses, synchronized mip counts, retail texture order,
+opaque heap gaps, and the untouched final link segment are preserved.
+
+Explicit replacements are strict by default: invalid image sizes/data and cubemap
+replacements are refused. For the original window's best-effort batch behavior,
+use `pack --fit-replacements`: oversized power-of-two images are halved to fit
+4096, and unfittable images or cubemap slots are left retail. The window uses
+this opt-in mode. Scaling already skips cubemaps. Neither mode permits missing
+texel bytes, invalid descriptors, or multi-heap texture allocations.
 
 Round-trip check:
 
@@ -366,15 +403,49 @@ the universal inFAMOUS Mod Manager's matching packed-profile controls.
 
 ```bash
 if1-tex mesh-list --xpp /path/to/package.xpp
+if1-tex mesh-list --xpp /path/to/package.xpp --oids oid-names.csv --contact-out ./heli.contact.json
+if1-tex mesh-export --xpp /path/to/package.xpp --output ./heli.glb --contact ./heli.contact.json --pbr
 ```
 
-One section:
+Every static section (rotors, chassis, …) in one GLB:
 
 ```bash
 if1-tex mesh-export --xpp /path/to/package.xpp --output ./prop.glb
 ```
 
-Several pieces (rotors, chassis, …):
+One piece at a time (for painting a single mesh):
+
+```bash
+if1-tex mesh-export --xpp /path/to/package.xpp --output ./pieces --each
+```
+
+Assemble like the helicopter (one intact object, joints placed, Blender-ready GLB):
+
+```bash
+if1-tex mesh-export --xpp ./wf_helicopter_transport.xpp \
+  --output ./heli.glb --assemble recipe
+```
+
+`unique-largest` keeps the biggest piece per oid (usually the intact hull, not the wreck). `recipe` uses the measured intact transport heli. `--record-offset` is still the explicit list.
+
+Open the GLB in Blender. That is the viewer. There is no separate XPP viewport.
+
+Compile an edited GLB back into an XPP the game can read (same vertex/triangle counts):
+
+```bash
+if1-tex mesh-compile --xpp ./original.xpp --glb ./edited.glb --out ./compiled.xpp
+```
+
+That also writes `compiled.glb` so you can check the compile in Blender.
+
+Remaster look (derived PBR — not in the game file). Pass the 4× albedo folder if you have one:
+
+```bash
+if1-tex mesh-export --xpp /path/to/package.xpp --output ./prop.glb \
+  --pbr --hd-dir ./textures_4x --maps-dir ./pbr
+```
+
+Only some pieces:
 
 ```bash
 if1-tex mesh-export --xpp /path/to/package.xpp --output ./heli.glb \
@@ -385,6 +456,19 @@ if1-tex mesh-export --xpp /path/to/package.xpp --output ./heli.glb \
 from the same package.
 
 Character packages print that there are no static sections and exit non-zero.
+
+## Package inspection
+
+```bash
+xpp-tool inspect --xpp /path/to/package.xpp
+```
+
+Inspect package structure, names, textures, static sections and Edge metadata
+without claiming that skinned geometry can be compiled. OID names can be supplied
+to `mesh-list` using `--oids`; contact reports support static mesh selection.
+Assembly recipes, derived PBR maps and GLB compilation belong to the static
+mesh path above, not the evidence-gated character pipeline below. Legacy extract,
+mesh and UI writers may overwrite their destinations; use separate output paths.
 
 ## Rigged characters: report before conversion
 
@@ -2055,6 +2139,24 @@ injection.
 
 Do not commit or distribute game files or transformed textures. The tool and
 presets can be distributed; each owner builds the mod from their own dump.
+
+## What it needs (public tool)
+
+No GPU. No Blender. No CUDA. Python 3.10+ and the standard library.
+
+| Job | How | Hardware |
+|---|---|---|
+| Extract PNG | decode DXT on CPU | any |
+| HD pack (`--scale 2/4`) | nearest-neighbor resize on CPU, rebuild mips, rewrite the XPP | any (a 2048² pack is a few seconds) |
+| Derived PBR | Sobel normals + roughness/metal from the albedo, on CPU | any |
+| Static mesh → GLB | read float3 + UVs | any |
+| Window | GTK 3 if present, otherwise `if1-tex ui --web` | any |
+
+HD is **not** AI upscale and **not** GPU. It is integer nearest-neighbor so the game still sees DXT the same way. If someone later wants a nicer upscaler they edit the PNGs in whatever they have and `--from-dir` pack; the tool does not require that.
+
+PBR maps are **invented from the color texture**. Infamous 1 does not store metalness/roughness. The GLB remaster is for looking at the mesh. The game still reads DXT in the XPP.
+
+Settings in the window: HD scale (auto / 2× / 4×), assemble mode (unique-largest / first / all / heli recipe), remaster PBR on/off.
 
 ## License
 
