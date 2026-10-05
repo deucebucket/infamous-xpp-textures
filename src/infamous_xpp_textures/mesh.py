@@ -72,9 +72,16 @@ def find_mesh_sections(data: bytes, parsed: XppFile) -> list[MeshSection]:
             indices = words[19]
             vertex_count = words[21]
             split = attribute not in (0, 0xFFFFFFFF)
+            material_class = (
+                _u32(data, parsed.data_offset + material)
+                if 0 <= material <= parsed.data_size - 4
+                else 0
+            )
+            # 0xc3 = 0xc0 | 0x03 on the ambulance hull; streams are still float3.
+            # 0x161 is the vehicle shader/material wrapper (heli uses 0x15F).
             if not (
                 0 < triangle_count <= 0xFFFF
-                and flags in (1, 3)
+                and (flags & 0x03) in (1, 3)
                 and attribute_count in (5, 6)
                 and (words[3] & 0xFFFF) == 0
                 and words[13] == words[14]
@@ -88,20 +95,25 @@ def find_mesh_sections(data: bytes, parsed: XppFile) -> list[MeshSection]:
                 and 0 < vertex_count <= 0xFFFF
                 and words[22] == 0
                 and words[23] == 0
-                and 0 <= material <= parsed.data_size - 4
-                and _u32(data, parsed.data_offset + material) == MATERIAL_CLASS
+                and material_class in (MATERIAL_CLASS, 0x00000161)
             ):
                 continue
             position_stride = 12 if split else 26
             attribute_start = attribute if split else position + 12
-            attribute_stride = 14 if split else 26
+            attribute_stride = (
+                _split_attribute_stride(
+                    data, parsed, attribute_start, vertex_count, attribute_count
+                )
+                if split
+                else 26
+            )
             if not (
                 _extent_contains(heap.offset, heap.size, position, vertex_count * position_stride)
                 and _extent_contains(
                     heap.offset,
                     heap.size,
                     attribute_start,
-                    (vertex_count - 1) * attribute_stride + 14,
+                    vertex_count * attribute_stride,
                 )
                 and _extent_contains(heap.offset, heap.size, indices, triangle_count * 3 * 2)
             ):
@@ -279,19 +291,66 @@ class GlbBuilder:
         return len(self.accessors) - 1
 
 
-def _material_png(data: bytes, parsed: XppFile, material: int) -> bytes:
+def _attribute_stride(split: bool, attribute_count: int) -> int:
+    """Fallback when the attribute stream cannot be scored."""
+    if not split:
+        return 26
+    return 18 if attribute_count == 6 else 14
+
+
+def _score_uv_stride(data: bytes, parsed, attribute_start: int, vertex_count: int, stride: int) -> int:
+    """Count verts whose UV at +8 is a finite half2 inside a plausible range."""
+    finite = 0
+    payload = parsed.data_offset
+    for index in range(vertex_count):
+        attr = payload + attribute_start + index * stride
+        if attr + 12 > len(data):
+            continue
+        u, v = struct.unpack_from(">2e", data, attr + 8)
+        if math.isfinite(u) and math.isfinite(v) and abs(u) < 64 and abs(v) < 64:
+            finite += 1
+    return finite
+
+
+def _split_attribute_stride(
+    data: bytes,
+    parsed,
+    attribute_start: int,
+    vertex_count: int,
+    attribute_count: int,
+) -> int:
+    """Split attr_count=5 is 14 bytes. attr_count=6 is 14 or 18 — pick by UV score.
+
+    Bus hull 0x4d230: 18 wins (1574/1574 finite). A13 protest_sign 0x1c020: 14
+    wins (60/60 finite 0-1 board; 18 washes the face white).
+    """
+    if attribute_count != 6:
+        return 14
+    score_14 = _score_uv_stride(data, parsed, attribute_start, vertex_count, 14)
+    score_18 = _score_uv_stride(data, parsed, attribute_start, vertex_count, 18)
+    return 18 if score_18 > score_14 else 14
+
+
+def _png_bytes(width: int, height: int, rgba: bytes) -> bytes:
+    from tempfile import TemporaryDirectory
+
+    with TemporaryDirectory() as tmp:
+        path = Path(tmp) / "map.png"
+        write_png(path, width, height, rgba)
+        return path.read_bytes()
+
+
+def bound_albedo(data: bytes, parsed: XppFile, material: int) -> tuple[int, int, bytes, int]:
     """Decode the first 2D texture that looks bound after the material record."""
     from .heap import read_records
 
     recs = read_records(data, parsed)
-    later = []
     end = min(parsed.data_size, material + 0x400)
     oids = []
     for offset in range(material, end - 3, 4):
         value = _u32(data, parsed.data_offset + offset)
         if value not in oids:
             oids.append(value)
-    # Descriptor OID lives at +0x20 of the 0x70 record (same as original exporter).
     desc_oids = []
     for rec in recs:
         if len(rec.raw) >= 0x24:
@@ -299,12 +358,44 @@ def _material_png(data: bytes, parsed: XppFile, material: int) -> bytes:
     for oid in oids:
         for desc_oid, rec in desc_oids:
             if desc_oid == oid and rec.faces == 1:
-                texels = None
                 for idx, srec, heap in iter_textures(data, parsed):
                     if srec.raw == rec.raw:
                         _w, _h, rgba, _n = decode_level(srec, heap, 0, srec.heap_offset)
-                        return bytes(rgba) + struct.pack(">II", srec.width, srec.height)
+                        return srec.width, srec.height, bytes(rgba), idx
     raise MeshExportError("could not bind a 2D texture for this material; pass --texture")
+
+
+def _material_png(data: bytes, parsed: XppFile, material: int) -> bytes:
+    w, h, rgba, _idx = bound_albedo(data, parsed, material)
+    return rgba + struct.pack(">II", w, h)
+
+
+def _cross(a: tuple[float, float, float], b: tuple[float, float, float]) -> tuple[float, float, float]:
+    return (
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    )
+
+
+def vertex_normals(
+    positions: list[tuple[float, float, float]], indices: tuple[int, ...]
+) -> list[tuple[float, float, float]]:
+    acc = [(0.0, 0.0, 0.0)] * len(positions)
+    for t in range(0, len(indices), 3):
+        i, j, k = indices[t], indices[t + 1], indices[t + 2]
+        if max(i, j, k) >= len(positions):
+            continue
+        p, q, r = positions[i], positions[j], positions[k]
+        n = _cross((q[0] - p[0], q[1] - p[1], q[2] - p[2]), (r[0] - p[0], r[1] - p[1], r[2] - p[2]))
+        for v in (i, j, k):
+            a = acc[v]
+            acc[v] = (a[0] + n[0], a[1] + n[1], a[2] + n[2])
+    out = []
+    for n in acc:
+        length = math.sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2])
+        out.append((0.0, 0.0, 1.0) if length < 1e-12 else (n[0] / length, n[1] / length, n[2] / length))
+    return out
 
 
 def export_glb(
@@ -313,6 +404,10 @@ def export_glb(
     *,
     record_offsets: set[int] | None,
     texture_path: Path | None,
+    pbr: bool = False,
+    maps_dir: Path | None = None,
+    glass_offsets: set[int] | None = None,
+    translations: dict[int, tuple[float, float, float]] | None = None,
 ) -> dict:
     parsed = parse_xpp(data, len(data))
     sections = find_mesh_sections(data, parsed)
@@ -326,13 +421,17 @@ def export_glb(
         if missing:
             formatted = ", ".join(f"0x{o:x}" for o in sorted(missing))
             raise MeshExportError(f"records not found or not static mesh: {formatted}")
-    elif len(sections) == 1:
-        selected = sections
     else:
-        raise MeshExportError(
-            f"{len(sections)} static sections; pass --record-offset for each piece to assemble"
-        )
-    bindings = joint_bindings(data, parsed)
+        selected = sections
+    joint_note = ""
+    try:
+        bindings = joint_bindings(data, parsed)
+    except MeshExportError as exc:
+        if "ambiguous" in str(exc).lower():
+            bindings = {}
+            joint_note = str(exc)
+        else:
+            raise
     if texture_path is not None:
         tw, th, rgba = read_png(texture_path)
         image_bytes = Path(texture_path).read_bytes()
@@ -345,11 +444,22 @@ def export_glb(
         image_bytes = tmp.read_bytes()
         tmp.unlink(missing_ok=True)
 
+    glass = glass_offsets or set()
     builder = GlbBuilder()
     primitives = []
     for section in selected:
         position_stride = 12 if section.split_streams else 26
-        attribute_stride = 14 if section.split_streams else 26
+        attribute_stride = (
+            _split_attribute_stride(
+                data,
+                parsed,
+                section.attribute_offset,
+                section.vertex_count,
+                section.attribute_count,
+            )
+            if section.split_streams
+            else 26
+        )
         positions = []
         texcoords = []
         for index in range(section.vertex_count):
@@ -361,6 +471,9 @@ def export_glb(
             binding = bindings.get(section.oid, bindings.get(None))
             if binding is not None:
                 xyz = apply_joint(binding, xyz)
+            if translations and section.record_offset in translations:
+                dx, dy, dz = translations[section.record_offset]
+                xyz = (xyz[0] + dx, xyz[1] + dy, xyz[2] + dz)
             positions.append((xyz[0], xyz[2], -xyz[1]))
             attr = parsed.data_offset + section.attribute_offset + index * attribute_stride
             texcoords.append(struct.unpack_from(">2e", data, attr + 8))
@@ -372,49 +485,118 @@ def export_glb(
         position_bytes = b"".join(struct.pack("<3f", *value) for value in positions)
         texcoord_bytes = b"".join(struct.pack("<2f", *value) for value in texcoords)
         index_bytes = struct.pack(f"<{len(indices)}H", *indices)
+        normals = vertex_normals(positions, indices)
+        normal_bytes = b"".join(struct.pack("<3f", *value) for value in normals)
         pmin = [min(value[axis] for value in positions) for axis in range(3)]
         pmax = [max(value[axis] for value in positions) for axis in range(3)]
+        attributes = {
+            "POSITION": builder.add_accessor(
+                position_bytes, 5126, len(positions), "VEC3", 34962, pmin, pmax
+            ),
+            "NORMAL": builder.add_accessor(normal_bytes, 5126, len(normals), "VEC3", 34962),
+            "TEXCOORD_0": builder.add_accessor(
+                texcoord_bytes, 5126, len(texcoords), "VEC2", 34962
+            ),
+        }
         primitives.append(
             {
-                "attributes": {
-                    "POSITION": builder.add_accessor(
-                        position_bytes, 5126, len(positions), "VEC3", 34962, pmin, pmax
-                    ),
-                    "TEXCOORD_0": builder.add_accessor(
-                        texcoord_bytes, 5126, len(texcoords), "VEC2", 34962
-                    ),
-                },
+                "attributes": attributes,
                 "indices": builder.add_accessor(index_bytes, 5123, len(indices), "SCALAR", 34963),
-                "material": 0,
+                "material": 1 if section.record_offset in glass else 0,
                 "mode": 4,
+                "extras": {
+                    "if1RecordOffset": section.record_offset,
+                    "if1Oid": section.oid,
+                    "if1SplitStreams": section.split_streams,
+                    "if1VertexCount": section.vertex_count,
+                    "if1TriangleCount": section.triangle_count,
+                },
             }
         )
     image_view = builder.add_view(image_bytes)
+    images = [{"bufferView": image_view, "mimeType": "image/png"}]
+    textures = [{"sampler": 0, "source": 0}]
+    if pbr:
+        from .pbr import derive_pbr
+
+        maps = derive_pbr(tw, th, rgba)
+        if maps_dir is not None:
+            maps_dir.mkdir(parents=True, exist_ok=True)
+            write_png(maps_dir / "albedo.png", tw, th, maps.albedo)
+            write_png(maps_dir / "normal.png", tw, th, maps.normal)
+            write_png(maps_dir / "orm.png", tw, th, maps.orm)
+        nview = builder.add_view(_png_bytes(tw, th, maps.normal))
+        oview = builder.add_view(_png_bytes(tw, th, maps.orm))
+        images.append({"bufferView": nview, "mimeType": "image/png"})
+        images.append({"bufferView": oview, "mimeType": "image/png"})
+        textures.append({"sampler": 0, "source": 1})
+        textures.append({"sampler": 0, "source": 2})
+        material = {
+            "name": "if1_body",
+            "doubleSided": True,
+            "normalTexture": {"index": 1, "scale": 1.35},
+            "occlusionTexture": {"index": 2},
+            "pbrMetallicRoughness": {
+                "baseColorTexture": {"index": 0},
+                "metallicRoughnessTexture": {"index": 2},
+                "metallicFactor": 1.0,
+                "roughnessFactor": 1.0,
+            },
+            "extensions": {
+                "KHR_materials_clearcoat": {
+                    "clearcoatFactor": 1.0,
+                    "clearcoatRoughnessFactor": 0.10,
+                }
+            },
+        }
+        extensions = ["KHR_materials_clearcoat"]
+    else:
+        material = {
+            "name": "if1_body",
+            "doubleSided": True,
+            "extensions": {"KHR_materials_unlit": {}},
+            "pbrMetallicRoughness": {
+                "baseColorTexture": {"index": 0},
+                "metallicFactor": 0.0,
+                "roughnessFactor": 1.0,
+            },
+        }
+        extensions = ["KHR_materials_unlit"]
+    materials = [material]
+    if glass:
+        materials.append(
+            {
+                "name": "if1_glass",
+                "alphaMode": "BLEND",
+                "doubleSided": True,
+                "pbrMetallicRoughness": {
+                    "baseColorFactor": [0.72, 0.84, 0.92, 0.16],
+                    "metallicFactor": 0.0,
+                    "roughnessFactor": 0.06,
+                },
+                "extensions": {
+                    "KHR_materials_transmission": {"transmissionFactor": 0.96},
+                    "KHR_materials_ior": {"ior": 1.45},
+                },
+            }
+        )
+        extensions = list(dict.fromkeys(extensions + ["KHR_materials_transmission", "KHR_materials_ior"]))
     document = {
         "asset": {"version": "2.0", "generator": "if1-tex"},
-        "extensionsUsed": ["KHR_materials_unlit"],
         "scene": 0,
         "scenes": [{"nodes": [0]}],
         "nodes": [{"mesh": 0}],
         "meshes": [{"primitives": primitives}],
-        "materials": [
-            {
-                "doubleSided": True,
-                "extensions": {"KHR_materials_unlit": {}},
-                "pbrMetallicRoughness": {
-                    "baseColorTexture": {"index": 0},
-                    "metallicFactor": 0.0,
-                    "roughnessFactor": 1.0,
-                },
-            }
-        ],
-        "textures": [{"sampler": 0, "source": 0}],
+        "materials": materials,
+        "textures": textures,
         "samplers": [{"magFilter": 9729, "minFilter": 9987, "wrapS": 10497, "wrapT": 10497}],
-        "images": [{"bufferView": image_view, "mimeType": "image/png"}],
+        "images": images,
         "buffers": [{"byteLength": len(builder.binary)}],
         "bufferViews": builder.views,
         "accessors": builder.accessors,
     }
+    if extensions:
+        document["extensionsUsed"] = extensions
     json_bytes = json.dumps(document, separators=(",", ":"), ensure_ascii=True).encode("ascii")
     json_bytes += b" " * (-len(json_bytes) & 3)
     while len(builder.binary) & 3:
@@ -429,10 +611,16 @@ def export_glb(
     )
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_bytes(glb)
-    return {
+    result = {
         "sections": len(selected),
         "recordOffsets": [s.record_offset for s in selected],
         "vertices": sum(s.vertex_count for s in selected),
         "triangles": sum(s.triangle_count for s in selected),
         "output": str(output),
+        "pbr": pbr,
+        "pbrNote": "derived from albedo; not stored in the game" if pbr else "unlit retail color",
+        "glassOffsets": sorted(section.record_offset for section in selected if section.record_offset in glass),
     }
+    if joint_note:
+        result["jointNote"] = joint_note
+    return result

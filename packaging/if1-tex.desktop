@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=if1-tex
+Comment=inFAMOUS 1 pictures and models
+Exec=if1-tex-ui %F
+Terminal=false
+Categories=Graphics;Utility;
+MimeType=application/octet-stream;

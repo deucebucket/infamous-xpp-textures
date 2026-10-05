@@ -15,20 +15,15 @@ from .heap import (
     HEAP_ALIGN,
     TEXDESC_CHUNK,
     TEXEL_CHUNK,
+    TextureRecord,
     align_up,
     chain_size,
     heap_chunks,
-    heap_bytes,
+    read_all_descriptors,
     read_records,
 )
 from .pngio import read_png, scale_nearest
-from .xpp import (
-    CHUNK_SIZE,
-    OVERLAY_CHUNK_TYPE,
-    SEGMENT_SIZE,
-    TABLES_OFFSET,
-    parse_xpp,
-)
+from .xpp import CHUNK_SIZE, OVERLAY_CHUNK_TYPE, SEGMENT_SIZE, TABLES_OFFSET, parse_xpp
 
 
 class PackError(ValueError):
@@ -57,6 +52,37 @@ def _mip_count(width: int, height: int) -> int:
     return max(width, height).bit_length()
 
 
+def _legal_2d(width: int, height: int, *, cap: int = 4096) -> bool:
+    """Power-of-two dimensions within the requested cap."""
+    return (
+        0 < width <= cap and 0 < height <= cap
+        and width & (width - 1) == 0 and height & (height - 1) == 0
+    )
+
+
+def _fit_replacement(
+    width: int, height: int, rgba: bytes
+) -> tuple[int, int, bytes] | None:
+    """Halve oversized power-of-two images to fit; keep invalid inputs retail."""
+    if width <= 0 or height <= 0:
+        return None
+    if width & (width - 1) or height & (height - 1):
+        return None
+    if len(rgba) != width * height * 4:
+        return None
+    w, h, pix = width, height, rgba
+    while not _legal_2d(w, h):
+        nw, nh = max(1, w // 2), max(1, h // 2)
+        out = bytearray(nw * nh * 4)
+        for y in range(nh):
+            for x in range(nw):
+                si = ((y * 2) * w + x * 2) * 4
+                di = (y * nw + x) * 4
+                out[di : di + 4] = pix[si : si + 4]
+        w, h, pix = nw, nh, bytes(out)
+    return w, h, pix
+
+
 def _write_desc(raw: bytes, *, width: int, height: int, mips: int, data_addr: int) -> bytes:
     out = bytearray(raw)
     if len(out) < DESC_STRIDE:
@@ -71,15 +97,46 @@ def _write_desc(raw: bytes, *, width: int, height: int, mips: int, data_addr: in
     return bytes(out)
 
 
+def referenced_heap_indices(data: bytes, pkg, recs: list[TextureRecord]) -> list[int]:
+    """Find referenced heaps using payload-relative pointers, never guessed bases."""
+    return [
+        index for index, chunk in enumerate(heap_chunks(pkg))
+        if any(
+            rec.data_addr < chunk.offset + chunk.size
+            and rec.data_addr + rec.chain_bytes * rec.faces > chunk.offset
+            for rec in recs
+        )
+    ]
+
+
+def _packing_records(data, pkg):
+    """Never silently drop invalid descriptors or invent missing chain bytes."""
+    for index, _raw, _rec, reason in read_all_descriptors(data, pkg):
+        if reason:
+            raise PackError(f"texture {index} cannot be packed: {reason}")
+    recs = read_records(data, pkg)
+    if not recs:
+        raise PackError("no texture descriptors")
+    return recs
+
+
+def _primary_heap(data, pkg, recs):
+    texels = heap_chunks(pkg)
+    if not texels:
+        raise PackError("packer needs a texel heap chunk, this package has 0")
+    used = referenced_heap_indices(data, pkg, recs)
+    if len(used) != 1:
+        raise PackError(
+            f"textures reference {len(used)} texel-heap chunks (indices {used}); "
+            "packer will not merge or drop texels"
+        )
+    return texels[used[0]]
+
+
 def rebuild_xpp(data: bytes, new_descs: list[bytes], new_heap: bytes) -> bytes:
     """Splice one rebuilt heap while preserving every unrelated payload byte."""
     pkg = parse_xpp(data, len(data))
-    texels = heap_chunks(pkg)
-    if len(texels) != 1:
-        raise PackError(
-            f"packer needs exactly one texel heap chunk, this package has {len(texels)}"
-        )
-
+    heap_chunk = _primary_heap(data, pkg, _packing_records(data, pkg))
     desc_chunks = [c for c in pkg.chunks if c.type_tag == TEXDESC_CHUNK]
     desc_blob = b"".join(new_descs)
     expected = sum(c.size for c in desc_chunks)
@@ -88,11 +145,9 @@ def rebuild_xpp(data: bytes, new_descs: list[bytes], new_heap: bytes) -> bytes:
             f"descriptor payload {len(desc_blob)} bytes, package table expects {expected}"
         )
 
-    heap_chunk = texels[0]
     old_start = heap_chunk.offset
     old_end = old_start + heap_chunk.size
     delta = len(new_heap) - heap_chunk.size
-
     old_payload = bytearray(data[pkg.data_offset : pkg.data_offset + pkg.data_size])
     desc_cursor = 0
     for chunk in desc_chunks:
@@ -103,9 +158,10 @@ def rebuild_xpp(data: bytes, new_descs: list[bytes], new_heap: bytes) -> bytes:
     new_payload = old_payload[:old_start] + new_heap + old_payload[old_end:]
     metadata = bytearray(data[: pkg.data_offset])
     struct.pack_into(">I", metadata, 0x2C, pkg.data_size + delta)
-
     owning_segments = 0
     for index, segment in enumerate(pkg.segments):
+        if not segment.chunk_count:
+            raise PackError("empty segment while rebuilding")
         row = TABLES_OFFSET + index * SEGMENT_SIZE
         segment_end = segment.offset + segment.size
         if segment.offset <= old_start and old_end <= segment_end:
@@ -124,8 +180,7 @@ def rebuild_xpp(data: bytes, new_descs: list[bytes], new_heap: bytes) -> bytes:
         row = chunk_start + index * CHUNK_SIZE
         chunk_end = chunk.offset + chunk.size
         if chunk.type_tag == TEXEL_CHUNK and (chunk.offset, chunk.size) == (
-            old_start,
-            heap_chunk.size,
+            old_start, heap_chunk.size,
         ):
             struct.pack_into(">I", metadata, row + 4, len(new_heap))
             changed_heaps += 1
@@ -149,27 +204,15 @@ def pack_chains(
     data: bytes,
     replacements: dict[int, tuple[int, int, int, bytes]],
 ) -> bytes:
-    """Replace encoded chains while preserving the retail XPP's opaque layout.
-
-    ``replacements`` maps descriptor index to ``(width, height, mips, bytes)``.
-    Chain bytes are copied verbatim; no image decoding or recompression occurs.
-    """
+    """Replace index -> (width, height, mips, chain) without recompression."""
     pkg = parse_xpp(data, len(data))
-    recs = read_records(data, pkg)
-    if not recs:
-        raise PackError("no texture descriptors")
-    by_index = {r.index: r for r in recs}
-    unknown = set(replacements) - set(by_index)
+    recs = _packing_records(data, pkg)
+    unknown = set(replacements) - {r.index for r in recs}
     if unknown:
         raise PackError(f"unknown texture indices: {sorted(unknown)}")
-
-    texel_chunks = heap_chunks(pkg)
-    if len(texel_chunks) != 1:
-        raise PackError(
-            f"packer needs exactly one texel heap chunk, this package has {len(texel_chunks)}"
-        )
-    texel_chunk = texel_chunks[0]
-    texels = heap_bytes(data, pkg)
+    texel_chunk = _primary_heap(data, pkg, recs)
+    start = pkg.data_offset + texel_chunk.offset
+    texels = data[start : start + texel_chunk.size]
 
     planned: dict[int, tuple[int, int, int, bytes | None]] = {}
     for rec in recs:
@@ -179,10 +222,8 @@ def pack_chains(
                 raise PackError(
                     f"texture {rec.index} is a cubemap; packer only replaces 2D textures"
                 )
-            if w <= 0 or h <= 0 or mips <= 0:
-                raise PackError(
-                    f"texture {rec.index} has invalid dimensions or mip count"
-                )
+            if not _legal_2d(w, h, cap=8192) or not 1 <= mips <= _mip_count(w, h):
+                raise PackError(f"texture {rec.index} has invalid dimensions or mip count")
             expected = chain_size(rec.format, w, h, mips)
             if len(encoded) != expected:
                 raise PackError(
@@ -192,8 +233,7 @@ def pack_chains(
         else:
             planned[rec.index] = (rec.width, rec.height, rec.mips, None)
 
-    # Preserve retail pointer order and every byte not owned by a recognized
-    # mip chain. Some packages retain opaque data inside the texel-heap chunk.
+    # Keep retail pointer order, the heap prefix, and every opaque inter-chain gap.
     ordered = sorted(recs, key=lambda rec: rec.data_addr)
     if len({rec.data_addr for rec in ordered}) != len(ordered):
         raise PackError("duplicate texture data pointers")
@@ -201,13 +241,13 @@ def pack_chains(
     heap_end = texel_chunk.offset + texel_chunk.size
     if not texel_chunk.offset <= first < heap_end:
         raise PackError("first texture pointer is outside the texel heap")
-    heap = bytearray()
-    heap.extend(texels[: first - texel_chunk.offset])
+    heap = bytearray(texels[: first - texel_chunk.offset])
     addr_for: dict[int, int] = {}
     for position, rec in enumerate(ordered):
         span_end = ordered[position + 1].data_addr if position + 1 < len(ordered) else heap_end
         span_size = span_end - rec.data_addr
-        if span_size < rec.chain_bytes:
+        required = (rec.faces - 1) * align_up(rec.chain_bytes) + rec.chain_bytes
+        if span_size < required:
             raise PackError(f"texture {rec.index} allocation span is short")
         source_start = rec.data_addr - texel_chunk.offset
         source_end = span_end - texel_chunk.offset
@@ -215,37 +255,29 @@ def pack_chains(
         if len(original_span) != span_size:
             raise PackError(f"texture {rec.index} allocation span exceeds the heap")
 
-        w, h, mips, replacement = planned[rec.index]
+        _w, _h, _mips, replacement = planned[rec.index]
         addr_for[rec.index] = texel_chunk.offset + len(heap)
         if replacement is None:
             heap.extend(original_span)
             continue
-
         heap.extend(replacement)
         if len(replacement) == rec.chain_bytes:
             heap.extend(original_span[rec.chain_bytes:])
             continue
-
         opaque_start = min(rec.stride_bytes, span_size)
         opaque_suffix = original_span[opaque_start:]
         alignment = HEAP_ALIGN if position + 1 < len(ordered) or opaque_suffix else 0x10
-        padded_end = align_up(len(heap), alignment)
-        heap.extend(b"\x00" * (padded_end - len(heap)))
+        # Align this allocation, not the entire heap: prefixes/gaps may be unaligned.
+        padded_size = align_up(len(replacement), alignment)
+        heap.extend(b"\x00" * (padded_size - len(replacement)))
         heap.extend(opaque_suffix)
 
     new_descs: list[bytes] = []
     for rec in recs:
         w, h, mips, _replacement = planned[rec.index]
-        new_descs.append(
-            _write_desc(
-                rec.raw,
-                width=w,
-                height=h,
-                mips=mips,
-                data_addr=addr_for[rec.index],
-            )
-        )
-
+        new_descs.append(_write_desc(
+            rec.raw, width=w, height=h, mips=mips, data_addr=addr_for[rec.index],
+        ))
     packed = rebuild_xpp(data, new_descs, bytes(heap))
     again = parse_xpp(packed, len(packed))
     check = read_records(packed, again)
@@ -260,27 +292,42 @@ def pack_replacements(
     replacements: dict[int, tuple[int, int, bytes]],
     *,
     allow_resize: bool = True,
+    fit_replacements: bool = False,
 ) -> bytes:
-    """Encode and replace mip-0 RGBA images by descriptor index."""
+    """Encode 2D mip-0 RGBA images with strict explicit-input validation.
+
+    Opt into ``fit_replacements`` for bulk images: halve oversized images to
+    4096 and leave cubemaps/unfittable inputs retail instead of rejecting them.
+    """
     pkg = parse_xpp(data, len(data))
-    recs = {rec.index: rec for rec in read_records(data, pkg)}
+    recs = {rec.index: rec for rec in _packing_records(data, pkg)}
     unknown = set(replacements) - set(recs)
     if unknown:
         raise PackError(f"unknown texture indices: {sorted(unknown)}")
-
     encoded: dict[int, tuple[int, int, int, bytes]] = {}
-    for index, (width, height, rgba) in replacements.items():
+    for index, image in replacements.items():
         rec = recs[index]
+        if fit_replacements:
+            if rec.faces != 1:
+                continue
+            fitted = _fit_replacement(*image)
+            if fitted is None:
+                continue
+            width, height, rgba = fitted
+        else:
+            if rec.faces != 1:
+                raise PackError(f"texture {index} is a cubemap; packer only replaces 2D textures")
+            width, height, rgba = image
+            if not _legal_2d(width, height, cap=8192):
+                raise PackError(f"texture {index} has invalid dimensions")
+            if len(rgba) != width * height * 4:
+                raise PackError(f"texture {index} has invalid RGBA buffer length")
         mips = (
             rec.mips
             if (width, height) == (rec.width, rec.height) and not allow_resize
             else _mip_count(width, height)
         )
-        if not allow_resize and (width, height, mips) != (
-            rec.width,
-            rec.height,
-            rec.mips,
-        ):
+        if not allow_resize and (width, height, mips) != (rec.width, rec.height, rec.mips):
             raise PackError(
                 f"texture {index} size changed {rec.width}x{rec.height}m{rec.mips} "
                 f"-> {width}x{height}m{mips}; pass --allow-resize"
